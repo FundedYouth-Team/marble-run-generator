@@ -7,10 +7,13 @@ export type PieceType = 'straight'
 export type Mode = '2d' | '3d'
 export type DraftView = 'elevation' | 'plan'
 export type Theme = 'light' | 'dark'
+/** How the 3D pieces are shaded — see-through mode exposes the bore and the marble. */
+export type Shading = 'solid' | 'transparent'
 
 const THEME_KEY = 'mrg.theme'
 const PIECE_COLOR_KEY = 'mrg.pieceColor'
 const MARBLE_COLOR_KEY = 'mrg.marbleColor'
+const SHADING_KEY = 'mrg.shading'
 
 /** Light is the default; only an explicit past choice flips it. */
 function initialTheme(): Theme {
@@ -41,6 +44,12 @@ const HEX = /^#[0-9a-f]{6}$/i
 function initialColor(key: string, fallback: string): string {
   const saved = typeof localStorage !== 'undefined' ? localStorage.getItem(key) : null
   return saved && HEX.test(saved) ? saved : fallback
+}
+
+/** Solid is the default; only an explicit past choice flips it. */
+function initialShading(): Shading {
+  const saved = typeof localStorage !== 'undefined' ? localStorage.getItem(SHADING_KEY) : null
+  return saved === 'transparent' ? 'transparent' : 'solid'
 }
 
 export interface Piece {
@@ -98,6 +107,7 @@ interface RunState {
   // 3D appearance
   pieceColor: string
   marbleColor: string
+  shading: Shading
 
   // Simulator
   marbleDiameter: number
@@ -116,6 +126,8 @@ interface RunState {
   setVariant: (v: TubeVariant) => void
   setPieceColor: (v: string) => void
   setMarbleColor: (v: string) => void
+  setShading: (v: Shading) => void
+  toggleShading: () => void
   setMarbleDiameter: (v: number) => void
   setTimeScale: (v: number) => void
   setFriction: (v: number) => void
@@ -145,6 +157,7 @@ export const useRun = create<RunState>((set, get) => ({
 
   pieceColor: initialColor(PIECE_COLOR_KEY, DEFAULT_PIECE_COLOR),
   marbleColor: initialColor(MARBLE_COLOR_KEY, DEFAULT_MARBLE_COLOR),
+  shading: initialShading(),
 
   marbleDiameter: 14,
   running: false,
@@ -178,6 +191,16 @@ export const useRun = create<RunState>((set, get) => ({
     remember(MARBLE_COLOR_KEY, marbleColor)
     set({ marbleColor })
   },
+  setShading: (shading) => {
+    remember(SHADING_KEY, shading)
+    set({ shading })
+  },
+  toggleShading: () =>
+    set((s) => {
+      const shading: Shading = s.shading === 'solid' ? 'transparent' : 'solid'
+      remember(SHADING_KEY, shading)
+      return { shading }
+    }),
   setMarbleDiameter: (marbleDiameter) => set({ marbleDiameter }),
   setTimeScale: (timeScale) => set({ timeScale }),
   setFriction: (friction) => set({ friction }),

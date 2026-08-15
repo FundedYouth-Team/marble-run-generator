@@ -8,6 +8,10 @@ import { createMarble, resetMarble, stepMarble } from '../lib/sim'
 import { exportPrintPlate } from '../lib/exporters'
 import { useRun, tubeSpec, type TubeSpec, type Theme } from '../store'
 
+/** See-through opacity for the tube wall; the selected piece stays a touch more solid. */
+const XRAY_OPACITY = 0.3
+const XRAY_OPACITY_SELECTED = 0.55
+
 /** Live telemetry, read by the HUD outside the render loop. */
 const telemetry = { speed: 0, distance: 0, airborne: false }
 
@@ -75,6 +79,7 @@ function PieceMesh({
   quaternion,
   selected,
   tint,
+  xray,
   onClick,
 }: {
   spec: TubeSpec
@@ -83,6 +88,7 @@ function PieceMesh({
   quaternion: THREE.Quaternion
   selected: boolean
   tint: ReturnType<typeof shades>
+  xray: boolean
   onClick: () => void
 }) {
   const geom = useMemo(() => buildPieceGeometry(spec, length), [spec, length])
@@ -93,20 +99,27 @@ function PieceMesh({
       geometry={geom}
       position={position}
       quaternion={quaternion}
-      castShadow
-      receiveShadow
+      // A see-through wall casting a solid shadow reads as a bug, so shadows go with it.
+      castShadow={!xray}
+      receiveShadow={!xray}
       onClick={(e) => {
         e.stopPropagation()
         onClick()
       }}
     >
       <meshStandardMaterial
+        // Rebuilt on mode change — flipping `transparent` in place needs a shader recompile.
+        key={xray ? 'xray' : 'solid'}
         color={selected ? tint.selected : tint.base}
         emissive={selected ? tint.emissive : tint.black}
-        metalness={0.15}
-        roughness={0.45}
+        metalness={xray ? 0 : 0.15}
+        roughness={xray ? 0.25 : 0.45}
         side={THREE.DoubleSide}
         flatShading={false}
+        transparent={xray}
+        // Skipping the depth write keeps overlapping pieces from popping as the camera orbits.
+        depthWrite={!xray}
+        opacity={xray ? (selected ? XRAY_OPACITY_SELECTED : XRAY_OPACITY) : 1}
       />
     </mesh>
   )
@@ -191,7 +204,7 @@ function CameraRig({ asm, token }: { asm: Assembly; token: number }) {
 }
 
 function Hud({ spec, asm }: { spec: TubeSpec; asm: Assembly }) {
-  const { running, toggleRunning, resetSim, exportFormat } = useRun()
+  const { running, toggleRunning, resetSim, exportFormat, shading, toggleShading } = useRun()
   const [t, setT] = useState({ speed: 0, distance: 0, airborne: false })
 
   useEffect(() => {
@@ -205,6 +218,18 @@ function Hud({ spec, asm }: { spec: TubeSpec; asm: Assembly }) {
         {running ? '❚❚ Pause' : '▶ Run marble'}
       </button>
       <button onClick={resetSim}>↺ Reset</button>
+      <button
+        className={shading === 'transparent' ? 'on' : ''}
+        aria-pressed={shading === 'transparent'}
+        title={
+          shading === 'transparent'
+            ? 'Switch back to solid shading'
+            : 'See through the tube walls to watch the marble inside'
+        }
+        onClick={toggleShading}
+      >
+        {shading === 'transparent' ? '◍ Transparent' : '◉ Solid'}
+      </button>
       <button
         disabled={!asm.placed.length}
         title={`Print plate as ${exportFormat.toUpperCase()} — every piece laid flat and separated, ready to slice`}
@@ -231,8 +256,9 @@ function Hud({ spec, asm }: { spec: TubeSpec; asm: Assembly }) {
 }
 
 export default function Scene3D() {
-  const { pieces, innerDiameter, wallThickness, variant, selectedId, select, theme, pieceColor } =
+  const { pieces, innerDiameter, wallThickness, variant, selectedId, select, theme, pieceColor, shading } =
     useRun()
+  const xray = shading === 'transparent'
   const palette = PALETTE[theme]
   const tint = useMemo(() => shades(pieceColor), [pieceColor])
   const spec = useMemo(
@@ -278,7 +304,8 @@ export default function Scene3D() {
         />
         <ContactShadows
           position={[0, groundY + 0.5, 0]}
-          opacity={palette.shadowOpacity}
+          // The blob shadow ignores per-mesh casting, so it is faded by hand in x-ray mode.
+          opacity={xray ? palette.shadowOpacity * 0.4 : palette.shadowOpacity}
           scale={2000}
           blur={2.2}
           far={600}
@@ -293,6 +320,7 @@ export default function Scene3D() {
             quaternion={p.quaternion}
             selected={p.piece.id === selectedId}
             tint={tint}
+            xray={xray}
             onClick={() => select(p.piece.id === selectedId ? null : p.piece.id)}
           />
         ))}

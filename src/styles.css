@@ -963,6 +963,13 @@ button.danger {
   backdrop-filter: blur(6px);
 }
 
+/* Toggle buttons in the HUD keep the segmented control's active look. */
+.hud button.on:not(.primary) {
+  background: linear-gradient(180deg, var(--seg-on-a), var(--seg-on-b));
+  border-color: var(--primary-on-border);
+  color: var(--primary-ink);
+}
+
 .telemetry {
   display: flex;
   gap: 6px;
