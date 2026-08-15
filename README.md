@@ -3,6 +3,12 @@
 A parametric, CAD-style web app for designing snap-together marble-run tubing.
 Vite + React + TypeScript + three.js, managed with pnpm.
 
+![2D Draft Mode (light)](public/readme/2d-mode-light.png)
+_2D Draft Mode — Section A–A and the assembly draft._
+
+![3D Mode (dark)](public/readme/3d-mode-dark.png)
+_3D Mode — generated solids in the orbit viewport with the marble simulator._
+
 ```bash
 pnpm install
 pnpm dev        # http://localhost:5173
@@ -13,7 +19,7 @@ pnpm build      # typecheck + production bundle
 
 **2D Draft Mode** — a drafting grid with two views:
 
-- *Section A–A* — the tube front face, dimensioned. You set the **inner
+- _Section A–A_ — the tube front face, dimensioned. You set the **inner
   diameter** (the bore the marble rolls in) and the **wall thickness**; outer
   diameter is derived. The **tube variation** picks how much of the
   circumference is solid wall:
@@ -23,7 +29,7 @@ pnpm build      # typecheck + production bundle
   | 3/4 Open | 252° (70%) | slot on top to see into the tube |
   | Closed | 360° | fully enclosed |
   A dashed ghost circle shows the marble's fit in the bore.
-- *Assembly draft* — the chained pieces to scale, in **Elevation** (developed
+- _Assembly draft_ — the chained pieces to scale, in **Elevation** (developed
   side view) or **Plan** (top-down). Scroll to zoom, drag to pan, `Fit` to
   reframe. Click a piece to select it. A scale bar tracks the current zoom.
 
@@ -35,8 +41,8 @@ marble simulator.
 Only **Straight Line** is implemented, as specified. Each piece takes:
 
 - **Length** — mm along the tube axis.
-- **Slope** — downhill pitch in degrees. *(Added beyond the brief: without a
-  slope the marble has no gravity component to roll on.)*
+- **Slope** — downhill pitch in degrees. _(Added beyond the brief: without a
+  slope the marble has no gravity component to roll on.)_
 - **Turn** — heading change applied at the joint, so runs can change direction
   in plan.
 
@@ -57,7 +63,7 @@ Every piece is generated with a joint at both ends, so pieces clip together:
   the tip — engages the socket groove. Barb height scales with wall thickness.
 
 Joint depth is `clamp(length × 0.35, 3, 8)` mm. Pieces are chained so that
-piece *N*'s spigot occupies piece *N+1*'s socket; nominal run length is the sum
+piece _N_'s spigot occupies piece _N+1_'s socket; nominal run length is the sum
 of the piece lengths.
 
 ## Export — STL, 3MF, OBJ
@@ -66,17 +72,17 @@ Step 4 in the sidebar, plus a shortcut in the 3D HUD that follows the chosen
 format. Everything is written at 1 unit = 1 mm, rotated to Z-up and seated on
 the build plate at z = 0.
 
-| Target | What you get |
-|---|---|
-| **Print plate** | every piece laid flat and separated, axis along X, opening upward — no supports needed for Half and 3/4 |
-| **Assembly** | the run exactly as designed, for checking fit |
-| **Selected piece** | one piece, laid flat at the origin |
+| Target             | What you get                                                                                            |
+| ------------------ | ------------------------------------------------------------------------------------------------------- |
+| **Print plate**    | every piece laid flat and separated, axis along X, opening upward — no supports needed for Half and 3/4 |
+| **Assembly**       | the run exactly as designed, for checking fit                                                           |
+| **Selected piece** | one piece, laid flat at the origin                                                                      |
 
-| Format | Notes |
-|---|---|
+| Format  | Notes                                                                                                                                                                    |
+| ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | **3MF** | default. Declares `unit="millimeter"` in the file, so nothing has to guess the scale, and stores repeated pieces once as instanced objects. Roughly 8× smaller than STL. |
-| **STL** | binary. Universally supported but unitless. |
-| **OBJ** | text, with normals. Convenient for mesh editors; unitless and by far the largest. |
+| **STL** | binary. Universally supported but unitless.                                                                                                                              |
+| **OBJ** | text, with normals. Convenient for mesh editors; unitless and by far the largest.                                                                                        |
 
 Filenames carry the profile, e.g.
 `marble-run-plate-4pc-id18-w3-threequarter.3mf`. The panel reports part count,
@@ -96,7 +102,7 @@ writes 3 objects / 4 build items; world-space bounding boxes identical across
 all three formats; and the 3MF reads back through three's own `3MFLoader` with
 matching mesh and triangle counts.
 
-The assembly export is closed but is *several overlapping shells* — each
+The assembly export is closed but is _several overlapping shells_ — each
 piece's spigot sits inside the next piece's socket, so coincident faces appear
 at the joints. Slicers union them, but print from the plate.
 
@@ -117,18 +123,18 @@ airborne.
 
 ## Layout
 
-| Path | Purpose |
-|---|---|
-| `src/store.ts` | app state (zustand), tube + joint specs |
-| `src/lib/geometry.ts` | axial station profile → solid `BufferGeometry`; 2D section path |
-| `src/lib/exporters.ts` | STL / 3MF / OBJ output, plate layout, Z-up seating |
-| `src/lib/threemf.ts` | 3MF package writer (vertex welding + instancing) |
-| `src/lib/layout.ts` | chains pieces head-to-tail, builds per-piece frames |
-| `src/lib/sim.ts` | marble physics |
-| `src/components/Draft2D.tsx` | 2D draft mode |
-| `src/components/Scene3D.tsx` | 3D viewport + simulator |
+| Path                         | Purpose                                                         |
+| ---------------------------- | --------------------------------------------------------------- |
+| `src/store.ts`               | app state (zustand), tube + joint specs                         |
+| `src/lib/geometry.ts`        | axial station profile → solid `BufferGeometry`; 2D section path |
+| `src/lib/exporters.ts`       | STL / 3MF / OBJ output, plate layout, Z-up seating              |
+| `src/lib/threemf.ts`         | 3MF package writer (vertex welding + instancing)                |
+| `src/lib/layout.ts`          | chains pieces head-to-tail, builds per-piece frames             |
+| `src/lib/sim.ts`             | marble physics                                                  |
+| `src/components/Draft2D.tsx` | 2D draft mode                                                   |
+| `src/components/Scene3D.tsx` | 3D viewport + simulator                                         |
 
-The solid is built from a list of *stations* — cross-sections at an axial
+The solid is built from a list of _stations_ — cross-sections at an axial
 position with an inner and outer radius. Two stations sharing a `z` produce a
 flat annular step, which is how the socket shoulder, spigot shoulder and barb
 are formed. Adding a new joint feature means adding stations, not new meshing
