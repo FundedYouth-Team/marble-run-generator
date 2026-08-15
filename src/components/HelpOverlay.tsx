@@ -19,18 +19,32 @@ const HELP: Record<Mode, Group[]> = {
     {
       title: 'Camera',
       rows: [
-        { keys: ['Left-drag'], action: 'Orbit around the run' },
+        { keys: ['Right-drag'], action: 'Rotate around the run' },
         { keys: ['Scroll'], action: 'Zoom in and out', note: 'pinch on a trackpad' },
-        { keys: ['Right-drag'], action: 'Pan the view', note: 'middle-drag works too' },
-        { keys: ['⤢ Fit view'], action: 'Re-frame the whole run' },
-        { keys: ['Gizmo axis'], action: 'Snap to a straight-on view', note: 'the coloured axes, bottom-right' },
+        {
+          keys: ['Middle-drag'],
+          action: 'Pan the view',
+          note: 'press the scroll wheel in and drag; shift + right-drag does it too',
+        },
+        {
+          keys: ['View cube'],
+          action: 'Click a face, edge or corner to swing round to it',
+          note: 'top-right; left-drag the cube itself to spin the view',
+        },
+        { keys: ['Home button'], action: 'Reset to the home angle, whole run in frame', note: 'under the cube' },
+        { keys: ['Fit button'], action: 'Re-frame the whole run from the current angle' },
       ],
     },
     {
-      title: 'Pieces',
+      title: 'Parts',
       rows: [
-        { keys: ['Click a piece'], action: 'Select it and open its settings in the sidebar' },
-        { keys: ['Click empty space'], action: 'Deselect' },
+        { keys: ['Left-click a part'], action: 'Select it and open its settings in the sidebar' },
+        { keys: ['Left-click empty space'], action: 'Deselect' },
+        {
+          keys: ['Parts list button'],
+          action: 'Slide out every part — rename or delete any of them',
+          note: 'the stack icon, top-right',
+        },
       ],
     },
     {

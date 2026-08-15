@@ -8,6 +8,8 @@ interface Props {
   unit?: string
   slider?: boolean
   hint?: string
+  /** Plain-English captions for the two ends of the slider, e.g. ['Slow', 'Fast']. */
+  ends?: [string, string]
 }
 
 export default function NumberField({
@@ -20,6 +22,7 @@ export default function NumberField({
   unit = 'mm',
   slider = true,
   hint,
+  ends,
 }: Props) {
   const clamp = (v: number) => Math.min(max, Math.max(min, v))
 
@@ -31,14 +34,22 @@ export default function NumberField({
       </span>
       <span className="field-row">
         {slider && (
-          <input
-            type="range"
-            min={min}
-            max={max}
-            step={step}
-            value={value}
-            onChange={(e) => onChange(clamp(Number(e.target.value)))}
-          />
+          <span className="slider-wrap">
+            <input
+              type="range"
+              min={min}
+              max={max}
+              step={step}
+              value={value}
+              onChange={(e) => onChange(clamp(Number(e.target.value)))}
+            />
+            {ends && (
+              <span className="field-ends">
+                <span>{ends[0]}</span>
+                <span>{ends[1]}</span>
+              </span>
+            )}
+          </span>
         )}
         <span className="numbox">
           <input
@@ -52,7 +63,7 @@ export default function NumberField({
               if (!Number.isNaN(n)) onChange(clamp(n))
             }}
           />
-          <i>{unit}</i>
+          {unit && <i>{unit}</i>}
         </span>
       </span>
     </label>

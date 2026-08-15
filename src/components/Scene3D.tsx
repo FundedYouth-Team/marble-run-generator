@@ -1,7 +1,10 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
-import { ContactShadows, GizmoHelper, GizmoViewport, Grid, OrbitControls } from '@react-three/drei'
+import { ContactShadows, GizmoHelper, Grid, OrbitControls } from '@react-three/drei'
 import * as THREE from 'three'
+import ViewCube, { type CubePalette } from './ViewCube'
+import MouseLegend from './MouseLegend'
+import PartsList from './PartsList'
 import { buildPieceGeometry } from '../lib/geometry'
 import { buildAssembly, type Assembly } from '../lib/layout'
 import { createMarble, resetMarble, stepMarble } from '../lib/sim'
@@ -26,7 +29,7 @@ interface ScenePalette {
   cellColor: string
   sectionColor: string
   shadowOpacity: number
-  gizmoLabel: string
+  cube: CubePalette
 }
 
 /**
@@ -56,7 +59,7 @@ const PALETTE: Record<Theme, ScenePalette> = {
     cellColor: '#c6d3e0',
     sectionColor: '#93b0c9',
     shadowOpacity: 0.28,
-    gizmoLabel: '#f4f8fb',
+    cube: { face: '#f7fafc', text: '#2c3d4f', line: '#aebfd0', hover: '#7fb2f5' },
   },
   dark: {
     background: '#0d141d',
@@ -68,7 +71,7 @@ const PALETTE: Record<Theme, ScenePalette> = {
     cellColor: '#22364b',
     sectionColor: '#3b6a94',
     shadowOpacity: 0.45,
-    gizmoLabel: '#0d141d',
+    cube: { face: '#1b2836', text: '#cfe0f0', line: '#3d5f80', hover: '#4d8fd6' },
   },
 }
 
@@ -172,33 +175,161 @@ function Marble({ asm, spec }: { asm: Assembly; spec: TubeSpec }) {
   )
 }
 
-function CameraRig({ asm, token }: { asm: Assembly; token: number }) {
-  const { camera } = useThree()
-  const controls = useThree((s) => s.controls) as { target: THREE.Vector3; update: () => void } | null
+/** The angle the home button returns to. */
+const HOME_DIR = new THREE.Vector3(0.62, 0.5, 0.6).normalize()
 
-  useEffect(() => {
-    const box = asm.bounds.clone()
-    if (box.isEmpty()) return
-    const cam = camera as THREE.PerspectiveCamera
-    const center = box.getCenter(new THREE.Vector3())
-    const radius = Math.max(box.getSize(new THREE.Vector3()).length() / 2, 60)
+/** One camera move, asked for by a button or by a click on the view cube. */
+interface ViewGoal {
+  /** Bumped per request, so repeating the same move still fires. */
+  token: number
+  /** Where the camera should end up looking from; null keeps the current angle. */
+  dir: THREE.Vector3 | null
+  /** Re-frame the whole run, rather than keeping the current distance. */
+  frame: boolean
+}
 
-    // Frame the bounding sphere on whichever of the two FOVs is tighter.
-    const vFov = THREE.MathUtils.degToRad(cam.fov)
-    const hFov = 2 * Math.atan(Math.tan(vFov / 2) * cam.aspect)
-    const dist = (radius / Math.sin(Math.min(vFov, hFov) / 2)) * 1.12
+interface OrbitLike {
+  target: THREE.Vector3
+  update: () => void
+  addEventListener: (type: string, fn: () => void) => void
+  removeEventListener: (type: string, fn: () => void) => void
+}
 
-    const eye = new THREE.Vector3(0.62, 0.5, 0.6).normalize().multiplyScalar(dist)
-    cam.position.copy(center).add(eye)
-    cam.near = Math.max(dist / 800, 0.5)
-    cam.far = dist * 12
-    cam.updateProjectionMatrix()
-    cam.lookAt(center)
+interface Move {
+  fromDir: THREE.Vector3
+  turn: THREE.Quaternion
+  fromRadius: number
+  toRadius: number
+  fromTarget: THREE.Vector3
+  toTarget: THREE.Vector3
+  t: number
+}
+
+const MOVE_SECONDS = 0.45
+/** Roughly 0.6° of orbit per pixel dragged on the cube. */
+const CUBE_ORBIT_RATE = 0.0105
+/** Never let the camera reach the poles, where the orbit azimuth goes undefined. */
+const POLE_GUARD = 0.02
+
+type OrbitFn = (dx: number, dy: number) => void
+const easeInOut = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2)
+
+/** Scratch objects, so the per-frame path allocates nothing. */
+const scratch = {
+  q: new THREE.Quaternion(),
+  dir: new THREE.Vector3(),
+  target: new THREE.Vector3(),
+}
+
+function CameraRig({
+  asm,
+  goal,
+  orbitRef,
+}: {
+  asm: Assembly
+  goal: ViewGoal
+  /** Filled in with an orbit function the view cube can drive. */
+  orbitRef: React.RefObject<OrbitFn | null>
+}) {
+  const camera = useThree((s) => s.camera) as THREE.PerspectiveCamera
+  const controls = useThree((s) => s.controls) as OrbitLike | null
+  const move = useRef<Move | null>(null)
+  // The very first framing is a jump, not a swing — there is nothing to swing from.
+  const settled = useRef(false)
+  // Read inside the effect without re-framing every time a piece is nudged.
+  const asmRef = useRef(asm)
+  asmRef.current = asm
+
+  const place = (m: Move, e: number) => {
+    scratch.q.identity().slerp(m.turn, e)
+    scratch.dir.copy(m.fromDir).applyQuaternion(scratch.q)
+    scratch.target.copy(m.fromTarget).lerp(m.toTarget, e)
+    camera.position.copy(scratch.target).addScaledVector(scratch.dir, THREE.MathUtils.lerp(m.fromRadius, m.toRadius, e))
+    camera.up.set(0, 1, 0)
+    camera.lookAt(scratch.target)
     if (controls) {
-      controls.target.copy(center)
+      controls.target.copy(scratch.target)
       controls.update()
     }
-  }, [token, controls, camera, asm])
+  }
+
+  useEffect(() => {
+    orbitRef.current = (dx, dy) => {
+      // A drag on the cube beats an animation in flight.
+      move.current = null
+      const target = controls ? controls.target : scratch.target.set(0, 0, 0)
+      const sph = new THREE.Spherical().setFromVector3(camera.position.clone().sub(target))
+      sph.theta -= dx * CUBE_ORBIT_RATE
+      sph.phi = THREE.MathUtils.clamp(sph.phi - dy * CUBE_ORBIT_RATE, POLE_GUARD, Math.PI - POLE_GUARD)
+      camera.position.copy(target).add(new THREE.Vector3().setFromSpherical(sph))
+      camera.up.set(0, 1, 0)
+      camera.lookAt(target)
+      controls?.update()
+    }
+    return () => {
+      orbitRef.current = null
+    }
+  }, [camera, controls, orbitRef])
+
+  // A drag beats an animation in flight — the user has taken the wheel.
+  useEffect(() => {
+    if (!controls) return
+    const stop = () => (move.current = null)
+    controls.addEventListener('start', stop)
+    return () => controls.removeEventListener('start', stop)
+  }, [controls])
+
+  useEffect(() => {
+    const box = asmRef.current.bounds
+    const fromTarget = controls ? controls.target.clone() : new THREE.Vector3()
+    const offset = camera.position.clone().sub(fromTarget)
+    const fromRadius = Math.max(offset.length(), 1e-3)
+    const fromDir = offset.divideScalar(fromRadius)
+
+    const toTarget = goal.frame && !box.isEmpty() ? box.getCenter(new THREE.Vector3()) : fromTarget.clone()
+    const toDir = goal.dir ? goal.dir.clone().normalize() : fromDir.clone()
+    // Straight down or straight up leaves the orbit azimuth undefined, so tip it a hair.
+    if (Math.abs(toDir.y) > 0.9999) toDir.setZ(toDir.z + 0.0015).normalize()
+
+    let toRadius = fromRadius
+    if (goal.frame) {
+      const radius = Math.max(box.isEmpty() ? 0 : box.getSize(new THREE.Vector3()).length() / 2, 60)
+      // Frame the bounding sphere on whichever of the two FOVs is tighter.
+      const vFov = THREE.MathUtils.degToRad(camera.fov)
+      const hFov = 2 * Math.atan(Math.tan(vFov / 2) * camera.aspect)
+      toRadius = (radius / Math.sin(Math.min(vFov, hFov) / 2)) * 1.12
+      camera.near = Math.max(toRadius / 800, 0.5)
+      camera.far = toRadius * 12
+      camera.updateProjectionMatrix()
+    }
+
+    const m: Move = {
+      fromDir,
+      turn: new THREE.Quaternion().setFromUnitVectors(fromDir, toDir),
+      fromRadius,
+      toRadius,
+      fromTarget,
+      toTarget,
+      t: 0,
+    }
+    if (settled.current) {
+      move.current = m
+    } else {
+      settled.current = true
+      move.current = null
+      place(m, 1)
+    }
+    // Only a fresh request moves the camera; editing a piece must not yank the view.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [goal, controls, camera])
+
+  useFrame((_, delta) => {
+    const m = move.current
+    if (!m) return
+    m.t = Math.min(m.t + delta / MOVE_SECONDS, 1)
+    place(m, easeInOut(m.t))
+    if (m.t >= 1) move.current = null
+  })
 
   return null
 }
@@ -255,9 +386,44 @@ function Hud({ spec, asm }: { spec: TubeSpec; asm: Assembly }) {
   )
 }
 
+function HomeIcon() {
+  return (
+    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3.4 10.9 12 3.6l8.6 7.3" />
+      <path d="M5.6 9.8V20h12.8V9.8" />
+      <path d="M9.6 20v-5.6h4.8V20" />
+    </svg>
+  )
+}
+
+/** Corner brackets closing in on the run — "frame what is there". */
+function FitIcon() {
+  return (
+    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3.6 8.4V3.6h4.8M15.6 3.6h4.8v4.8M20.4 15.6v4.8h-4.8M8.4 20.4H3.6v-4.8" />
+      <path d="M12 8.8 15.2 12 12 15.2 8.8 12z" />
+    </svg>
+  )
+}
+
+/** Stacked sheets — the parts list. */
+function PartsIcon() {
+  return (
+    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+      <path d="m12 2.8 8.6 4.6L12 12 3.4 7.4z" />
+      <path d="m3.4 12 8.6 4.6L20.6 12" />
+      <path d="m3.4 16.6 8.6 4.6 8.6-4.6" />
+    </svg>
+  )
+}
+
+/** Width of the slide-out parts list; the corner controls step aside by this much. */
+const PARTS_WIDTH = 264
+
 export default function Scene3D() {
   const { pieces, innerDiameter, wallThickness, variant, selectedId, select, theme, pieceColor, shading } =
     useRun()
+  const [partsOpen, setPartsOpen] = useState(false)
   const xray = shading === 'transparent'
   const palette = PALETTE[theme]
   const tint = useMemo(() => shades(pieceColor), [pieceColor])
@@ -266,16 +432,43 @@ export default function Scene3D() {
     [innerDiameter, wallThickness, variant],
   )
   const asm = useMemo(() => buildAssembly(pieces), [pieces])
-  const [fitToken, setFitToken] = useState(0)
+  const [goal, setGoal] = useState<ViewGoal>({ token: 0, dir: HOME_DIR, frame: true })
 
-  // Re-frame the camera when the run's overall shape changes.
-  useEffect(() => setFitToken((n) => n + 1), [pieces.length])
+  const home = () => setGoal((g) => ({ token: g.token + 1, dir: HOME_DIR, frame: true }))
+  const fit = () => setGoal((g) => ({ token: g.token + 1, dir: null, frame: true }))
+  const snapTo = (dir: THREE.Vector3) => setGoal((g) => ({ token: g.token + 1, dir, frame: false }))
+
+  // Owned by CameraRig, which is the only thing inside the canvas that can move the camera.
+  const orbitRef = useRef<OrbitFn | null>(null)
+  const orbit = useCallback((dx: number, dy: number) => orbitRef.current?.(dx, dy), [])
+
+  // Re-frame the camera when the run gains or loses a piece; the first framing is the
+  // initial goal above, so mounting does not queue a second one.
+  const mounted = useRef(false)
+  useEffect(() => {
+    if (!mounted.current) {
+      mounted.current = true
+      return
+    }
+    setGoal((g) => ({ token: g.token + 1, dir: null, frame: true }))
+  }, [pieces.length])
 
   const groundY = (asm.bounds.isEmpty() ? 0 : asm.bounds.min.y) - spec.outerR - 20
+  const stage = useRef<HTMLDivElement>(null)
 
   return (
-    <div className="stage-3d">
-      <Canvas shadows dpr={[1, 2]} camera={{ fov: 45, position: [200, 160, 260] }} onPointerMissed={() => select(null)}>
+    <div
+      className="stage-3d"
+      ref={stage}
+      style={{ '--parts-w': `${PARTS_WIDTH}px` } as React.CSSProperties}
+    >
+      <Canvas
+        shadows
+        dpr={[1, 2]}
+        camera={{ fov: 45, position: [200, 160, 260] }}
+        // Only the left button selects, so only the left button clears the selection.
+        onPointerMissed={(e) => e.button === 0 && select(null)}
+      >
         <color attach="background" args={[palette.background]} />
         <fog attach="fog" args={[palette.background, 1200, 4200]} />
 
@@ -327,18 +520,58 @@ export default function Scene3D() {
 
         {asm.placed.length > 0 && <Marble asm={asm} spec={spec} />}
 
-        <OrbitControls makeDefault enableDamping dampingFactor={0.08} maxDistance={6000} />
-        <CameraRig asm={asm} token={fitToken} />
-        <GizmoHelper alignment="bottom-right" margin={[72, 72]}>
-          <GizmoViewport axisColors={['#ff6b6b', '#8ce99a', '#4dabf7']} labelColor={palette.gizmoLabel} />
+        <OrbitControls
+          makeDefault
+          enableDamping
+          dampingFactor={0.08}
+          maxDistance={6000}
+          // Left is for picking parts only; the camera lives on the other two buttons.
+          // Shift or ctrl with a right-drag pans too, for anyone without a middle button.
+          // No action on LEFT leaves the button free for picking.
+          mouseButtons={{ LEFT: undefined, MIDDLE: THREE.MOUSE.PAN, RIGHT: THREE.MOUSE.ROTATE }}
+        />
+        <CameraRig asm={asm} goal={goal} orbitRef={orbitRef} />
+        {/* Margin is the cube's centre; .view-tools is positioned to hang below it.
+            The open parts list pushes the whole corner cluster clear of it. */}
+        <GizmoHelper alignment="top-right" margin={[64, partsOpen ? 64 + PARTS_WIDTH : 64]}>
+          <ViewCube palette={palette.cube} onPick={snapTo} onOrbit={orbit} />
         </GizmoHelper>
       </Canvas>
 
       <Hud spec={spec} asm={asm} />
-      <button className="fit-btn" onClick={() => setFitToken((n) => n + 1)}>
-        ⤢ Fit view
-      </button>
-      <div className="viewcube-hint">drag = orbit · scroll = zoom · right-drag = pan</div>
+      <div className={partsOpen ? 'view-tools shifted' : 'view-tools'}>
+        <button
+          className="view-tool"
+          onClick={home}
+          title="Reset view — back to the home angle with the whole run in frame"
+          aria-label="Reset view"
+        >
+          <HomeIcon />
+        </button>
+        <button
+          className="view-tool"
+          onClick={fit}
+          title="Fit view — frame the whole run from the angle you are looking from"
+          aria-label="Fit view"
+        >
+          <FitIcon />
+        </button>
+        <button
+          className={partsOpen ? 'view-tool on' : 'view-tool'}
+          onClick={() => setPartsOpen((v) => !v)}
+          title="Parts list — every part in the run, with its name and size"
+          aria-label="Parts list"
+          aria-pressed={partsOpen}
+        >
+          <PartsIcon />
+        </button>
+      </div>
+      <div className="viewcube-hint">
+        left-click = select · right-drag = rotate · middle-drag = pan · scroll = zoom · click a cube
+        face to snap
+      </div>
+      <MouseLegend stage={stage} shifted={partsOpen} />
+      <PartsList open={partsOpen} onClose={() => setPartsOpen(false)} />
     </div>
   )
 }

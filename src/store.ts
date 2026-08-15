@@ -55,6 +55,8 @@ function initialShading(): Shading {
 export interface Piece {
   id: string
   type: PieceType
+  /** Optional label from the parts list; blank falls back to the part name. */
+  name?: string
   /** Nominal run length along the tube axis, mm (excludes the snap spigot). */
   length: number
   /** Downhill pitch of this piece, degrees. Positive = falling. */
@@ -81,6 +83,21 @@ export const VARIANT_COVERAGE: Record<TubeVariant, number> = {
   half: 0.5,
   threequarter: 0.7,
   closed: 1,
+}
+
+/** A standard glass marble — the 5/8" size sold by the bag. */
+export const STANDARD_MARBLE = 16
+/** Diametral slack around the marble, so it rolls freely instead of binding. */
+export const MARBLE_CLEARANCE = 4
+/** Bore that a standard marble rolls through comfortably. */
+export const STANDARD_BORE = STANDARD_MARBLE + MARBLE_CLEARANCE
+
+/** What each part type is called wherever a piece is listed. */
+export const PART_LABEL: Record<PieceType, string> = { straight: 'Tube' }
+
+/** The user's own label if they gave one, otherwise "Tube 2" and friends. */
+export function pieceLabel(piece: Piece, index: number): string {
+  return piece.name?.trim() || `${PART_LABEL[piece.type]} ${index + 1}`
 }
 
 let seq = 0
@@ -129,6 +146,7 @@ interface RunState {
   setShading: (v: Shading) => void
   toggleShading: () => void
   setMarbleDiameter: (v: number) => void
+  resetMarbleFit: () => void
   setTimeScale: (v: number) => void
   setFriction: (v: number) => void
   toggleRunning: () => void
@@ -137,6 +155,7 @@ interface RunState {
   setExportFormat: (v: ExportFormat) => void
 
   addPiece: () => void
+  renamePiece: (id: string, name: string) => void
   updatePiece: (id: string, patch: Partial<Piece>) => void
   removePiece: (id: string) => void
   movePiece: (id: string, dir: -1 | 1) => void
@@ -144,11 +163,13 @@ interface RunState {
 }
 
 export const useRun = create<RunState>((set, get) => ({
-  mode: '2d',
+  // 3D is where a run is built; the 2D draft is for working a single part.
+  mode: '3d',
   draftView: 'elevation',
   theme: initialTheme(),
 
-  innerDiameter: 18,
+  // Sized for a standard glass marble out of the box.
+  innerDiameter: STANDARD_BORE,
   wallThickness: 3,
   variant: 'threequarter',
 
@@ -159,7 +180,7 @@ export const useRun = create<RunState>((set, get) => ({
   marbleColor: initialColor(MARBLE_COLOR_KEY, DEFAULT_MARBLE_COLOR),
   shading: initialShading(),
 
-  marbleDiameter: 14,
+  marbleDiameter: STANDARD_MARBLE,
   running: false,
   loop: true,
   timeScale: 1,
@@ -202,6 +223,8 @@ export const useRun = create<RunState>((set, get) => ({
       return { shading }
     }),
   setMarbleDiameter: (marbleDiameter) => set({ marbleDiameter }),
+  // Bore and marble move together, so the fit is right whatever they were scaled to.
+  resetMarbleFit: () => set({ marbleDiameter: STANDARD_MARBLE, innerDiameter: STANDARD_BORE }),
   setTimeScale: (timeScale) => set({ timeScale }),
   setFriction: (friction) => set({ friction }),
   toggleRunning: () => set((s) => ({ running: !s.running })),
@@ -214,6 +237,11 @@ export const useRun = create<RunState>((set, get) => ({
     const piece = makePiece(prev ? { length: prev.length, slope: prev.slope } : {})
     set((s) => ({ pieces: [...s.pieces, piece], selectedId: piece.id }))
   },
+  // A blank name is stored as none at all, so the part falls back to its default label.
+  renamePiece: (id, name) =>
+    set((s) => ({
+      pieces: s.pieces.map((p) => (p.id === id ? { ...p, name: name.trim() ? name : undefined } : p)),
+    })),
   updatePiece: (id, patch) =>
     set((s) => ({ pieces: s.pieces.map((p) => (p.id === id ? { ...p, ...patch } : p)) })),
   removePiece: (id) =>

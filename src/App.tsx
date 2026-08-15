@@ -22,11 +22,15 @@ export default function App() {
         </div>
 
         <div className="segmented mode">
-          <button className={mode === '2d' ? 'on' : ''} onClick={() => setMode('2d')}>
-            2D Draft Mode
-          </button>
           <button className={mode === '3d' ? 'on' : ''} onClick={() => setMode('3d')}>
             3D Mode
+          </button>
+          <button
+            className={mode === '2d' ? 'on' : ''}
+            onClick={() => setMode('2d')}
+            title="Draft one part at a time — slope, turn and length"
+          >
+            2D Draft Mode
           </button>
         </div>
 

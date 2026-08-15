@@ -37,9 +37,7 @@ export default function ExportPanel() {
 
   return (
     <section className="panel">
-      <h2>
-        <span className="step">4</span> Export
-      </h2>
+      <h2>Export</h2>
 
       <span className="field-label">Format</span>
       <div className="segmented">
