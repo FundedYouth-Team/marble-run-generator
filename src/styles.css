@@ -88,6 +88,9 @@
   --scalebar-fill: #5c748c;
   --empty-ink: #a3b4c4;
   --ghost-fill: rgba(221, 96, 20, 0.12);
+  --flow-line: #2a9e35;
+  --flow-in: #1f8a2e;
+  --flow-out: #c85a10;
 
   --font: 'IBM Plex Sans', 'Segoe UI', system-ui, -apple-system, sans-serif;
   --mono: 'IBM Plex Mono', 'SF Mono', ui-monospace, Menlo, monospace;
@@ -175,6 +178,9 @@
   --scalebar-fill: #8fadc8;
   --empty-ink: #435a72;
   --ghost-fill: rgba(255, 122, 69, 0.12);
+  --flow-line: #3fd464;
+  --flow-in: #5fe083;
+  --flow-out: #ff9d5c;
 }
 
 * {
@@ -1452,6 +1458,41 @@ button.danger {
   stroke: none;
   font-family: var(--mono);
   font-size: 10px;
+}
+
+/* Marble travel direction — annotation only, never a hit target. */
+.draft-canvas .flow-layer {
+  pointer-events: none;
+}
+
+.draft-canvas .flow polyline {
+  fill: none;
+  stroke: var(--flow-line);
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.draft-canvas .flow-cap line {
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+}
+
+.draft-canvas .flow-cap text {
+  fill: currentColor;
+  stroke: none;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+}
+
+.draft-canvas .flow-cap.in {
+  color: var(--flow-in);
+}
+
+.draft-canvas .flow-cap.out {
+  color: var(--flow-out);
 }
 
 .draft-canvas .empty {

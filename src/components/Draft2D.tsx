@@ -37,6 +37,19 @@ function Defs({
       >
         <path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor" />
       </marker>
+      {/* Dimension terminator: a pipe square across the line, not an arrowhead.
+          Square markerWidth/Height keeps the 10×10 viewBox from letterboxing. */}
+      <marker
+        id={`${id}-tick`}
+        viewBox="0 0 10 10"
+        refX="5"
+        refY="5"
+        markerWidth="9"
+        markerHeight="9"
+        orient="auto"
+      >
+        <line x1="5" y1="0.6" x2="5" y2="9.4" stroke="currentColor" strokeWidth="1.8" />
+      </marker>
       <pattern
         id={`${id}-hatch`}
         width={hatch}
@@ -83,9 +96,104 @@ function Dim({
   if (angle > 90 || angle < -90) angle += 180
   return (
     <g className="dim">
-      <line x1={x1} y1={y1} x2={x2} y2={y2} markerStart={`url(#${markerId}-arrow)`} markerEnd={`url(#${markerId}-arrow)`} />
+      <line x1={x1} y1={y1} x2={x2} y2={y2} markerStart={`url(#${markerId}-tick)`} markerEnd={`url(#${markerId}-tick)`} />
       <text x={mx} y={my} transform={`rotate(${angle} ${mx} ${my}) translate(0 ${-off})`}>
         {label}
+      </text>
+    </g>
+  )
+}
+
+/**
+ * Chevrons marching down a segment axis, pointing the way the marble rolls.
+ * Drawn in screen space, so the spacing stays readable at any zoom.
+ */
+function FlowArrows({
+  x1,
+  y1,
+  x2,
+  y2,
+}: {
+  x1: number
+  y1: number
+  x2: number
+  y2: number
+}) {
+  const dx = x2 - x1
+  const dy = y2 - y1
+  const len = Math.hypot(dx, dy)
+  // Below a chevron's own footprint there is nothing useful to draw.
+  if (len < 24) return null
+  const ux = dx / len
+  const uy = dy / len
+  const nx = -uy
+  const ny = ux
+  const count = clamp(Math.round(len / 56), 1, 10)
+  const step = len / (count + 1)
+  const a = 5.5 // half-length along the axis
+  const w = 4.5 // half-width across it
+
+  return (
+    <g className="flow">
+      {Array.from({ length: count }, (_, i) => {
+        const t = step * (i + 1)
+        const cx = x1 + ux * t
+        const cy = y1 + uy * t
+        const tx = cx + ux * a
+        const ty = cy + uy * a
+        const bx = cx - ux * a
+        const by = cy - uy * a
+        return (
+          <polyline
+            key={i}
+            points={`${bx + nx * w},${by + ny * w} ${tx},${ty} ${bx - nx * w},${by - ny * w}`}
+          />
+        )
+      })}
+    </g>
+  )
+}
+
+/**
+ * The arrow that feeds into the first joint, or off the end of the last one.
+ * `ux`/`uy` are the downstream direction in screen space.
+ */
+function FlowCap({
+  x,
+  y,
+  ux,
+  uy,
+  kind,
+  markerId,
+}: {
+  x: number
+  y: number
+  ux: number
+  uy: number
+  kind: 'in' | 'out'
+  markerId: string
+}) {
+  const gap = 9
+  const len = 32
+  // The inlet arrow arrives from upstream; the outlet one carries on downstream.
+  const sign = kind === 'in' ? -1 : 1
+  const near = kind === 'in' ? gap + len : gap
+  const far = kind === 'in' ? gap : gap + len
+  const x1 = x + ux * sign * near
+  const y1 = y + uy * sign * near
+  const x2 = x + ux * sign * far
+  const y2 = y + uy * sign * far
+  // Park the caption past the tail so the arrow itself stays clear.
+  const lx = x + ux * sign * (kind === 'in' ? near + 8 : far + 8)
+  const ly = y + uy * sign * (kind === 'in' ? near + 8 : far + 8)
+  const away = lx - x
+  const anchor = away > 4 ? 'start' : away < -4 ? 'end' : 'middle'
+
+  return (
+    <g className={`flow-cap ${kind}`}>
+      <line x1={x1} y1={y1} x2={x2} y2={y2} markerEnd={`url(#${markerId}-arrow)`} />
+      <text x={lx} y={ly} textAnchor={anchor} dominantBaseline="middle">
+        {kind === 'in' ? 'START' : 'END'}
       </text>
     </g>
   )
@@ -608,6 +716,54 @@ function AssemblyDraft({ shifted }: { shifted: boolean }) {
               </g>
             )
           })}
+
+          {/* Travel direction: chevrons down every axis, plus START/END caps.
+              Drawn over the walls but under the handles, and deaf to the mouse. */}
+          {segs.length > 0 && (
+            <g className="flow-layer">
+              {segs.map((s) => (
+                <FlowArrows
+                  key={s.id}
+                  x1={px(s.ax)}
+                  y1={py(s.ay)}
+                  x2={px(s.bx)}
+                  y2={py(s.by)}
+                />
+              ))}
+              {(() => {
+                const first = segs[0]
+                const last = segs[segs.length - 1]
+                const dir = (s: Seg) => {
+                  const dx = s.bx - s.ax
+                  const dy = s.by - s.ay
+                  const len = Math.hypot(dx, dy) || 1
+                  return { ux: dx / len, uy: dy / len }
+                }
+                const a = dir(first)
+                const b = dir(last)
+                return (
+                  <>
+                    <FlowCap
+                      x={px(first.ax)}
+                      y={py(first.ay)}
+                      ux={a.ux}
+                      uy={a.uy}
+                      kind="in"
+                      markerId="asm"
+                    />
+                    <FlowCap
+                      x={px(last.bx)}
+                      y={py(last.by)}
+                      ux={b.ux}
+                      uy={b.uy}
+                      kind="out"
+                      markerId="asm"
+                    />
+                  </>
+                )
+              })()}
+            </g>
+          )}
 
           {/* Joint handles sit above the segments so they stay grabbable. */}
           {joints.map((j) => {
