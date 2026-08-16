@@ -9,6 +9,7 @@ import {
   type ExportResult,
 } from '../lib/exporters'
 import { useRun, tubeSpec } from '../store'
+import CollapsiblePanel from './CollapsiblePanel'
 
 export default function ExportPanel() {
   const { pieces, innerDiameter, wallThickness, variant, selectedId, exportFormat, setExportFormat } =
@@ -36,9 +37,7 @@ export default function ExportPanel() {
   }
 
   return (
-    <section className="panel">
-      <h2>Export</h2>
-
+    <CollapsiblePanel title="Export" defaultOpen={false}>
       <span className="field-label">Format</span>
       <div className="segmented">
         {FORMATS.map((f) => (
@@ -97,6 +96,6 @@ export default function ExportPanel() {
         </p>
       )}
       {error && <p className="warn">{error}</p>}
-    </section>
+    </CollapsiblePanel>
   )
 }

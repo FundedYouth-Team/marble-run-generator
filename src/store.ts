@@ -63,6 +63,8 @@ export interface Piece {
   slope: number
   /** Heading change applied at the start of this piece, degrees. */
   turn: number
+  /** Hidden from the 3D view. Display only — the piece still shapes the run. */
+  hidden?: boolean
 }
 
 /** Editing limits for a straight piece, shared by the sidebar fields and the draft handles. */
@@ -95,9 +97,14 @@ export const STANDARD_BORE = STANDARD_MARBLE + MARBLE_CLEARANCE
 /** What each part type is called wherever a piece is listed. */
 export const PART_LABEL: Record<PieceType, string> = { straight: 'Tube' }
 
-/** The user's own label if they gave one, otherwise "Tube 2" and friends. */
+/** What the part is, by type and position — "Tube 2" and friends. */
+export function pieceTypeLabel(piece: Piece, index: number): string {
+  return `${PART_LABEL[piece.type]} ${index + 1}`
+}
+
+/** The user's own label if they gave one, otherwise the part's own name. */
 export function pieceLabel(piece: Piece, index: number): string {
-  return piece.name?.trim() || `${PART_LABEL[piece.type]} ${index + 1}`
+  return piece.name?.trim() || pieceTypeLabel(piece, index)
 }
 
 let seq = 0
@@ -156,6 +163,8 @@ interface RunState {
 
   addPiece: () => void
   renamePiece: (id: string, name: string) => void
+  togglePieceHidden: (id: string) => void
+  showAllPieces: () => void
   updatePiece: (id: string, patch: Partial<Piece>) => void
   removePiece: (id: string) => void
   movePiece: (id: string, dir: -1 | 1) => void
@@ -242,6 +251,13 @@ export const useRun = create<RunState>((set, get) => ({
     set((s) => ({
       pieces: s.pieces.map((p) => (p.id === id ? { ...p, name: name.trim() ? name : undefined } : p)),
     })),
+  // Visibility is a view filter only — a hidden piece still positions the ones after it.
+  togglePieceHidden: (id) =>
+    set((s) => ({
+      pieces: s.pieces.map((p) => (p.id === id ? { ...p, hidden: !p.hidden } : p)),
+    })),
+  showAllPieces: () =>
+    set((s) => ({ pieces: s.pieces.map((p) => (p.hidden ? { ...p, hidden: false } : p)) })),
   updatePiece: (id, patch) =>
     set((s) => ({ pieces: s.pieces.map((p) => (p.id === id ? { ...p, ...patch } : p)) })),
   removePiece: (id) =>

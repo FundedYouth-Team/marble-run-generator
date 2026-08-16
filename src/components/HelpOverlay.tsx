@@ -41,9 +41,9 @@ const HELP: Record<Mode, Group[]> = {
         { keys: ['Left-click a part'], action: 'Select it and open its settings in the sidebar' },
         { keys: ['Left-click empty space'], action: 'Deselect' },
         {
-          keys: ['Parts list button'],
-          action: 'Slide out every part — rename or delete any of them',
-          note: 'the stack icon, top-right',
+          keys: ['Settings button'],
+          action: 'Slide out the marble and export settings',
+          note: 'the gear icon, top-right',
         },
       ],
     },

@@ -12,35 +12,87 @@ const DARK: Lit = { left: false, right: false, wheel: false }
 const WHEEL_LINGER = 400
 
 /**
+ * What the mouse does in one particular view. Every mode wires up its own, so
+ * the diagram always names the bindings actually in force.
+ */
+export interface MouseConfig {
+  /** Label shown while an input is engaged; `null` means it does nothing here. */
+  buttons: Record<keyof Lit, string | null>
+  /** Label for spinning the wheel. */
+  scroll: string | null
+  /** The full cheat sheet, folded away behind the hint button until asked for. */
+  hints: [string, string][]
+}
+
+/** Orbit-camera bindings — the 3D stage. */
+export const ORBIT_MOUSE: MouseConfig = {
+  buttons: { left: 'Select', right: 'Rotate', wheel: 'Pan' },
+  scroll: 'Zoom',
+  hints: [
+    ['left-click', 'select'],
+    ['right-drag', 'rotate'],
+    ['middle-drag', 'pan'],
+    ['scroll', 'zoom'],
+    ['cube face', 'snap view'],
+  ],
+}
+
+/**
  * Live mouse diagram: whichever button you are holding — or the wheel you are
- * spinning — lights up, so the camera controls are discoverable by fiddling.
+ * spinning — lights up, so the controls are discoverable by fiddling.
  */
 export default function MouseLegend({
   stage,
+  config = ORBIT_MOUSE,
   shifted = false,
 }: {
   stage: React.RefObject<HTMLElement | null>
+  /** Bindings for the view this legend belongs to. */
+  config?: MouseConfig
   /** Step aside when the parts list is out. */
   shifted?: boolean
 }) {
   const [lit, setLit] = useState<Lit>(DARK)
+  const [action, setAction] = useState<string | null>(null)
+  const [open, setOpen] = useState(false)
   const wheelTimer = useRef<number | undefined>(undefined)
+  /** A held button outranks a scroll, so spinning mid-drag can't relabel it. */
+  const held = useRef(false)
 
   useEffect(() => {
     const el = stage.current
     if (!el) return
 
     const onDown = (e: PointerEvent) => {
-      // Middle-drag pans, so it lights the wheel rather than a button.
+      // A middle-button press is the wheel being clicked, so it lights the wheel.
       const part = e.button === 2 ? 'right' : e.button === 1 ? 'wheel' : 'left'
+      const does = config.buttons[part]
+      // Working in the view dismisses the cheat sheet — it has served its purpose.
+      setOpen(false)
+      // A button bound to nothing in this view stays dark rather than lying.
+      if (!does) return
+      held.current = true
+      window.clearTimeout(wheelTimer.current)
       setLit((l) => ({ ...l, [part]: true }))
+      setAction(does)
     }
     // Release anywhere counts — the pointer often leaves the stage mid-drag.
-    const onUp = () => setLit(DARK)
+    const onUp = () => {
+      held.current = false
+      setLit(DARK)
+      setAction(null)
+    }
     const onWheel = () => {
+      if (held.current) return
+      setOpen(false)
+      if (!config.scroll) return
       setLit((l) => (l.wheel ? l : { ...l, wheel: true }))
+      setAction(config.scroll)
       window.clearTimeout(wheelTimer.current)
-      wheelTimer.current = window.setTimeout(() => setLit((l) => ({ ...l, wheel: false })), WHEEL_LINGER)
+      wheelTimer.current = window.setTimeout(() => {
+        setLit((l) => ({ ...l, wheel: false }))
+        setAction(null)
+      }, WHEEL_LINGER)
     }
 
     el.addEventListener('pointerdown', onDown)
@@ -56,11 +108,35 @@ export default function MouseLegend({
       window.removeEventListener('blur', onUp)
       window.clearTimeout(wheelTimer.current)
     }
-  }, [stage])
+  }, [stage, config])
 
   return (
-    <div className={shifted ? 'mouse-legend shifted' : 'mouse-legend'} aria-hidden="true">
-      <svg width="38" height="56" viewBox="0 0 40 60">
+    <div className={shifted ? 'mouse-legend shifted' : 'mouse-legend'}>
+      {/* Floats clear of the box so naming the action never nudges the diagram. */}
+      <div className={action ? 'mouse-action on' : 'mouse-action'} aria-hidden="true">
+        {action ?? ''}
+      </div>
+      {open && (
+        <ul className="mouse-hints">
+          {config.hints.map(([key, does]) => (
+            <li key={key}>
+              <span>{key}</span>
+              {does}
+            </li>
+          ))}
+        </ul>
+      )}
+      <button
+        className={open ? 'mouse-hint-btn on' : 'mouse-hint-btn'}
+        onClick={() => setOpen((v) => !v)}
+        onKeyDown={(e) => e.key === 'Escape' && setOpen(false)}
+        title="Mouse controls"
+        aria-label="Mouse controls"
+        aria-expanded={open}
+      >
+        ?
+      </button>
+      <svg width="38" height="56" viewBox="0 0 40 60" aria-hidden="true">
         {/* Buttons first, so the body outline draws over their seams. */}
         <path className={lit.left ? 'mouse-btn on' : 'mouse-btn'} d="M2 24V20A18 18 0 0 1 20 2v22z" />
         <path className={lit.right ? 'mouse-btn on' : 'mouse-btn'} d="M38 24V20A18 18 0 0 0 20 2v22z" />

@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import MouseLegend, { type MouseConfig } from './MouseLegend'
+import { FitIcon } from './icons'
 import { crossSectionPath } from '../lib/geometry'
 import { buildAssembly } from '../lib/layout'
 import { useRun, tubeSpec, PIECE_LIMITS, VARIANT_LABEL, type Piece } from '../store'
@@ -219,6 +221,26 @@ const snapTo = (v: number, step: number) => Math.round(v / step) * step
 /** Fold an angle in degrees into (-180, 180]. */
 const wrapDeg = (d: number) => d - 360 * Math.round(d / 360)
 
+/**
+ * Mouse bindings for the drafting canvas. Flat paper has nothing to orbit, so
+ * the right button stays dark and the left one both picks and pans; `joint`
+ * names whichever angle a handle drag edits in the current view.
+ */
+const draftMouse = (joint: string): MouseConfig => ({
+  buttons: { left: 'Select / Pan', right: null, wheel: 'Pan' },
+  scroll: 'Zoom',
+  hints: [
+    ['left-click', 'select part'],
+    ['left-drag', 'pan'],
+    ['middle-drag', 'pan'],
+    ['scroll', 'zoom'],
+    ['drag joint', joint],
+    ['shift-drag', 'snap 5°'],
+    ['alt-drag', 'length'],
+    ['esc', 'cancel drag'],
+  ],
+})
+
 function useSize<T extends HTMLElement>() {
   const ref = useRef<T | null>(null)
   const [size, setSize] = useState({ w: 800, h: 500 })
@@ -437,6 +459,8 @@ function AssemblyDraft() {
     return () => window.removeEventListener('keydown', onKey)
   }, [grabbed, updatePiece])
 
+  const mouse = useMemo(() => draftMouse(draftView === 'elevation' ? 'slope' : 'turn'), [draftView])
+
   // Scale bar: pick a round number of mm that lands near 120 px.
   const barMm = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000].find((v) => v * view.scale > 90) ?? 1000
   const gridStep = 10 * view.scale
@@ -453,10 +477,15 @@ function AssemblyDraft() {
           </button>
         </div>
         <span className="spacer" />
-        <span className="hint">
-          scroll = zoom · drag = pan · drag a joint = {draftView === 'elevation' ? 'slope' : 'turn'}
-        </span>
-        <button onClick={fit}>Fit</button>
+        {/* Same glyph as the 3D corner control, for the same action. */}
+        <button
+          className="view-tool"
+          onClick={fit}
+          title="Fit view — frame the whole run"
+          aria-label="Fit view"
+        >
+          <FitIcon />
+        </button>
       </div>
 
       <div
@@ -598,6 +627,9 @@ function AssemblyDraft() {
             </text>
           </g>
         </svg>
+
+        {/* Bottom-right of the canvas, opposite the scale bar. */}
+        <MouseLegend stage={ref} config={mouse} />
       </div>
     </div>
   )

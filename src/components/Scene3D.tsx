@@ -4,7 +4,9 @@ import { ContactShadows, GizmoHelper, Grid, OrbitControls } from '@react-three/d
 import * as THREE from 'three'
 import ViewCube, { type CubePalette } from './ViewCube'
 import MouseLegend from './MouseLegend'
-import PartsList from './PartsList'
+import SettingsPanel from './SettingsPanel'
+import ActiveParts from './ActiveParts'
+import { FitIcon, HomeIcon } from './icons'
 import { buildPieceGeometry } from '../lib/geometry'
 import { buildAssembly, type Assembly } from '../lib/layout'
 import { createMarble, resetMarble, stepMarble } from '../lib/sim'
@@ -178,14 +180,26 @@ function Marble({ asm, spec }: { asm: Assembly; spec: TubeSpec }) {
 /** The angle the home button returns to. */
 const HOME_DIR = new THREE.Vector3(0.62, 0.5, 0.6).normalize()
 
+/**
+ * Headroom left around whatever is being framed. Fit crops in close on its
+ * subject; home deliberately stands well back, so the run reads in the context
+ * of the workplane around it rather than filling the view.
+ */
+const FIT_PAD = 1.12
+const HOME_PAD = 2.4
+
 /** One camera move, asked for by a button or by a click on the view cube. */
 interface ViewGoal {
   /** Bumped per request, so repeating the same move still fires. */
   token: number
   /** Where the camera should end up looking from; null keeps the current angle. */
   dir: THREE.Vector3 | null
-  /** Re-frame the whole run, rather than keeping the current distance. */
+  /** Re-frame on `box`, rather than keeping the current distance. */
   frame: boolean
+  /** What to put in frame; null means the whole run. */
+  box: THREE.Box3 | null
+  /** Headroom multiplier around the framed subject. */
+  pad: number
 }
 
 interface OrbitLike {
@@ -280,7 +294,7 @@ function CameraRig({
   }, [controls])
 
   useEffect(() => {
-    const box = asmRef.current.bounds
+    const box = goal.box ?? asmRef.current.bounds
     const fromTarget = controls ? controls.target.clone() : new THREE.Vector3()
     const offset = camera.position.clone().sub(fromTarget)
     const fromRadius = Math.max(offset.length(), 1e-3)
@@ -297,7 +311,7 @@ function CameraRig({
       // Frame the bounding sphere on whichever of the two FOVs is tighter.
       const vFov = THREE.MathUtils.degToRad(camera.fov)
       const hFov = 2 * Math.atan(Math.tan(vFov / 2) * camera.aspect)
-      toRadius = (radius / Math.sin(Math.min(vFov, hFov) / 2)) * 1.12
+      toRadius = (radius / Math.sin(Math.min(vFov, hFov) / 2)) * goal.pad
       camera.near = Math.max(toRadius / 800, 0.5)
       camera.far = toRadius * 12
       camera.updateProjectionMatrix()
@@ -386,44 +400,13 @@ function Hud({ spec, asm }: { spec: TubeSpec; asm: Assembly }) {
   )
 }
 
-function HomeIcon() {
-  return (
-    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M3.4 10.9 12 3.6l8.6 7.3" />
-      <path d="M5.6 9.8V20h12.8V9.8" />
-      <path d="M9.6 20v-5.6h4.8V20" />
-    </svg>
-  )
-}
-
-/** Corner brackets closing in on the run — "frame what is there". */
-function FitIcon() {
-  return (
-    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M3.6 8.4V3.6h4.8M15.6 3.6h4.8v4.8M20.4 15.6v4.8h-4.8M8.4 20.4H3.6v-4.8" />
-      <path d="M12 8.8 15.2 12 12 15.2 8.8 12z" />
-    </svg>
-  )
-}
-
-/** Stacked sheets — the parts list. */
-function PartsIcon() {
-  return (
-    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
-      <path d="m12 2.8 8.6 4.6L12 12 3.4 7.4z" />
-      <path d="m3.4 12 8.6 4.6L20.6 12" />
-      <path d="m3.4 16.6 8.6 4.6 8.6-4.6" />
-    </svg>
-  )
-}
-
-/** Width of the slide-out parts list; the corner controls step aside by this much. */
-const PARTS_WIDTH = 264
+/** Width of the slide-out settings panel; the corner controls step aside by this much. */
+const SETTINGS_WIDTH = 312
 
 export default function Scene3D() {
   const { pieces, innerDiameter, wallThickness, variant, selectedId, select, theme, pieceColor, shading } =
     useRun()
-  const [partsOpen, setPartsOpen] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
   const xray = shading === 'transparent'
   const palette = PALETTE[theme]
   const tint = useMemo(() => shades(pieceColor), [pieceColor])
@@ -432,11 +415,29 @@ export default function Scene3D() {
     [innerDiameter, wallThickness, variant],
   )
   const asm = useMemo(() => buildAssembly(pieces), [pieces])
-  const [goal, setGoal] = useState<ViewGoal>({ token: 0, dir: HOME_DIR, frame: true })
+  const [goal, setGoal] = useState<ViewGoal>({
+    token: 0,
+    dir: HOME_DIR,
+    frame: true,
+    box: null,
+    pad: HOME_PAD,
+  })
 
-  const home = () => setGoal((g) => ({ token: g.token + 1, dir: HOME_DIR, frame: true }))
-  const fit = () => setGoal((g) => ({ token: g.token + 1, dir: null, frame: true }))
-  const snapTo = (dir: THREE.Vector3) => setGoal((g) => ({ token: g.token + 1, dir, frame: false }))
+  /** The selected piece's own bounds, padded out to the tube wall; null if nothing is picked. */
+  const selectionBox = () => {
+    const p = asm.placed.find((x) => x.piece.id === selectedId)
+    if (!p) return null
+    return new THREE.Box3().setFromPoints([p.start, p.end]).expandByScalar(spec.outerR)
+  }
+
+  // Home stands back at the fixed angle and takes in the whole workplane.
+  const home = () =>
+    setGoal((g) => ({ token: g.token + 1, dir: HOME_DIR, frame: true, box: null, pad: HOME_PAD }))
+  // Fit crops in from where you are — on the selected piece if there is one, else the run.
+  const fit = () =>
+    setGoal((g) => ({ token: g.token + 1, dir: null, frame: true, box: selectionBox(), pad: FIT_PAD }))
+  const snapTo = (dir: THREE.Vector3) =>
+    setGoal((g) => ({ ...g, token: g.token + 1, dir, frame: false }))
 
   // Owned by CameraRig, which is the only thing inside the canvas that can move the camera.
   const orbitRef = useRef<OrbitFn | null>(null)
@@ -450,7 +451,8 @@ export default function Scene3D() {
       mounted.current = true
       return
     }
-    setGoal((g) => ({ token: g.token + 1, dir: null, frame: true }))
+    // Always the whole run — adding a piece must not crop the view to the selection.
+    setGoal((g) => ({ token: g.token + 1, dir: null, frame: true, box: null, pad: FIT_PAD }))
   }, [pieces.length])
 
   const groundY = (asm.bounds.isEmpty() ? 0 : asm.bounds.min.y) - spec.outerR - 20
@@ -460,7 +462,7 @@ export default function Scene3D() {
     <div
       className="stage-3d"
       ref={stage}
-      style={{ '--parts-w': `${PARTS_WIDTH}px` } as React.CSSProperties}
+      style={{ '--parts-w': `${SETTINGS_WIDTH}px` } as React.CSSProperties}
     >
       <Canvas
         shadows
@@ -504,7 +506,8 @@ export default function Scene3D() {
           far={600}
         />
 
-        {asm.placed.map((p) => (
+        {/* A hidden piece still holds its place in the layout — it just is not drawn. */}
+        {asm.placed.filter((p) => !p.piece.hidden).map((p) => (
           <PieceMesh
             key={p.piece.id}
             spec={spec}
@@ -533,13 +536,14 @@ export default function Scene3D() {
         <CameraRig asm={asm} goal={goal} orbitRef={orbitRef} />
         {/* Margin is the cube's centre; .view-tools is positioned to hang below it.
             The open parts list pushes the whole corner cluster clear of it. */}
-        <GizmoHelper alignment="top-right" margin={[64, partsOpen ? 64 + PARTS_WIDTH : 64]}>
+        <GizmoHelper alignment="top-right" margin={[64, settingsOpen ? 64 + SETTINGS_WIDTH : 64]}>
           <ViewCube palette={palette.cube} onPick={snapTo} onOrbit={orbit} />
         </GizmoHelper>
       </Canvas>
 
       <Hud spec={spec} asm={asm} />
-      <div className={partsOpen ? 'view-tools shifted' : 'view-tools'}>
+      <ActiveParts />
+      <div className={settingsOpen ? 'view-tools shifted' : 'view-tools'}>
         <button
           className="view-tool"
           onClick={home}
@@ -551,27 +555,30 @@ export default function Scene3D() {
         <button
           className="view-tool"
           onClick={fit}
-          title="Fit view — frame the whole run from the angle you are looking from"
+          title="Fit view — frame the selected piece, or the whole run, from the angle you are looking from"
           aria-label="Fit view"
         >
           <FitIcon />
         </button>
-        <button
-          className={partsOpen ? 'view-tool on' : 'view-tool'}
-          onClick={() => setPartsOpen((v) => !v)}
-          title="Parts list — every part in the run, with its name and size"
-          aria-label="Parts list"
-          aria-pressed={partsOpen}
-        >
-          <PartsIcon />
-        </button>
       </div>
-      <div className="viewcube-hint">
-        left-click = select · right-drag = rotate · middle-drag = pan · scroll = zoom · click a cube
-        face to snap
+      {/* Names the ground plane. Rides beside the mouse legend rather than sitting
+          in the scene, so it stays legible and unmirrored at any camera angle. */}
+      <div className={settingsOpen ? 'workplane-tag shifted' : 'workplane-tag'} aria-hidden="true">
+        Workplane
       </div>
-      <MouseLegend stage={stage} shifted={partsOpen} />
-      <PartsList open={partsOpen} onClose={() => setPartsOpen(false)} />
+      <MouseLegend stage={stage} shifted={settingsOpen} />
+      {/* Filing-tab handle on the right edge — rides out with the panel so it
+          always sits against whichever edge the panel is showing. */}
+      <button
+        className={settingsOpen ? 'settings-tab shifted' : 'settings-tab'}
+        onClick={() => setSettingsOpen((v) => !v)}
+        title={settingsOpen ? 'Hide settings' : 'Show settings'}
+        aria-label="Settings"
+        aria-expanded={settingsOpen}
+      >
+        Settings
+      </button>
+      <SettingsPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </div>
   )
 }
