@@ -14,6 +14,22 @@ const THEME_KEY = 'mrg.theme'
 const PIECE_COLOR_KEY = 'mrg.pieceColor'
 const MARBLE_COLOR_KEY = 'mrg.marbleColor'
 const SHADING_KEY = 'mrg.shading'
+const SCREEN_KEY = 'mrg.screenPxPerMm'
+
+/**
+ * CSS pins an inch to 96px no matter what the panel actually is, so this is
+ * only a starting guess — real displays land anywhere from ~3 to ~6. Nothing
+ * the browser exposes gives us the true figure; `devicePixelRatio` describes
+ * CSS-to-device pixels, not physical size. Hence the calibration.
+ */
+export const NOMINAL_PX_PER_MM = 96 / 25.4
+
+/** Outside this, it is a mis-drag rather than a display we believe in. */
+export const PX_PER_MM_MIN = 2
+export const PX_PER_MM_MAX = 7.5
+
+/** ISO/IEC 7810 ID-1 — the bank card in everyone's pocket, to 0.1 mm. */
+export const REFERENCE_CARD_MM = 85.6
 
 /** Light is the default; only an explicit past choice flips it. */
 function initialTheme(): Theme {
@@ -44,6 +60,18 @@ const HEX = /^#[0-9a-f]{6}$/i
 function initialColor(key: string, fallback: string): string {
   const saved = typeof localStorage !== 'undefined' ? localStorage.getItem(key) : null
   return saved && HEX.test(saved) ? saved : fallback
+}
+
+/**
+ * A stored value means the user has held something against the screen, so it
+ * outranks the nominal guess. Junk or out-of-range falls back to uncalibrated.
+ */
+function initialScreen(): { pxPerMm: number; calibrated: boolean } {
+  const saved = typeof localStorage !== 'undefined' ? localStorage.getItem(SCREEN_KEY) : null
+  const n = saved === null ? NaN : Number(saved)
+  return Number.isFinite(n) && n >= PX_PER_MM_MIN && n <= PX_PER_MM_MAX
+    ? { pxPerMm: n, calibrated: true }
+    : { pxPerMm: NOMINAL_PX_PER_MM, calibrated: false }
 }
 
 /** Solid is the default; only an explicit past choice flips it. */
@@ -142,6 +170,11 @@ interface RunState {
   resetToken: number
   exportFormat: ExportFormat
 
+  /** CSS px per real millimetre on this display — powers the 1:1 draft zoom. */
+  screenPxPerMm: number
+  /** False while `screenPxPerMm` is still the nominal guess, not a measurement. */
+  screenCalibrated: boolean
+
   setMode: (m: Mode) => void
   setDraftView: (v: DraftView) => void
   toggleTheme: () => void
@@ -160,6 +193,8 @@ interface RunState {
   setLoop: (v: boolean) => void
   resetSim: () => void
   setExportFormat: (v: ExportFormat) => void
+  setScreenPxPerMm: (v: number) => void
+  resetScreenCalibration: () => void
 
   addPiece: () => void
   renamePiece: (id: string, name: string) => void
@@ -196,6 +231,11 @@ export const useRun = create<RunState>((set, get) => ({
   friction: 0.06,
   resetToken: 0,
   exportFormat: '3mf',
+
+  ...(() => {
+    const { pxPerMm, calibrated } = initialScreen()
+    return { screenPxPerMm: pxPerMm, screenCalibrated: calibrated }
+  })(),
 
   setMode: (mode) => set({ mode }),
   setDraftView: (draftView) => set({ draftView }),
@@ -240,6 +280,21 @@ export const useRun = create<RunState>((set, get) => ({
   setLoop: (loop) => set({ loop }),
   resetSim: () => set((s) => ({ resetToken: s.resetToken + 1 })),
   setExportFormat: (exportFormat) => set({ exportFormat }),
+
+  setScreenPxPerMm: (v) => {
+    const screenPxPerMm = Math.min(PX_PER_MM_MAX, Math.max(PX_PER_MM_MIN, v))
+    remember(SCREEN_KEY, String(screenPxPerMm))
+    set({ screenPxPerMm, screenCalibrated: true })
+  },
+
+  resetScreenCalibration: () => {
+    try {
+      localStorage.removeItem(SCREEN_KEY)
+    } catch {
+      // Same as `remember` — a storage failure is not worth surfacing.
+    }
+    set({ screenPxPerMm: NOMINAL_PX_PER_MM, screenCalibrated: false })
+  },
 
   addPiece: () => {
     const prev = get().pieces.at(-1)

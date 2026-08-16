@@ -380,6 +380,8 @@ function AssemblyDraft({ shifted }: { shifted: boolean }) {
     selectedId,
     select,
     updatePiece,
+    screenPxPerMm,
+    screenCalibrated,
   } = useRun()
   const spec = tubeSpec(innerDiameter, wallThickness, variant)
   const { ref, size } = useSize<HTMLDivElement>()
@@ -453,6 +455,19 @@ function AssemblyDraft({ shifted }: { shifted: boolean }) {
   }, [segs, size.w, size.h, spec.outerR])
 
   useEffect(fit, [size.w, size.h, draftView, pieces.length])
+
+  /**
+   * True physical size: one model mm becomes one real mm on the glass. Zooms
+   * about the canvas centre so whatever you were studying stays put.
+   */
+  const actualSize = useCallback(() => {
+    setView((v) => {
+      const cx = size.w / 2
+      const cy = size.h / 2
+      const r = screenPxPerMm / v.scale
+      return { scale: screenPxPerMm, tx: cx - (cx - v.tx) * r, ty: cy - (cy - v.ty) * r }
+    })
+  }, [screenPxPerMm, size.w, size.h])
 
   const px = (x: number) => x * view.scale + view.tx
   const py = (y: number) => y * view.scale + view.ty
@@ -595,9 +610,9 @@ function AssemblyDraft({ shifted }: { shifted: boolean }) {
 
   const mouse = useMemo(() => draftMouse(draftView === 'elevation' ? 'slope' : 'turn'), [draftView])
 
-  // Scale bar: pick a round number of mm that lands near 120 px.
-  const barMm = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000].find((v) => v * view.scale > 90) ?? 1000
   const gridStep = 10 * view.scale
+  // Sub-pixel-per-mm slack, so the button stays lit through rounding.
+  const atActualSize = Math.abs(view.scale - screenPxPerMm) < 0.005
 
   return (
     <div className="draft-wrap">
@@ -611,6 +626,21 @@ function AssemblyDraft({ shifted }: { shifted: boolean }) {
           </button>
         </div>
         <span className="spacer" />
+        {/* Reads "on" only once the zoom actually is life-size, so it doubles as
+            a readout of whether what you are looking at is true to scale. */}
+        <button
+          className={atActualSize ? 'view-tool wide on' : 'view-tool wide'}
+          onClick={actualSize}
+          title={
+            screenCalibrated
+              ? 'Actual size — show the run at true physical size'
+              : 'Actual size — approximate until you calibrate your screen in Settings'
+          }
+          aria-label="Actual size"
+          aria-pressed={atActualSize}
+        >
+          1:1
+        </button>
         {/* Same glyph as the 3D corner control, for the same action. */}
         <button
           className="view-tool"
@@ -801,15 +831,6 @@ function AssemblyDraft({ shifted }: { shifted: boolean }) {
             </text>
           )}
 
-          {/* Scale bar */}
-          <g className="scalebar" transform={`translate(20 ${size.h - 28})`}>
-            <line x1={0} y1={0} x2={barMm * view.scale} y2={0} />
-            <line x1={0} y1={-5} x2={0} y2={5} />
-            <line x1={barMm * view.scale} y1={-5} x2={barMm * view.scale} y2={5} />
-            <text x={barMm * view.scale / 2} y={-10} textAnchor="middle">
-              {barMm} mm
-            </text>
-          </g>
         </svg>
 
         {/* Names the drawing plane, parked beside the legend as it is in 3D. */}

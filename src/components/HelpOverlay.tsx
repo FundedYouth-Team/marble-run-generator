@@ -71,6 +71,11 @@ const HELP: Record<Mode, Group[]> = {
         },
         { keys: ['Fit'], action: 'Re-frame the whole run' },
         {
+          keys: ['1:1'],
+          action: 'Zoom to true physical size',
+          note: 'calibrate your screen in Settings first, or it is only a guess',
+        },
+        {
           keys: ['Settings tab'],
           action: 'Slide out the marble and export settings',
           note: 'the vertical tab on the right edge; Esc closes it',
@@ -97,7 +102,6 @@ const HELP: Record<Mode, Group[]> = {
       rows: [
         { keys: ['Section A–A'], action: 'Live cross-section of the tube front face' },
         { keys: ['Ghost circle'], action: 'The marble, shown resting in the bore' },
-        { keys: ['Scale bar'], action: 'Round mm reference, bottom-left' },
       ],
     },
   ],

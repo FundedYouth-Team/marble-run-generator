@@ -1,9 +1,10 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import NumberField from './NumberField'
 import ColorField from './ColorField'
 import InfoNote from './InfoNote'
 import CollapsiblePanel from './CollapsiblePanel'
 import ExportPanel from './ExportPanel'
+import CalibrateScreen from './CalibrateScreen'
 import {
   useRun,
   STANDARD_MARBLE,
@@ -37,6 +38,7 @@ function speedWord(timeScale: number) {
  */
 export default function SettingsPanel({ open, onClose }: { open: boolean; onClose: () => void }) {
   const s = useRun()
+  const [calibrating, setCalibrating] = useState(false)
   const standardFit = s.marbleDiameter === STANDARD_MARBLE && s.innerDiameter === STANDARD_BORE
 
   useEffect(() => {
@@ -127,8 +129,26 @@ export default function SettingsPanel({ open, onClose }: { open: boolean; onClos
           </label>
         </CollapsiblePanel>
 
+        <CollapsiblePanel title="Screen & Scale" defaultOpen={false}>
+          <div className="setting-row">
+            <span>{s.screenCalibrated ? 'Calibrated' : 'Not calibrated'}</span>
+            <span className="setting-value">{s.screenPxPerMm.toFixed(2)} px / mm</span>
+          </div>
+          <button onClick={() => setCalibrating(true)}>
+            {s.screenCalibrated ? 'Re-calibrate screen…' : 'Calibrate screen…'}
+          </button>
+          <InfoNote label="Why does my run not measure right on screen?">
+            A browser cannot ask your monitor how big it is, so out of the box the app assumes a
+            standard density and is usually off by a third or more. Hold a bank card up to the
+            calibration screen once and the 2D draft's <strong>1:1</strong> button will show your
+            run at true physical size.
+          </InfoNote>
+        </CollapsiblePanel>
+
         <ExportPanel />
       </div>
+
+      <CalibrateScreen open={calibrating} onClose={() => setCalibrating(false)} />
     </aside>
   )
 }

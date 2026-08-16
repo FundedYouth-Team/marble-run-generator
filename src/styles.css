@@ -84,8 +84,6 @@
   --centerline: #8ba3b8;
   --ext-line: #9db2c4;
   --callout: #61798f;
-  --scalebar-line: #7b90a5;
-  --scalebar-fill: #5c748c;
   --empty-ink: #a3b4c4;
   --ghost-fill: rgba(221, 96, 20, 0.12);
   --flow-line: #2a9e35;
@@ -174,8 +172,6 @@
   --centerline: #4a6c8c;
   --ext-line: #40607d;
   --callout: #86a6c2;
-  --scalebar-line: #6d8ba6;
-  --scalebar-fill: #8fadc8;
   --empty-ink: #435a72;
   --ghost-fill: rgba(255, 122, 69, 0.12);
   --flow-line: #3fd464;
@@ -362,6 +358,133 @@ body {
   padding: 14px;
   display: grid;
   gap: 16px;
+}
+
+/* Screen calibration ------------------------------------------------- */
+
+/* Wide enough for the card outline at the top of the believable range
+   (7.5 px/mm x 85.6mm = 642px) without the stage ever having to scroll. */
+.calibrate-sheet {
+  width: min(700px, 100%);
+}
+
+.calibrate-body {
+  gap: 12px;
+  justify-items: stretch;
+}
+
+.calibrate-lead {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--ink-dim);
+}
+
+/* Fixed height across the whole slider range, so the card grows without the
+   dialog reflowing under the user's hand mid-drag. Tall enough for the card at
+   the top of the range (7.5 px/mm -> 642 x 405), because a clipped outline
+   would silently produce a wrong calibration. */
+.calibrate-stage {
+  display: grid;
+  place-items: center;
+  height: 425px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--input-bg);
+}
+
+.calibrate-card {
+  display: grid;
+  place-items: center;
+  border: 2px solid var(--primary-border);
+  /* Bank-card corner radius is ~3mm; close enough to sell the comparison. */
+  border-radius: 10px;
+  background: var(--panel);
+  box-shadow: 0 2px 10px rgba(4, 10, 18, 0.18);
+}
+
+.calibrate-card span {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-mute);
+  user-select: none;
+}
+
+.calibrate-slider {
+  width: 100%;
+  margin: 0;
+  accent-color: var(--accent-text);
+}
+
+.calibrate-readout {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-mute);
+}
+
+.calibrate-note {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--ink-mute);
+}
+
+.calibrate-note strong {
+  font-family: var(--mono);
+  color: var(--accent-text);
+}
+
+.calibrate-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 14px;
+  border-top: 1px solid var(--line);
+}
+
+.calibrate-foot .spacer {
+  flex: 1;
+}
+
+/* Label-and-value line inside a settings panel. */
+.setting-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--ink-dim);
+}
+
+.setting-value {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-mute);
+}
+
+/* Quiet, text-only action — never competes with the primary button. */
+.link-btn {
+  padding: 0;
+  font: inherit;
+  font-size: 11px;
+  color: var(--ink-mute);
+  background: none;
+  border: none;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.link-btn:hover:not(:disabled) {
+  color: var(--accent-text);
+}
+
+.link-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
 }
 
 .help-group h4 {
@@ -1357,6 +1480,16 @@ button.danger {
   height: 26px;
 }
 
+/* A text label needs a pill rather than a circle to sit in. */
+.draft-toolbar .view-tool.wide {
+  width: auto;
+  padding: 0 9px;
+  border-radius: 13px;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.02em;
+}
+
 .draft-canvas {
   flex: 1 1 auto;
   min-height: 0;
@@ -1446,18 +1579,6 @@ button.danger {
   font-family: var(--mono);
   font-size: 11px;
   text-anchor: middle;
-}
-
-.draft-canvas .scalebar {
-  stroke: var(--scalebar-line);
-  stroke-width: 1.4;
-  fill: var(--scalebar-fill);
-}
-
-.draft-canvas .scalebar text {
-  stroke: none;
-  font-family: var(--mono);
-  font-size: 10px;
 }
 
 /* Marble travel direction — annotation only, never a hit target. */
