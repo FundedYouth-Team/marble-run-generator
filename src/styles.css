@@ -919,18 +919,10 @@ input[type='range'] {
   margin: 0;
 }
 
-.lib-card .pp-body,
-.lib-card .pp-bore {
+.lib-card .pp-body {
   fill: var(--input-bg);
   stroke: var(--ink-faint);
   stroke-width: 1.4;
-}
-
-/* The bore, drawn over the flat end cut. */
-.lib-card .pp-hole {
-  fill: var(--chip-bg);
-  stroke: var(--ink-faint);
-  stroke-width: 1.1;
 }
 
 .lib-card .pp-line {
@@ -941,7 +933,6 @@ input[type='range'] {
 }
 
 .lib-card:hover:not(:disabled) .pp-body,
-.lib-card:hover:not(:disabled) .pp-bore,
 .lib-card:hover:not(:disabled) .pp-line {
   stroke: var(--accent);
 }
@@ -1141,8 +1132,44 @@ button.danger {
   text-transform: uppercase;
 }
 
-.scope-note {
+.scope-head {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
   margin: -4px 0 -2px;
+}
+
+.scope-head h2 {
+  margin: 0;
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--ink);
+}
+
+/* Name of the part in play — kept subordinate to the fixed heading. */
+.scope-name {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--accent-text);
+}
+
+.scope-name::before {
+  content: '· ';
+  color: var(--ink-faint);
+}
+
+.scope-name.none {
+  color: var(--ink-faint);
+  font-style: italic;
+}
+
+.scope-note {
+  margin: 0;
   font-size: 11px;
   line-height: 1.45;
   color: var(--ink-faint);

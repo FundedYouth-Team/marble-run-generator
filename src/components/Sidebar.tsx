@@ -1,5 +1,6 @@
 import NumberField from './NumberField'
 import ColorField from './ColorField'
+import CollapsiblePanel from './CollapsiblePanel'
 import {
   useRun,
   VARIANT_LABEL,
@@ -34,20 +35,30 @@ export default function Sidebar() {
 
   return (
     <aside className="sidebar">
-      <p className="scope-note">
-        Everything below configures the <b>selected part</b>
-        {selected ? (
-          <>
-            {' '}
-            — currently <b>{pieceLabel(selected, selectedIndex)}</b>.
-          </>
-        ) : (
-          <>. Pick one in Active Parts or in the list below to edit it.</>
-        )}
-      </p>
+      <header className="scope-head">
+        <h2>
+          Selected Part Details
+          <span className={selected ? 'scope-name' : 'scope-name none'}>
+            {selected ? pieceLabel(selected, selectedIndex) : 'none'}
+          </span>
+        </h2>
+        {/* Only length is per-piece — the rest of the sidebar is run-wide. */}
+        <p className="scope-note">
+          {selected ? (
+            <>
+              Length belongs to this part alone. Tube diameter, style, and color apply to every
+              part in the run.
+            </>
+          ) : (
+            <>
+              Pick a part in Active Parts or the list below to edit its length. Tube diameter,
+              style, and color apply to every part in the run.
+            </>
+          )}
+        </p>
+      </header>
 
-      <section className="panel">
-        <h2>Tube Front Face</h2>
+      <CollapsiblePanel title="Tube Diameter">
         <NumberField
           label="Inner diameter"
           hint="bore the marble rolls in"
@@ -80,8 +91,9 @@ export default function Sidebar() {
             <span>Wall sweep</span>
           </div>
         </div>
+      </CollapsiblePanel>
 
-        <span className="field-label">Tube variation</span>
+      <CollapsiblePanel title="Tube Style">
         <div className="segmented">
           {VARIANTS.map((v) => (
             <button
@@ -95,10 +107,9 @@ export default function Sidebar() {
           ))}
         </div>
         <p className="note">{VARIANT_NOTE[s.variant]}</p>
-      </section>
+      </CollapsiblePanel>
 
-      <section className="panel">
-        <h2>Object</h2>
+      <CollapsiblePanel title="Color">
         <ColorField
           label="Object color"
           hint="3D view only — not exported"
@@ -106,71 +117,42 @@ export default function Sidebar() {
           onChange={s.setPieceColor}
           presets={PIECE_SWATCHES}
         />
-        <button className="primary" onClick={s.addPiece}>
-          + Add another tube
-        </button>
+      </CollapsiblePanel>
 
+      <CollapsiblePanel title="Measurement">
+        {/* Only the selected part is editable here — Active Parts is the full list. */}
         <div className="piece-list">
-          {s.pieces.map((p, i) => {
-            const on = p.id === s.selectedId
-            return (
-              <div key={p.id} className={`piece ${on ? 'on' : ''}`}>
-                <button className="piece-head" onClick={() => s.select(on ? null : p.id)}>
-                  <span className="tag">{String(i + 1).padStart(2, '0')}</span>
-                  <span className="piece-name">{pieceLabel(p, i)}</span>
-                  {/* Renamed in the tree — say what the part still is. */}
-                  {pieceLabel(p, i) !== pieceTypeLabel(p, i) && (
-                    <span className="piece-type">{PART_LABEL[p.type]}</span>
-                  )}
-                  <span className="piece-dim">
-                    {p.length} mm · {p.slope}°
-                  </span>
-                </button>
-                {on && (
-                  <div className="piece-body">
-                    <NumberField
-                      label="Length"
-                      value={p.length}
-                      onChange={(v) => s.updatePiece(p.id, { length: v })}
-                      {...PIECE_LIMITS.length}
-                    />
-                    <NumberField
-                      label="Slope"
-                      hint="downhill pitch"
-                      value={p.slope}
-                      onChange={(v) => s.updatePiece(p.id, { slope: v })}
-                      {...PIECE_LIMITS.slope}
-                      unit="°"
-                    />
-                    <NumberField
-                      label="Turn"
-                      hint="heading change at joint"
-                      value={p.turn}
-                      onChange={(v) => s.updatePiece(p.id, { turn: v })}
-                      {...PIECE_LIMITS.turn}
-                      unit="°"
-                    />
-                    <div className="row-btns">
-                      <button onClick={() => s.movePiece(p.id, -1)} disabled={i === 0}>
-                        ↑ Up
-                      </button>
-                      <button
-                        onClick={() => s.movePiece(p.id, 1)}
-                        disabled={i === s.pieces.length - 1}
-                      >
-                        ↓ Down
-                      </button>
-                      <button className="danger" onClick={() => s.removePiece(p.id)}>
-                        Delete
-                      </button>
-                    </div>
-                  </div>
+          {selected ? (
+            <div className="piece on">
+              <div className="piece-head">
+                <span className="tag">{String(selectedIndex + 1).padStart(2, '0')}</span>
+                <span className="piece-name">{pieceLabel(selected, selectedIndex)}</span>
+                {/* Renamed in the tree — say what the part still is. */}
+                {pieceLabel(selected, selectedIndex) !== pieceTypeLabel(selected, selectedIndex) && (
+                  <span className="piece-type">{PART_LABEL[selected.type]}</span>
                 )}
+                <span className="piece-dim">{selected.length} mm</span>
               </div>
-            )
-          })}
-          {!s.pieces.length && (
-            <p className="note">No parts yet — pick one from Add Part in the top bar.</p>
+              <div className="piece-body">
+                <NumberField
+                  label="Length"
+                  value={selected.length}
+                  onChange={(v) => s.updatePiece(selected.id, { length: v })}
+                  {...PIECE_LIMITS.length}
+                />
+                <div className="row-btns">
+                  <button className="danger" onClick={() => s.removePiece(selected.id)}>
+                    Delete
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <p className="note">
+              {s.pieces.length
+                ? 'No part selected — pick one in Active Parts to edit its length.'
+                : 'No parts yet — pick one from Add Part in the top bar.'}
+            </p>
           )}
         </div>
 
@@ -192,7 +174,23 @@ export default function Sidebar() {
           Every piece is generated with a female socket at its inlet and a barbed male spigot at
           its outlet, so pieces clip together and the bore stays continuous across the joint.
         </p>
-      </section>
+      </CollapsiblePanel>
+
+      <CollapsiblePanel title="Duplicate Part">
+        <button
+          className="primary"
+          onClick={() => selected && s.duplicatePiece(selected.id)}
+          disabled={!selected}
+          title={selected ? undefined : 'Select a part first'}
+        >
+          + Duplicate Selected Part
+        </button>
+        <p className="note">
+          {selected
+            ? `Adds a copy of ${pieceLabel(selected, selectedIndex)} right after it, and selects the copy.`
+            : 'Select a part to copy it.'}
+        </p>
+      </CollapsiblePanel>
     </aside>
   )
 }

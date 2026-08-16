@@ -197,6 +197,7 @@ interface RunState {
   resetScreenCalibration: () => void
 
   addPiece: () => void
+  duplicatePiece: (id: string) => void
   renamePiece: (id: string, name: string) => void
   togglePieceHidden: (id: string) => void
   showAllPieces: () => void
@@ -301,6 +302,17 @@ export const useRun = create<RunState>((set, get) => ({
     const piece = makePiece(prev ? { length: prev.length, slope: prev.slope } : {})
     set((s) => ({ pieces: [...s.pieces, piece], selectedId: piece.id }))
   },
+  // The copy lands right after its original and takes over the selection.
+  duplicatePiece: (id) =>
+    set((s) => {
+      const i = s.pieces.findIndex((p) => p.id === id)
+      if (i < 0) return s
+      const { id: _id, ...rest } = s.pieces[i]
+      const copy = makePiece(rest)
+      const pieces = s.pieces.slice()
+      pieces.splice(i + 1, 0, copy)
+      return { ...s, pieces, selectedId: copy.id }
+    }),
   // A blank name is stored as none at all, so the part falls back to its default label.
   renamePiece: (id, name) =>
     set((s) => ({

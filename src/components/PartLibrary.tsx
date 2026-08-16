@@ -1,13 +1,11 @@
 import { useEffect, useMemo, useState, type ReactElement } from 'react'
 import { useRun } from '../store'
 
-/** A plain length of pipe: flat-cut ends, with the bore showing at the near end. */
-function TubePreview() {
+/** A plain length of pipe, drawn side-on as a simple outlined bar. */
+function StraightLinePreview() {
   return (
     <svg width="78" height="50" viewBox="0 0 46 30" aria-hidden="true">
-      <rect className="pp-body" x="6" y="8" width="30" height="15" />
-      <ellipse className="pp-bore" cx="36" cy="15.5" rx="4" ry="7.5" />
-      <ellipse className="pp-hole" cx="36" cy="15.5" rx="2" ry="4.3" />
+      <rect className="pp-body" x="2" y="12" width="42" height="7" />
     </svg>
   )
 }
@@ -51,10 +49,10 @@ interface Part {
 const PARTS: Part[] = [
   {
     id: 'tube',
-    name: 'Tube',
+    name: 'Straight Line',
     category: 'track',
     blurb: 'Straight run of pipe. Length, slope and turn are set per piece once it is on the stage.',
-    preview: TubePreview,
+    preview: StraightLinePreview,
     add: () => useRun.getState().addPiece(),
   },
   {
