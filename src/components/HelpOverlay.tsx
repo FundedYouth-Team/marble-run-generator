@@ -106,6 +106,7 @@ const HELP: Record<Mode, Group[]> = {
 const ALWAYS: Group = {
   title: 'Anywhere',
   rows: [
+    { keys: ['＋ Add Part'], action: 'Browse the part library and drop a part on the stage', note: 'top of the window' },
     { keys: ['2D Draft Mode', '3D Mode'], action: 'Switch workspace', note: 'top of the window' },
     { keys: ['?'], action: 'Open this help' },
     { keys: ['Esc'], action: 'Close this help' },

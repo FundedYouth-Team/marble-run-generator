@@ -24,62 +24,27 @@ const VARIANT_NOTE: Record<TubeVariant, string> = {
   closed: 'Full 360° tube — marble enclosed.',
 }
 
-/** A plain length of pipe: flat-cut ends, with the bore showing at the near end. */
-function TubePreview() {
-  return (
-    <svg width="46" height="30" viewBox="0 0 46 30" aria-hidden="true">
-      <rect className="pp-body" x="6" y="8" width="30" height="15" />
-      <ellipse className="pp-bore" cx="36" cy="15.5" rx="4" ry="7.5" />
-      <ellipse className="pp-hole" cx="36" cy="15.5" rx="2" ry="4.3" />
-    </svg>
-  )
-}
-
-function CurvePreview() {
-  return (
-    <svg width="46" height="30" viewBox="0 0 46 30" aria-hidden="true">
-      <path className="pp-line" d="M6 24c0-9 8-16 17-16 9 0 17 4 17 9" />
-    </svg>
-  )
-}
-
-function DropPreview() {
-  return (
-    <svg width="46" height="30" viewBox="0 0 46 30" aria-hidden="true">
-      <path className="pp-line" d="M12 5c10 0 10 6 0 6s-10 6 0 6 12 4 12 8" />
-    </svg>
-  )
-}
-
 export default function Sidebar() {
   const s = useRun()
   const spec = tubeSpec(s.innerDiameter, s.wallThickness, s.variant)
-  const selected = s.pieces.find((p) => p.id === s.selectedId) ?? null
+  const selectedIndex = s.pieces.findIndex((p) => p.id === s.selectedId)
+  const selected = selectedIndex >= 0 ? s.pieces[selectedIndex] : null
   const totalLength = s.pieces.reduce((a, p) => a + p.length, 0)
   const joint = jointSpec(spec, selected?.length ?? 100)
 
   return (
     <aside className="sidebar">
-      <section className="panel">
-        <h2>Add Part</h2>
-        <div className="part-grid">
-          <button className="part-card" onClick={s.addPiece} title="Add a tube to the stage">
-            <TubePreview />
-            <span>Tube</span>
-          </button>
-          <button className="part-card" disabled title="Not available yet">
-            <CurvePreview />
-            <span>Curve</span>
-            <em>soon</em>
-          </button>
-          <button className="part-card" disabled title="Not available yet">
-            <DropPreview />
-            <span>Drop</span>
-            <em>soon</em>
-          </button>
-        </div>
-        <p className="note">Click a part to drop it on the stage at the end of the run.</p>
-      </section>
+      <p className="scope-note">
+        Everything below configures the <b>selected part</b>
+        {selected ? (
+          <>
+            {' '}
+            — currently <b>{pieceLabel(selected, selectedIndex)}</b>.
+          </>
+        ) : (
+          <>. Pick one in Active Parts or in the list below to edit it.</>
+        )}
+      </p>
 
       <section className="panel">
         <h2>Tube Front Face</h2>
@@ -204,7 +169,9 @@ export default function Sidebar() {
               </div>
             )
           })}
-          {!s.pieces.length && <p className="note">No parts yet — pick one from Add Part above.</p>}
+          {!s.pieces.length && (
+            <p className="note">No parts yet — pick one from Add Part in the top bar.</p>
+          )}
         </div>
 
         <div className="readout">

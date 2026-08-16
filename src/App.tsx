@@ -3,6 +3,7 @@ import Draft2D from './components/Draft2D'
 import Scene3D from './components/Scene3D'
 import ThemeToggle from './components/ThemeToggle'
 import HelpOverlay from './components/HelpOverlay'
+import PartLibrary from './components/PartLibrary'
 import { useRun, tubeSpec, VARIANT_LABEL } from './store'
 
 export default function App() {
@@ -44,6 +45,7 @@ export default function App() {
           </span>
         </div>
 
+        <PartLibrary />
         <HelpOverlay />
         <ThemeToggle />
       </header>

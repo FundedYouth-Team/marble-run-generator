@@ -33,6 +33,10 @@
   --seg-bg: #f1f5f9;
   --seg-on-a: #2a9e35;
   --seg-on-b: #1c7a28;
+  /* Mode toggle only — blue, so it reads apart from the green action accent. */
+  --mode-on-a: #4173d6;
+  --mode-on-b: #2a51ab;
+  --mode-on-ink: #ffffff;
   --primary-a: #2a9e35;
   --primary-b: #1c7a28;
   --primary-border: #1f8a2e;
@@ -41,6 +45,15 @@
   --primary-on-b: #b0530f;
   --primary-on-border: #e08340;
   --danger-border: #e8bcc1;
+
+  /* Add Part sits in a green-dominant bar, so it takes the orange accent. */
+  --addpart-a: #f59331;
+  --addpart-b: #dd6014;
+  --addpart-hover-a: #ffa74c;
+  --addpart-hover-b: #ef7420;
+  --addpart-border: #b0530f;
+  --addpart-ink: #ffffff;
+  --addpart-glow: rgba(221, 96, 20, 0.35);
 
   --card-bg: #fbfcfe;
   --card-body-bg: #f3f7fa;
@@ -110,6 +123,9 @@
   --seg-bg: #0d1621;
   --seg-on-a: #1e8a33;
   --seg-on-b: #14682a;
+  --mode-on-a: #3a68c4;
+  --mode-on-b: #24478f;
+  --mode-on-ink: #eef4ff;
   --primary-a: #1e8a33;
   --primary-b: #14682a;
   --primary-border: #35b34a;
@@ -118,6 +134,14 @@
   --primary-on-b: #7d3f14;
   --primary-on-border: #ff9d5c;
   --danger-border: #40232b;
+
+  --addpart-a: #ff8a3d;
+  --addpart-b: #e2661a;
+  --addpart-hover-a: #ffa15c;
+  --addpart-hover-b: #f5762a;
+  --addpart-border: #ffb583;
+  --addpart-ink: #24120a;
+  --addpart-glow: rgba(255, 122, 69, 0.4);
 
   --card-bg: #0d1621;
   --card-body-bg: #101a26;
@@ -566,62 +590,244 @@ input[type='range'] {
   color: var(--field-hint);
 }
 
-/* ---------------- part palette ---------------- */
+/* ---------------- part library ---------------- */
 
-.part-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 8px;
+.add-part-btn {
+  flex: 0 0 auto;
+  padding: 7px 14px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  background: linear-gradient(180deg, var(--addpart-a), var(--addpart-b));
+  border-color: var(--addpart-border);
+  color: var(--addpart-ink);
+  box-shadow: 0 0 0 1px var(--addpart-glow), 0 2px 10px var(--addpart-glow);
 }
 
-.part-card {
+.add-part-btn:hover:not(:disabled) {
+  background: linear-gradient(180deg, var(--addpart-hover-a), var(--addpart-hover-b));
+  border-color: var(--addpart-border);
+  box-shadow: 0 0 0 1px var(--addpart-glow), 0 3px 14px var(--addpart-glow);
+}
+
+.add-part-btn span {
+  margin-right: 2px;
+  font-weight: 700;
+}
+
+.lib-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 45;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(6, 12, 20, 0.5);
+  backdrop-filter: blur(3px);
+}
+
+.lib-sheet {
+  width: min(860px, 100%);
+  max-height: 100%;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 5px;
-  padding: 9px 4px 7px;
-  background: var(--card-bg);
-  border-radius: 9px;
-  color: var(--ink-dim);
-  font-size: 11px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: 0 18px 48px rgba(4, 10, 18, 0.4);
+  overflow: hidden;
 }
 
-.part-card svg {
+.lib-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--line);
+  background: linear-gradient(180deg, var(--topbar-a), var(--topbar-b));
+}
+
+.lib-head h3 {
+  margin: 0;
+  font-size: 13px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink);
+}
+
+.lib-search {
+  margin-left: auto;
+  width: 220px;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-family: var(--font);
+  color: var(--ink);
+  background: var(--input-bg);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+}
+
+.lib-search:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.lib-close {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border-radius: 50%;
+  color: var(--ink-dim);
+}
+
+/* Category rail beside the scrolling catalogue. */
+.lib-main {
+  display: grid;
+  grid-template-columns: 148px 1fr;
+  min-height: 0;
+}
+
+.lib-cats {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px 10px;
+  border-right: 1px solid var(--line);
+  background: var(--panel-2);
+}
+
+.lib-cats button {
+  border: 0;
+  background: transparent;
+  text-align: left;
+  padding: 7px 9px;
+  border-radius: 5px;
+  color: var(--ink-dim);
+  font-size: 12px;
+}
+
+.lib-cats button:hover:not(:disabled) {
+  background: var(--btn-bg-hover);
+}
+
+.lib-cats button.on {
+  background: var(--accent-soft);
+  color: var(--accent-text);
+  font-weight: 600;
+}
+
+.lib-body {
+  overflow-y: auto;
+  padding: 14px;
+  min-height: 0;
+}
+
+.lib-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 10px;
+}
+
+.lib-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 12px;
+  text-align: left;
+  background: var(--card-bg);
+  border-radius: 9px;
+}
+
+.lib-card-art {
+  align-self: center;
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 62px;
+  border-radius: 6px;
+  background: var(--card-body-bg);
+}
+
+.lib-card-art svg {
   display: block;
 }
 
-.part-card em {
+.lib-card-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.lib-card-name em {
   font-style: normal;
   font-size: 9px;
   letter-spacing: 0.05em;
   text-transform: uppercase;
   color: var(--ink-mute);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 1px 4px;
 }
 
-.part-card .pp-body,
-.part-card .pp-bore {
+.lib-card-blurb {
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--ink-dim);
+}
+
+.lib-foot {
+  padding: 10px 14px;
+  border-top: 1px solid var(--line);
+  background: var(--panel-2);
+}
+
+.lib-foot .note {
+  margin: 0;
+}
+
+.lib-card .pp-body,
+.lib-card .pp-bore {
   fill: var(--input-bg);
   stroke: var(--ink-faint);
   stroke-width: 1.4;
 }
 
 /* The bore, drawn over the flat end cut. */
-.part-card .pp-hole {
+.lib-card .pp-hole {
   fill: var(--chip-bg);
   stroke: var(--ink-faint);
   stroke-width: 1.1;
 }
 
-.part-card .pp-line {
+.lib-card .pp-line {
   fill: none;
   stroke: var(--ink-faint);
   stroke-width: 3.5;
   stroke-linecap: round;
 }
 
-.part-card:hover:not(:disabled) .pp-body,
-.part-card:hover:not(:disabled) .pp-bore {
+.lib-card:hover:not(:disabled) .pp-body,
+.lib-card:hover:not(:disabled) .pp-bore,
+.lib-card:hover:not(:disabled) .pp-line {
   stroke: var(--accent);
+}
+
+@media (max-width: 620px) {
+  .lib-main {
+    grid-template-columns: 1fr;
+  }
+
+  .lib-cats {
+    flex-direction: row;
+    flex-wrap: wrap;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
 }
 
 /* ---------------- colour picker ---------------- */
@@ -759,6 +965,18 @@ button.danger {
   font-size: 11px;
 }
 
+/* Auto margin on both sides of the toggle and on .spec-strip splits the free
+   space evenly, centring the toggle between the brand and the measurements. */
+.segmented.mode {
+  margin-left: auto;
+  flex: 0 0 auto;
+}
+
+.segmented.mode button.on {
+  background: linear-gradient(180deg, var(--mode-on-a), var(--mode-on-b));
+  color: var(--mode-on-ink);
+}
+
 .segmented.mode button {
   min-width: 132px;
   letter-spacing: 0.06em;
@@ -792,6 +1010,18 @@ button.danger {
   color: var(--ink-mute);
   letter-spacing: 0.06em;
   text-transform: uppercase;
+}
+
+.scope-note {
+  margin: -4px 0 -2px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--ink-faint);
+}
+
+.scope-note b {
+  color: var(--ink-dim);
+  font-weight: 600;
 }
 
 .note {
