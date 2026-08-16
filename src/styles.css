@@ -979,6 +979,18 @@ button.danger {
   flex: 1 1 auto;
 }
 
+/* Settings panel is out over this pane — clear its width from the two rows
+   that carry controls, so nothing lands behind it. */
+.pane.shifted > .pane-head,
+.pane.shifted > .pane-body > .draft-wrap > .draft-toolbar {
+  padding-right: var(--parts-w);
+}
+
+.pane-head,
+.draft-toolbar {
+  transition: padding-right 0.24s ease;
+}
+
 .pane-head {
   display: flex;
   align-items: center;
@@ -1115,11 +1127,12 @@ button.danger {
   /* Anchors the mouse legend to the drawing area rather than the whole stage. */
   position: relative;
   overflow: hidden;
-  cursor: grab;
+  /* Panning is a wheel-click gesture, so the canvas only grabs while it pans. */
+  cursor: default;
   touch-action: none;
 }
 
-.draft-canvas:active {
+.draft-canvas.panning {
   cursor: grabbing;
 }
 

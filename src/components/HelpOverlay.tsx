@@ -41,9 +41,9 @@ const HELP: Record<Mode, Group[]> = {
         { keys: ['Left-click a part'], action: 'Select it and open its settings in the sidebar' },
         { keys: ['Left-click empty space'], action: 'Deselect' },
         {
-          keys: ['Settings button'],
+          keys: ['Settings tab'],
           action: 'Slide out the marble and export settings',
-          note: 'the gear icon, top-right',
+          note: 'the vertical tab on the right edge; Esc closes it',
         },
       ],
     },
@@ -64,14 +64,24 @@ const HELP: Record<Mode, Group[]> = {
         { keys: ['Elevation'], action: 'Side-on view — edit slope' },
         { keys: ['Plan'], action: 'Top-down view — edit turn' },
         { keys: ['Scroll'], action: 'Zoom about the pointer' },
-        { keys: ['Drag'], action: 'Pan the drawing' },
+        {
+          keys: ['Right-drag', 'Middle-drag'],
+          action: 'Pan the drawing',
+          note: 'the wheel click pans too — press it in and drag',
+        },
         { keys: ['Fit'], action: 'Re-frame the whole run' },
+        {
+          keys: ['Settings tab'],
+          action: 'Slide out the marble and export settings',
+          note: 'the vertical tab on the right edge; Esc closes it',
+        },
       ],
     },
     {
       title: 'Editing',
       rows: [
         { keys: ['Click a piece'], action: 'Select it and open its settings in the sidebar' },
+        { keys: ['Click empty space'], action: 'Clear the selection' },
         {
           keys: ['Drag a joint'],
           action: 'Set slope or turn',

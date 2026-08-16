@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import MouseLegend, { type MouseConfig } from './MouseLegend'
+import SettingsPanel from './SettingsPanel'
 import { FitIcon } from './icons'
 import { crossSectionPath } from '../lib/geometry'
 import { buildAssembly } from '../lib/layout'
@@ -223,15 +224,17 @@ const wrapDeg = (d: number) => d - 360 * Math.round(d / 360)
 
 /**
  * Mouse bindings for the drafting canvas. Flat paper has nothing to orbit, so
- * the right button stays dark and the left one both picks and pans; `joint`
- * names whichever angle a handle drag edits in the current view.
+ * both the right button and the wheel click pan; the left button is left to
+ * picking and editing joints. `joint` names whichever angle a handle drag edits
+ * in the current view.
  */
 const draftMouse = (joint: string): MouseConfig => ({
-  buttons: { left: 'Select / Pan', right: null, wheel: 'Pan' },
+  buttons: { left: 'Select', right: 'Pan', wheel: 'Pan' },
   scroll: 'Zoom',
   hints: [
     ['left-click', 'select part'],
-    ['left-drag', 'pan'],
+    ['click empty', 'deselect'],
+    ['right-drag', 'pan'],
     ['middle-drag', 'pan'],
     ['scroll', 'zoom'],
     ['drag joint', joint],
@@ -257,7 +260,8 @@ function useSize<T extends HTMLElement>() {
   return { ref, size }
 }
 
-function AssemblyDraft() {
+/** `shifted` steps the corner captions aside when the settings panel is out. */
+function AssemblyDraft({ shifted }: { shifted: boolean }) {
   const {
     pieces,
     innerDiameter,
@@ -418,7 +422,11 @@ function AssemblyDraft() {
   }
 
   const onPointerDown = (e: React.PointerEvent) => {
-    if (e.button !== 0 && e.button !== 1) return
+    // The right button and the wheel click pan — the left button is reserved for
+    // picking and for dragging joints.
+    if (e.button !== 1 && e.button !== 2) return
+    // Keep the browser's middle-click autoscroll out of the canvas.
+    e.preventDefault()
     // Capture is claimed lazily on the first real move so that a plain click still
     // reaches the segment underneath.
     drag.current = { x: e.clientX, y: e.clientY, tx: view.tx, ty: view.ty, panning: false }
@@ -435,6 +443,7 @@ function AssemblyDraft() {
     if (!d.panning) {
       if (Math.hypot(e.clientX - d.x, e.clientY - d.y) <= 3) return
       d.panning = true
+      ref.current?.classList.add('panning')
       ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
     }
     setView((v) => ({ ...v, tx: d.tx + (e.clientX - d.x), ty: d.ty + (e.clientY - d.y) }))
@@ -443,7 +452,24 @@ function AssemblyDraft() {
   const endDrag = () => {
     drag.current = null
     handle.current = null
+    ref.current?.classList.remove('panning')
     setGrabbed(null)
+  }
+
+  const onPointerUp = (e: React.PointerEvent) => {
+    // A left click on bare workplane clears the selection. Pans and joint drags
+    // capture the pointer on the canvas itself, so they would pass the hit test
+    // below — rule them out first.
+    const stray = drag.current?.panning || handle.current
+    if (
+      e.button === 0 &&
+      selectedId &&
+      !stray &&
+      !(e.target as Element).closest('.seg, .joint-handle')
+    ) {
+      select(null)
+    }
+    endDrag()
   }
 
   // Escape restores the piece to what it was when the handle was grabbed.
@@ -492,9 +518,11 @@ function AssemblyDraft() {
         className="draft-canvas"
         ref={ref}
         onWheel={onWheel}
+        // The right button pans here, so its menu would land on every pan.
+        onContextMenu={(e) => e.preventDefault()}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
-        onPointerUp={endDrag}
+        onPointerUp={onPointerUp}
         onPointerCancel={endDrag}
       >
         <svg width={size.w} height={size.h}>
@@ -551,8 +579,8 @@ function AssemblyDraft() {
                 key={s.id}
                 className={`seg ${on ? 'on' : ''}`}
                 onPointerUp={(e) => {
-                  const d = drag.current
-                  if (d && (d.panning || Math.hypot(e.clientX - d.x, e.clientY - d.y) > 3)) return
+                  // Picking is a left-button gesture; releasing a pan here selects nothing.
+                  if (e.button !== 0) return
                   select(on ? null : s.id)
                 }}
               >
@@ -628,8 +656,13 @@ function AssemblyDraft() {
           </g>
         </svg>
 
+        {/* Names the drawing plane, parked beside the legend as it is in 3D. */}
+        <div className={shifted ? 'workplane-tag shifted' : 'workplane-tag'} aria-hidden="true">
+          Workplane
+        </div>
+
         {/* Bottom-right of the canvas, opposite the scale bar. */}
-        <MouseLegend stage={ref} config={mouse} />
+        <MouseLegend stage={ref} config={mouse} shifted={shifted} />
       </div>
     </div>
   )
@@ -637,9 +670,14 @@ function AssemblyDraft() {
 
 /* ------------------------------------------------------------------ */
 
+/** Width of the slide-out settings panel; matches the 3D stage. */
+const SETTINGS_WIDTH = 312
+
 export default function Draft2D() {
+  const [settingsOpen, setSettingsOpen] = useState(false)
+
   return (
-    <div className="stage-2d">
+    <div className="stage-2d" style={{ '--parts-w': `${SETTINGS_WIDTH}px` } as React.CSSProperties}>
       <div className="pane">
         <header className="pane-head">
           <h3>Section A–A · Tube front face</h3>
@@ -649,15 +687,30 @@ export default function Draft2D() {
           <CrossSection />
         </div>
       </div>
-      <div className="pane grow">
+      {/* The panel slides over this pane's right edge, so its header row and
+          toolbar step aside to keep the Fit button reachable. */}
+      <div className={settingsOpen ? 'pane grow shifted' : 'pane grow'}>
         <header className="pane-head">
           <h3>Assembly draft</h3>
           <span>straight line objects</span>
         </header>
         <div className="pane-body">
-          <AssemblyDraft />
+          <AssemblyDraft shifted={settingsOpen} />
         </div>
       </div>
+
+      {/* Filing-tab handle on the right edge — rides out with the panel so it
+          always sits against whichever edge the panel is showing. */}
+      <button
+        className={settingsOpen ? 'settings-tab shifted' : 'settings-tab'}
+        onClick={() => setSettingsOpen((v) => !v)}
+        title={settingsOpen ? 'Hide settings' : 'Show settings'}
+        aria-label="Settings"
+        aria-expanded={settingsOpen}
+      >
+        Settings
+      </button>
+      <SettingsPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </div>
   )
 }
