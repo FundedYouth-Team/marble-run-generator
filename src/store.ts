@@ -104,6 +104,12 @@ export const PIECE_LIMITS = {
   turn: { min: -90, max: 90, step: 1 },
 } as const
 
+/** Editing limits for the tube every part is cut from, shared by the sidebar and file loading. */
+export const TUBE_LIMITS = {
+  innerDiameter: { min: 6, max: 80, step: 0.5 },
+  wallThickness: { min: 1, max: 12, step: 0.5 },
+} as const
+
 export const VARIANT_LABEL: Record<TubeVariant, string> = {
   half: 'Half',
   threequarter: '3/4 Open',
@@ -191,6 +197,11 @@ interface Snapshot {
   wallThickness: number
   variant: TubeVariant
   marbleDiameter: number
+}
+
+/** A run read back off disk: the model, under the name it was saved with. */
+export interface LoadedProject extends Omit<Snapshot, 'selectedId'> {
+  projectName: string
 }
 
 export interface HistoryEntry {
@@ -281,6 +292,8 @@ interface RunState {
   setExportName: (v: string) => void
   /** Clears the stage back to a single default part under a fresh Untitled name. */
   newProject: () => void
+  /** Replaces the stage with a run read back from a saved file. */
+  loadProject: (project: LoadedProject) => void
 
   setRightPanel: (p: RightPanel) => void
   toggleRightPanel: (p: Exclude<RightPanel, null>) => void
@@ -446,6 +459,26 @@ export const useRun = create<RunState>((set, get) => {
           running: false,
           resetToken: s.resetToken + 1,
           history: [{ id: ++entrySeq, label: 'New project', at: Date.now(), snap }],
+          historyIndex: 0,
+        }
+      }),
+
+    /**
+     * Opening a file is a new start rather than a step: the run that arrives is
+     * the whole model, so the timeline starts again from it and there is
+     * nothing behind it to step back to.
+     */
+    loadProject: ({ projectName, ...model }) =>
+      set((s) => {
+        recent = null
+        const snap: Snapshot = { ...model, selectedId: null }
+        return {
+          ...snap,
+          projectName,
+          exportName: '',
+          running: false,
+          resetToken: s.resetToken + 1,
+          history: [{ id: ++entrySeq, label: `Opened ${projectName}`, at: Date.now(), snap }],
           historyIndex: 0,
         }
       }),

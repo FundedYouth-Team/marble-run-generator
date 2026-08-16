@@ -14,7 +14,76 @@ interface Group {
   rows: Shortcut[]
 }
 
-const HELP: Record<Mode, Group[]> = {
+/**
+ * The help is tabbed by what you are working on: the run as a whole, or one of
+ * the two workspaces. Anything true of both workspaces lives in `ALWAYS`
+ * instead, so it is said once rather than in every tab.
+ */
+type HelpTab = 'project' | Mode
+
+const HELP: Record<HelpTab, Group[]> = {
+  project: [
+    {
+      title: 'The project',
+      rows: [
+        {
+          keys: ['Project'],
+          action: 'Name the run, in the top bar',
+          note: 'every file it saves or exports is named after it; left blank it falls back to Untitled',
+        },
+        {
+          keys: ['Save'],
+          action: 'Write the run to a .mrun.json file on your machine',
+          note: 'parts, tube size, style and marble fit — the run itself, ready to open again',
+        },
+        {
+          keys: ['Open'],
+          action: 'Put a saved .mrun.json back on the stage',
+          note: 'it asks first — opening replaces the run you have now',
+        },
+        {
+          keys: ['New'],
+          action: 'Clear the stage back to a single default part',
+          note: 'it asks first; your theme, colours and screen calibration are left alone',
+        },
+        {
+          keys: ['⤓ Print plate'],
+          action: 'Export meshes for printing, from the sidebar',
+          note: '3MF, STL or OBJ — printable files, not a project you can reopen',
+        },
+      ],
+    },
+    {
+      title: 'History',
+      rows: [
+        {
+          keys: ['History tab'],
+          action: 'The last 10 changes to the run, newest first',
+          note: 'the vertical tab on the right edge; Esc closes it',
+        },
+        {
+          keys: ['Click a step'],
+          action: 'Jump straight back — or forward — to it',
+          note: 'the steps ahead stay listed, greyed, until the next edit drops them',
+        },
+        {
+          keys: ['Undo', 'Redo'],
+          action: 'Step one change at a time',
+          note: 'at the top of the History panel, and on the 3D HUD',
+        },
+        {
+          keys: ['Recorded'],
+          action: 'Parts, tube size, style and marble fit — nothing else',
+          note: 'camera, theme and playback stay put, so stepping back never moves your view',
+        },
+        {
+          keys: ['Not recorded'],
+          action: 'Saving, opening and starting a new project',
+          note: 'each of those begins the timeline again rather than adding a step',
+        },
+      ],
+    },
+  ],
   '3d': [
     {
       title: 'Camera',
@@ -40,11 +109,6 @@ const HELP: Record<Mode, Group[]> = {
       rows: [
         { keys: ['Left-click a part'], action: 'Select it and open its settings in the sidebar' },
         { keys: ['Left-click empty space'], action: 'Deselect' },
-        {
-          keys: ['Settings tab', 'History tab'],
-          action: 'Slide out the settings, or the last changes to the run',
-          note: 'the vertical tabs on the right edge; Esc closes them',
-        },
       ],
     },
     {
@@ -75,11 +139,6 @@ const HELP: Record<Mode, Group[]> = {
           keys: ['1:1'],
           action: 'Zoom to true physical size',
           note: 'calibrate your screen in Settings first, or it is only a guess',
-        },
-        {
-          keys: ['Settings tab', 'History tab'],
-          action: 'Slide out the settings, or the last changes to the run',
-          note: 'the vertical tabs on the right edge; Esc closes them',
         },
       ],
     },
@@ -113,13 +172,24 @@ const ALWAYS: Group = {
   rows: [
     { keys: ['＋ Add Part'], action: 'Browse the part library and drop a part on the stage', note: 'top of the window' },
     { keys: ['2D Draft Mode', '3D Mode'], action: 'Switch workspace', note: 'top of the window' },
+    {
+      keys: ['Settings tab', 'History tab'],
+      action: 'Slide out the settings, or the last changes to the run',
+      note: 'the vertical tabs on the right edge; Esc closes them',
+    },
     { keys: ['Ctrl', 'Z'], action: 'Undo the last change', note: 'Ctrl+Shift+Z redoes it; ⌘ on a Mac' },
     { keys: ['?'], action: 'Open this help' },
     { keys: ['Esc'], action: 'Close this help' },
   ],
 }
 
-const MODE_LABEL: Record<Mode, string> = { '2d': '2D Draft', '3d': '3D View' }
+const TAB_LABEL: Record<HelpTab, string> = {
+  project: 'Project',
+  '2d': '2D Draft',
+  '3d': '3D View',
+}
+
+const TABS: HelpTab[] = ['project', '2d', '3d']
 
 function Rows({ group }: { group: Group }) {
   return (
@@ -147,11 +217,14 @@ function Rows({ group }: { group: Group }) {
   )
 }
 
-/** Cheat sheet for both workspaces; opens on the tab matching the current mode. */
+/**
+ * Cheat sheet for the run and for both workspaces; opens on the tab matching
+ * the current mode.
+ */
 export default function HelpOverlay() {
   const mode = useRun((s) => s.mode)
   const [open, setOpen] = useState(false)
-  const [tab, setTab] = useState<Mode>(mode)
+  const [tab, setTab] = useState<HelpTab>(mode)
 
   // Follow the workspace while closed, so opening always lands on what you are looking at.
   useEffect(() => {
@@ -185,8 +258,8 @@ export default function HelpOverlay() {
       <button
         className="help-btn"
         onClick={() => setOpen(true)}
-        title="Controls and shortcuts (?)"
-        aria-label="Controls and shortcuts"
+        title="General help (?)"
+        aria-label="General help"
       >
         ?
       </button>
@@ -197,15 +270,15 @@ export default function HelpOverlay() {
             className="help-sheet"
             role="dialog"
             aria-modal="true"
-            aria-label="Controls and shortcuts"
+            aria-label="General help"
             onClick={(e) => e.stopPropagation()}
           >
             <header className="help-head">
-              <h3>Controls</h3>
+              <h3>General Help</h3>
               <div className="segmented small">
-                {(['2d', '3d'] as Mode[]).map((m) => (
-                  <button key={m} className={tab === m ? 'on' : ''} onClick={() => setTab(m)}>
-                    {MODE_LABEL[m]}
+                {TABS.map((t) => (
+                  <button key={t} className={tab === t ? 'on' : ''} onClick={() => setTab(t)}>
+                    {TAB_LABEL[t]}
                   </button>
                 ))}
               </div>

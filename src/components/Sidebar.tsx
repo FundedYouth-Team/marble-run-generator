@@ -5,6 +5,7 @@ import {
   useRun,
   VARIANT_LABEL,
   PIECE_LIMITS,
+  TUBE_LIMITS,
   tubeSpec,
   jointSpec,
   pieceLabel,
@@ -64,18 +65,14 @@ export default function Sidebar() {
           hint="bore the marble rolls in"
           value={s.innerDiameter}
           onChange={s.setInnerDiameter}
-          min={6}
-          max={80}
-          step={0.5}
+          {...TUBE_LIMITS.innerDiameter}
         />
         <NumberField
           label="Wall thickness"
           hint="outer minus inner"
           value={s.wallThickness}
           onChange={s.setWallThickness}
-          min={1}
-          max={12}
-          step={0.5}
+          {...TUBE_LIMITS.wallThickness}
         />
         <div className="readout">
           <div>

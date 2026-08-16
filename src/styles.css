@@ -286,12 +286,30 @@ body {
   border-color: var(--accent);
 }
 
-.new-project-btn {
+/* Save, Open, New — what acts on the run as a whole, kept together. */
+.project-btns {
+  display: flex;
   flex: 0 0 auto;
+  gap: 6px;
+}
+
+.project-btns button {
   padding: 7px 12px;
   font-size: 11px;
   letter-spacing: 0.06em;
   text-transform: uppercase;
+}
+
+/* What the last save or open did, said once and then let go. */
+.project-status {
+  min-width: 0;
+  /* Never at the expense of the controls next to it — it ellipses instead. */
+  max-width: 200px;
+  overflow: hidden;
+  font-size: 11px;
+  color: var(--ink-dim);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* Small centred dialog for a choice that cannot be undone. */
@@ -432,6 +450,13 @@ body {
 
 .help-head .segmented {
   margin-left: auto;
+  flex: 0 0 auto;
+}
+
+/* Each tab is as wide as its own label — a wrapped "2D Draft" reads as two tabs. */
+.help-head .segmented button {
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 
 .help-close {
