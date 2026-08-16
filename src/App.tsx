@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import Sidebar from './components/Sidebar'
 import Draft2D from './components/Draft2D'
 import Scene3D from './components/Scene3D'
@@ -6,8 +7,30 @@ import HelpOverlay from './components/HelpOverlay'
 import PartLibrary from './components/PartLibrary'
 import { useRun, tubeSpec, VARIANT_LABEL } from './store'
 
+/** Fields own their own undo stack — the run's only takes over outside them. */
+function isTyping(el: EventTarget | null) {
+  const t = el as HTMLElement | null
+  return !!t && (t.isContentEditable || /^(input|textarea|select)$/i.test(t.tagName))
+}
+
 export default function App() {
   const { mode, setMode, pieces, innerDiameter, wallThickness, variant } = useRun()
+
+  // The usual shortcuts, wherever you are — both stages share the one timeline.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey) || e.altKey || isTyping(e.target)) return
+      const key = e.key.toLowerCase()
+      if (key !== 'z' && key !== 'y') return
+      e.preventDefault()
+      const { undo, redo } = useRun.getState()
+      // Ctrl+Y is the Windows redo; Shift+Z is everyone else's.
+      if (key === 'y' || e.shiftKey) redo()
+      else undo()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
   const spec = tubeSpec(innerDiameter, wallThickness, variant)
   const total = pieces.reduce((a, p) => a + p.length, 0)
 

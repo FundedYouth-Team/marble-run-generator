@@ -9,6 +9,8 @@ export type DraftView = 'elevation' | 'plan'
 export type Theme = 'light' | 'dark'
 /** How the 3D pieces are shaded — see-through mode exposes the bore and the marble. */
 export type Shading = 'solid' | 'transparent'
+/** Which slide-out is showing on the right edge of the stage, if any. */
+export type RightPanel = 'settings' | 'history' | null
 
 const THEME_KEY = 'mrg.theme'
 const PIECE_COLOR_KEY = 'mrg.pieceColor'
@@ -142,6 +144,70 @@ export function makePiece(partial: Partial<Piece> = {}): Piece {
   return { id: nextId(), type: 'straight', length: 120, slope: 6, turn: 0, ...partial }
 }
 
+/* ---------------- history ---------------- */
+
+/** How far back the History panel can walk. Ten steps, plus the state they started from. */
+export const HISTORY_LIMIT = 10
+
+/**
+ * A run of the same edit inside this window folds into one step, so dragging a
+ * slider or a joint handle costs one entry rather than a hundred.
+ */
+const COALESCE_MS = 700
+
+/**
+ * The part of the store undo restores: the model itself. View state — camera,
+ * theme, mode, sim playback, export format — is deliberately outside it, so
+ * stepping back never yanks the viewport around.
+ */
+interface Snapshot {
+  pieces: Piece[]
+  selectedId: string | null
+  innerDiameter: number
+  wallThickness: number
+  variant: TubeVariant
+  marbleDiameter: number
+}
+
+export interface HistoryEntry {
+  id: number
+  /** What the step did, as shown in the History list. */
+  label: string
+  at: number
+  snap: Snapshot
+}
+
+function snapshot(s: Snapshot): Snapshot {
+  return {
+    pieces: s.pieces,
+    selectedId: s.selectedId,
+    innerDiameter: s.innerDiameter,
+    wallThickness: s.wallThickness,
+    variant: s.variant,
+    marbleDiameter: s.marbleDiameter,
+  }
+}
+
+/** Trailing zeros read as noise in a step label — 140, not 140.0. */
+const num = (v: number) => String(Math.round(v * 100) / 100)
+
+const FIELD_LABEL: Record<string, string> = { length: 'length', slope: 'slope', turn: 'turn' }
+const FIELD_UNIT: Record<string, string> = { length: ' mm', slope: '°', turn: '°' }
+
+/** What a part is called right now, for a step label. */
+function nameOf(s: { pieces: Piece[] }, id: string): string {
+  const i = s.pieces.findIndex((p) => p.id === id)
+  return i < 0 ? 'part' : pieceLabel(s.pieces[i], i)
+}
+
+/** "Tube 2 length 140 mm" — what changed, on which part, to what. */
+function editLabel(name: string, patch: Partial<Piece>): string {
+  const parts = Object.entries(patch)
+    .filter(([k]) => k in FIELD_LABEL)
+    .map(([k, v]) => `${FIELD_LABEL[k]} ${num(v as number)}${FIELD_UNIT[k]}`)
+  return parts.length ? `${name} ${parts.join(', ')}` : `Edit ${name}`
+}
+
 interface RunState {
   mode: Mode
   draftView: DraftView
@@ -175,6 +241,20 @@ interface RunState {
   /** False while `screenPxPerMm` is still the nominal guess, not a measurement. */
   screenCalibrated: boolean
 
+  /** Which slide-out is open on the right edge — one at a time, shared by both stages. */
+  rightPanel: RightPanel
+
+  /** Oldest first; the entry at `historyIndex` is the model on screen. */
+  history: HistoryEntry[]
+  historyIndex: number
+
+  setRightPanel: (p: RightPanel) => void
+  toggleRightPanel: (p: Exclude<RightPanel, null>) => void
+  undo: () => void
+  redo: () => void
+  /** Jump straight to a step from the History list. */
+  gotoHistory: (index: number) => void
+
   setMode: (m: Mode) => void
   setDraftView: (v: DraftView) => void
   toggleTheme: () => void
@@ -207,142 +287,276 @@ interface RunState {
   select: (id: string | null) => void
 }
 
-export const useRun = create<RunState>((set, get) => ({
-  // 3D is where a run is built; the 2D draft is for working a single part.
-  mode: '3d',
-  draftView: 'elevation',
-  theme: initialTheme(),
-
-  // Sized for a standard glass marble out of the box.
+const INITIAL_SNAPSHOT: Snapshot = {
+  pieces: [makePiece({ length: 140, slope: 8 })],
+  selectedId: null,
   innerDiameter: STANDARD_BORE,
   wallThickness: 3,
   variant: 'threequarter',
-
-  pieces: [makePiece({ length: 140, slope: 8 })],
-  selectedId: null,
-
-  pieceColor: initialColor(PIECE_COLOR_KEY, DEFAULT_PIECE_COLOR),
-  marbleColor: initialColor(MARBLE_COLOR_KEY, DEFAULT_MARBLE_COLOR),
-  shading: initialShading(),
-
   marbleDiameter: STANDARD_MARBLE,
-  running: false,
-  loop: true,
-  timeScale: 1,
-  friction: 0.06,
-  resetToken: 0,
-  exportFormat: '3mf',
+}
 
-  ...(() => {
-    const { pxPerMm, calibrated } = initialScreen()
-    return { screenPxPerMm: pxPerMm, screenCalibrated: calibrated }
-  })(),
+let entrySeq = 0
 
-  setMode: (mode) => set({ mode }),
-  setDraftView: (draftView) => set({ draftView }),
-  toggleTheme: () =>
+export const useRun = create<RunState>((set, get) => {
+  /** The last coalescable edit, so a continuing drag folds into its own step. */
+  let recent: { key: string; at: number } | null = null
+
+  /**
+   * Applies a model change and files it as one step in the timeline. `patch`
+   * returning null means nothing actually moved, so nothing is recorded.
+   * `coalesce` keys the fold — repeats of the same key inside COALESCE_MS
+   * rewrite the step they started rather than stacking new ones.
+   */
+  const commit = (
+    label: string,
+    patch: (s: RunState) => Partial<RunState> | null,
+    coalesce?: string,
+  ) =>
     set((s) => {
-      const theme: Theme = s.theme === 'light' ? 'dark' : 'light'
-      applyTheme(theme)
-      return { theme }
-    }),
-  setInnerDiameter: (innerDiameter) =>
-    set((s) => ({
-      innerDiameter,
-      // Keep the marble inside the bore.
-      marbleDiameter: Math.min(s.marbleDiameter, innerDiameter - 2),
-    })),
-  setWallThickness: (wallThickness) => set({ wallThickness }),
-  setVariant: (variant) => set({ variant }),
-  setPieceColor: (pieceColor) => {
-    remember(PIECE_COLOR_KEY, pieceColor)
-    set({ pieceColor })
-  },
-  setMarbleColor: (marbleColor) => {
-    remember(MARBLE_COLOR_KEY, marbleColor)
-    set({ marbleColor })
-  },
-  setShading: (shading) => {
-    remember(SHADING_KEY, shading)
-    set({ shading })
-  },
-  toggleShading: () =>
+      const next = patch(s)
+      if (!next) return s
+      const snap = snapshot({ ...s, ...next })
+      const now = Date.now()
+      // Never fold into the opening state — that one has to stay reachable.
+      const fold =
+        coalesce !== undefined &&
+        recent?.key === coalesce &&
+        now - recent.at < COALESCE_MS &&
+        s.historyIndex > 0
+      recent = coalesce === undefined ? null : { key: coalesce, at: now }
+
+      // Anything that was redoable is gone the moment a new step lands.
+      const history = s.history.slice(0, s.historyIndex + 1)
+      if (fold) {
+        history[history.length - 1] = { ...history[history.length - 1], label, at: now, snap }
+      } else {
+        history.push({ id: ++entrySeq, label, at: now, snap })
+        // One spare for the state the ten steps started from.
+        if (history.length > HISTORY_LIMIT + 1) history.splice(0, history.length - HISTORY_LIMIT - 1)
+      }
+      return { ...next, history, historyIndex: history.length - 1 }
+    })
+
+  /** Restores the model recorded at `index`; view state is left alone. */
+  const goto = (index: number) =>
     set((s) => {
-      const shading: Shading = s.shading === 'solid' ? 'transparent' : 'solid'
+      if (index < 0 || index >= s.history.length || index === s.historyIndex) return s
+      // A step of its own ends any drag-fold in progress.
+      recent = null
+      return { ...s.history[index].snap, historyIndex: index }
+    })
+
+  return {
+    // 3D is where a run is built; the 2D draft is for working a single part.
+    mode: '3d',
+    draftView: 'elevation',
+    theme: initialTheme(),
+
+    // Sized for a standard glass marble out of the box.
+    innerDiameter: INITIAL_SNAPSHOT.innerDiameter,
+    wallThickness: INITIAL_SNAPSHOT.wallThickness,
+    variant: INITIAL_SNAPSHOT.variant,
+
+    pieces: INITIAL_SNAPSHOT.pieces,
+    selectedId: INITIAL_SNAPSHOT.selectedId,
+
+    pieceColor: initialColor(PIECE_COLOR_KEY, DEFAULT_PIECE_COLOR),
+    marbleColor: initialColor(MARBLE_COLOR_KEY, DEFAULT_MARBLE_COLOR),
+    shading: initialShading(),
+
+    marbleDiameter: INITIAL_SNAPSHOT.marbleDiameter,
+    running: false,
+    loop: true,
+    timeScale: 1,
+    friction: 0.06,
+    resetToken: 0,
+    exportFormat: '3mf',
+
+    ...(() => {
+      const { pxPerMm, calibrated } = initialScreen()
+      return { screenPxPerMm: pxPerMm, screenCalibrated: calibrated }
+    })(),
+
+    rightPanel: null,
+
+    // The run always has somewhere to step back to, even before the first edit.
+    history: [{ id: ++entrySeq, label: 'Opening state', at: Date.now(), snap: INITIAL_SNAPSHOT }],
+    historyIndex: 0,
+
+    setRightPanel: (rightPanel) => set({ rightPanel }),
+    // Clicking the open panel's own tab closes it — the tab is a toggle, not a switch.
+    toggleRightPanel: (p) => set((s) => ({ rightPanel: s.rightPanel === p ? null : p })),
+    undo: () => goto(get().historyIndex - 1),
+    redo: () => goto(get().historyIndex + 1),
+    gotoHistory: goto,
+
+    setMode: (mode) => set({ mode }),
+    setDraftView: (draftView) => set({ draftView }),
+    toggleTheme: () =>
+      set((s) => {
+        const theme: Theme = s.theme === 'light' ? 'dark' : 'light'
+        applyTheme(theme)
+        return { theme }
+      }),
+    setInnerDiameter: (innerDiameter) =>
+      commit(
+        `Bore \u00d8${num(innerDiameter)} mm`,
+        (s) =>
+          s.innerDiameter === innerDiameter
+            ? null
+            : {
+                innerDiameter,
+                // Keep the marble inside the bore.
+                marbleDiameter: Math.min(s.marbleDiameter, innerDiameter - 2),
+              },
+        'bore',
+      ),
+    setWallThickness: (wallThickness) =>
+      commit(
+        `Wall ${num(wallThickness)} mm`,
+        (s) => (s.wallThickness === wallThickness ? null : { wallThickness }),
+        'wall',
+      ),
+    setVariant: (variant) =>
+      commit(`Style: ${VARIANT_LABEL[variant]}`, (s) => (s.variant === variant ? null : { variant })),
+    setPieceColor: (pieceColor) => {
+      remember(PIECE_COLOR_KEY, pieceColor)
+      set({ pieceColor })
+    },
+    setMarbleColor: (marbleColor) => {
+      remember(MARBLE_COLOR_KEY, marbleColor)
+      set({ marbleColor })
+    },
+    setShading: (shading) => {
       remember(SHADING_KEY, shading)
-      return { shading }
-    }),
-  setMarbleDiameter: (marbleDiameter) => set({ marbleDiameter }),
-  // Bore and marble move together, so the fit is right whatever they were scaled to.
-  resetMarbleFit: () => set({ marbleDiameter: STANDARD_MARBLE, innerDiameter: STANDARD_BORE }),
-  setTimeScale: (timeScale) => set({ timeScale }),
-  setFriction: (friction) => set({ friction }),
-  toggleRunning: () => set((s) => ({ running: !s.running })),
-  setLoop: (loop) => set({ loop }),
-  resetSim: () => set((s) => ({ resetToken: s.resetToken + 1 })),
-  setExportFormat: (exportFormat) => set({ exportFormat }),
+      set({ shading })
+    },
+    toggleShading: () =>
+      set((s) => {
+        const shading: Shading = s.shading === 'solid' ? 'transparent' : 'solid'
+        remember(SHADING_KEY, shading)
+        return { shading }
+      }),
+    setMarbleDiameter: (marbleDiameter) =>
+      commit(
+        `Marble \u00d8${num(marbleDiameter)} mm`,
+        (s) => (s.marbleDiameter === marbleDiameter ? null : { marbleDiameter }),
+        'marble',
+      ),
+    // Bore and marble move together, so the fit is right whatever they were scaled to.
+    resetMarbleFit: () =>
+      commit('Reset marble fit', (s) =>
+        s.marbleDiameter === STANDARD_MARBLE && s.innerDiameter === STANDARD_BORE
+          ? null
+          : { marbleDiameter: STANDARD_MARBLE, innerDiameter: STANDARD_BORE },
+      ),
+    setTimeScale: (timeScale) => set({ timeScale }),
+    setFriction: (friction) => set({ friction }),
+    toggleRunning: () => set((s) => ({ running: !s.running })),
+    setLoop: (loop) => set({ loop }),
+    resetSim: () => set((s) => ({ resetToken: s.resetToken + 1 })),
+    setExportFormat: (exportFormat) => set({ exportFormat }),
 
-  setScreenPxPerMm: (v) => {
-    const screenPxPerMm = Math.min(PX_PER_MM_MAX, Math.max(PX_PER_MM_MIN, v))
-    remember(SCREEN_KEY, String(screenPxPerMm))
-    set({ screenPxPerMm, screenCalibrated: true })
-  },
+    setScreenPxPerMm: (v) => {
+      const screenPxPerMm = Math.min(PX_PER_MM_MAX, Math.max(PX_PER_MM_MIN, v))
+      remember(SCREEN_KEY, String(screenPxPerMm))
+      set({ screenPxPerMm, screenCalibrated: true })
+    },
 
-  resetScreenCalibration: () => {
-    try {
-      localStorage.removeItem(SCREEN_KEY)
-    } catch {
-      // Same as `remember` — a storage failure is not worth surfacing.
-    }
-    set({ screenPxPerMm: NOMINAL_PX_PER_MM, screenCalibrated: false })
-  },
+    resetScreenCalibration: () => {
+      try {
+        localStorage.removeItem(SCREEN_KEY)
+      } catch {
+        // Same as `remember` \u2014 a storage failure is not worth surfacing.
+      }
+      set({ screenPxPerMm: NOMINAL_PX_PER_MM, screenCalibrated: false })
+    },
 
-  addPiece: () => {
-    const prev = get().pieces.at(-1)
-    const piece = makePiece(prev ? { length: prev.length, slope: prev.slope } : {})
-    set((s) => ({ pieces: [...s.pieces, piece], selectedId: piece.id }))
-  },
-  // The copy lands right after its original and takes over the selection.
-  duplicatePiece: (id) =>
-    set((s) => {
+    addPiece: () => {
+      const prev = get().pieces.at(-1)
+      const piece = makePiece(prev ? { length: prev.length, slope: prev.slope } : {})
+      commit(`Add ${PART_LABEL[piece.type]}`, (s) => ({
+        pieces: [...s.pieces, piece],
+        selectedId: piece.id,
+      }))
+    },
+    // The copy lands right after its original and takes over the selection.
+    duplicatePiece: (id) =>
+      commit(`Duplicate ${nameOf(get(), id)}`, (s) => {
+        const i = s.pieces.findIndex((p) => p.id === id)
+        if (i < 0) return null
+        const { id: _id, ...rest } = s.pieces[i]
+        const copy = makePiece(rest)
+        const pieces = s.pieces.slice()
+        pieces.splice(i + 1, 0, copy)
+        return { pieces, selectedId: copy.id }
+      }),
+    // A blank name is stored as none at all, so the part falls back to its default label.
+    renamePiece: (id, name) =>
+      commit(`Rename to ${name.trim() || 'default'}`, (s) => {
+        const i = s.pieces.findIndex((p) => p.id === id)
+        const next = name.trim() ? name : undefined
+        if (i < 0 || s.pieces[i].name === next) return null
+        return { pieces: s.pieces.map((p) => (p.id === id ? { ...p, name: next } : p)) }
+      }),
+    // Visibility is a view filter only \u2014 a hidden piece still positions the ones after it.
+    togglePieceHidden: (id) =>
+      commit(
+        `${get().pieces.find((p) => p.id === id)?.hidden ? 'Show' : 'Hide'} ${nameOf(get(), id)}`,
+        (s) => {
+          const i = s.pieces.findIndex((p) => p.id === id)
+          if (i < 0) return null
+          return { pieces: s.pieces.map((p) => (p.id === id ? { ...p, hidden: !p.hidden } : p)) }
+        },
+      ),
+    showAllPieces: () =>
+      commit('Show all parts', (s) =>
+        s.pieces.some((p) => p.hidden)
+          ? { pieces: s.pieces.map((p) => (p.hidden ? { ...p, hidden: false } : p)) }
+          : null,
+      ),
+    updatePiece: (id, patch) => {
+      const s = get()
       const i = s.pieces.findIndex((p) => p.id === id)
-      if (i < 0) return s
-      const { id: _id, ...rest } = s.pieces[i]
-      const copy = makePiece(rest)
-      const pieces = s.pieces.slice()
-      pieces.splice(i + 1, 0, copy)
-      return { ...s, pieces, selectedId: copy.id }
-    }),
-  // A blank name is stored as none at all, so the part falls back to its default label.
-  renamePiece: (id, name) =>
-    set((s) => ({
-      pieces: s.pieces.map((p) => (p.id === id ? { ...p, name: name.trim() ? name : undefined } : p)),
-    })),
-  // Visibility is a view filter only — a hidden piece still positions the ones after it.
-  togglePieceHidden: (id) =>
-    set((s) => ({
-      pieces: s.pieces.map((p) => (p.id === id ? { ...p, hidden: !p.hidden } : p)),
-    })),
-  showAllPieces: () =>
-    set((s) => ({ pieces: s.pieces.map((p) => (p.hidden ? { ...p, hidden: false } : p)) })),
-  updatePiece: (id, patch) =>
-    set((s) => ({ pieces: s.pieces.map((p) => (p.id === id ? { ...p, ...patch } : p)) })),
-  removePiece: (id) =>
-    set((s) => ({
-      pieces: s.pieces.filter((p) => p.id !== id),
-      selectedId: s.selectedId === id ? null : s.selectedId,
-    })),
-  movePiece: (id, dir) =>
-    set((s) => {
-      const i = s.pieces.findIndex((p) => p.id === id)
-      const j = i + dir
-      if (i < 0 || j < 0 || j >= s.pieces.length) return s
-      const pieces = s.pieces.slice()
-      ;[pieces[i], pieces[j]] = [pieces[j], pieces[i]]
-      return { ...s, pieces }
-    }),
-  select: (selectedId) => set({ selectedId }),
-}))
+      if (i < 0) return
+      const label = editLabel(pieceLabel(s.pieces[i], i), patch)
+      commit(
+        label,
+        (cur) => {
+          const piece = cur.pieces.find((p) => p.id === id)
+          // Slider and drag traffic repeats the value it already has \u2014 not a step.
+          if (!piece || Object.entries(patch).every(([k, v]) => piece[k as keyof Piece] === v)) {
+            return null
+          }
+          return { pieces: cur.pieces.map((p) => (p.id === id ? { ...p, ...patch } : p)) }
+        },
+        // Held-down drags of the same field on the same part fold into one step.
+        `piece:${id}:${Object.keys(patch).sort().join(',')}`,
+      )
+    },
+    removePiece: (id) =>
+      commit(`Delete ${nameOf(get(), id)}`, (s) =>
+        s.pieces.some((p) => p.id === id)
+          ? {
+              pieces: s.pieces.filter((p) => p.id !== id),
+              selectedId: s.selectedId === id ? null : s.selectedId,
+            }
+          : null,
+      ),
+    movePiece: (id, dir) =>
+      commit(`Move ${nameOf(get(), id)} ${dir < 0 ? 'up' : 'down'}`, (s) => {
+        const i = s.pieces.findIndex((p) => p.id === id)
+        const j = i + dir
+        if (i < 0 || j < 0 || j >= s.pieces.length) return null
+        const pieces = s.pieces.slice()
+        ;[pieces[i], pieces[j]] = [pieces[j], pieces[i]]
+        return { pieces }
+      }),
+    // Picking a part is not a model change, so it never lands in the history.
+    select: (selectedId) => set({ selectedId }),
+  }
+})
 
 /** Derived tube dimensions shared by the 2D draft and the 3D solid. */
 export interface TubeSpec {

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import MouseLegend, { type MouseConfig } from './MouseLegend'
-import SettingsPanel from './SettingsPanel'
+import RightDock from './RightDock'
+import UndoRedo from './UndoRedo'
 import { FitIcon } from './icons'
 import { crossSectionPath } from '../lib/geometry'
 import { buildAssembly } from '../lib/layout'
@@ -626,6 +627,7 @@ function AssemblyDraft({ shifted }: { shifted: boolean }) {
           </button>
         </div>
         <span className="spacer" />
+        <UndoRedo />
         {/* Reads "on" only once the zoom actually is life-size, so it doubles as
             a readout of whether what you are looking at is true to scale. */}
         <button
@@ -851,7 +853,8 @@ function AssemblyDraft({ shifted }: { shifted: boolean }) {
 const SETTINGS_WIDTH = 312
 
 export default function Draft2D() {
-  const [settingsOpen, setSettingsOpen] = useState(false)
+  // Either slide-out takes the same gutter, so the panes step aside for both.
+  const docked = useRun((s) => s.rightPanel !== null)
 
   return (
     <div className="stage-2d" style={{ '--parts-w': `${SETTINGS_WIDTH}px` } as React.CSSProperties}>
@@ -866,28 +869,17 @@ export default function Draft2D() {
       </div>
       {/* The panel slides over this pane's right edge, so its header row and
           toolbar step aside to keep the Fit button reachable. */}
-      <div className={settingsOpen ? 'pane grow shifted' : 'pane grow'}>
+      <div className={docked ? 'pane grow shifted' : 'pane grow'}>
         <header className="pane-head">
           <h3>Assembly draft</h3>
           <span>straight line objects</span>
         </header>
         <div className="pane-body">
-          <AssemblyDraft shifted={settingsOpen} />
+          <AssemblyDraft shifted={docked} />
         </div>
       </div>
 
-      {/* Filing-tab handle on the right edge — rides out with the panel so it
-          always sits against whichever edge the panel is showing. */}
-      <button
-        className={settingsOpen ? 'settings-tab shifted' : 'settings-tab'}
-        onClick={() => setSettingsOpen((v) => !v)}
-        title={settingsOpen ? 'Hide settings' : 'Show settings'}
-        aria-label="Settings"
-        aria-expanded={settingsOpen}
-      >
-        Settings
-      </button>
-      <SettingsPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      <RightDock />
     </div>
   )
 }

@@ -41,15 +41,16 @@ const HELP: Record<Mode, Group[]> = {
         { keys: ['Left-click a part'], action: 'Select it and open its settings in the sidebar' },
         { keys: ['Left-click empty space'], action: 'Deselect' },
         {
-          keys: ['Settings tab'],
-          action: 'Slide out the marble and export settings',
-          note: 'the vertical tab on the right edge; Esc closes it',
+          keys: ['Settings tab', 'History tab'],
+          action: 'Slide out the settings, or the last changes to the run',
+          note: 'the vertical tabs on the right edge; Esc closes them',
         },
       ],
     },
     {
       title: 'HUD',
       rows: [
+        { keys: ['↶', '↷'], action: 'Step back and forward through the last 10 changes', note: 'listed in the History tab' },
         { keys: ['▶ Run marble'], action: 'Start the simulation', note: 'the same button pauses it' },
         { keys: ['↺ Reset'], action: 'Send the marble back to the start' },
         { keys: ['◉ Solid', '◍ Transparent'], action: 'See through the tube walls' },
@@ -76,9 +77,9 @@ const HELP: Record<Mode, Group[]> = {
           note: 'calibrate your screen in Settings first, or it is only a guess',
         },
         {
-          keys: ['Settings tab'],
-          action: 'Slide out the marble and export settings',
-          note: 'the vertical tab on the right edge; Esc closes it',
+          keys: ['Settings tab', 'History tab'],
+          action: 'Slide out the settings, or the last changes to the run',
+          note: 'the vertical tabs on the right edge; Esc closes them',
         },
       ],
     },
@@ -112,6 +113,7 @@ const ALWAYS: Group = {
   rows: [
     { keys: ['＋ Add Part'], action: 'Browse the part library and drop a part on the stage', note: 'top of the window' },
     { keys: ['2D Draft Mode', '3D Mode'], action: 'Switch workspace', note: 'top of the window' },
+    { keys: ['Ctrl', 'Z'], action: 'Undo the last change', note: 'Ctrl+Shift+Z redoes it; ⌘ on a Mac' },
     { keys: ['?'], action: 'Open this help' },
     { keys: ['Esc'], action: 'Close this help' },
   ],

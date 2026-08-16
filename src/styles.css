@@ -1996,14 +1996,27 @@ button.danger {
   right: calc(14px + var(--parts-w));
 }
 
-/* Vertical filing tab against the right edge — the grab handle for the
-   settings slide-out. Sits above the panel so it stays clickable either way. */
-.settings-tab {
+/* Vertical filing tabs against the right edge — the grab handles for the
+   slide-outs. They sit above the panels so they stay clickable either way, and
+   ride out on the open panel's outer edge. */
+.dock-tabs {
   position: absolute;
   top: 50%;
   right: 0;
   transform: translateY(-50%);
   z-index: 6;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  transition: right 0.24s ease;
+}
+
+/* A panel is out — ride along on its outer edge. */
+.dock-tabs.shifted {
+  right: var(--parts-w);
+}
+
+.dock-tab {
   padding: 16px 7px;
   writing-mode: vertical-rl;
   text-orientation: mixed;
@@ -2019,19 +2032,20 @@ button.danger {
   box-shadow: -2px 0 8px rgba(0, 0, 0, 0.12);
   cursor: pointer;
   transition:
-    right 0.24s ease,
     color 0.15s ease,
     background 0.15s ease;
 }
 
-.settings-tab:hover {
+.dock-tab:hover:not(:disabled) {
   color: var(--accent-text);
   background: var(--panel-2);
 }
 
-/* Panel is out — ride along on its outer edge. */
-.settings-tab.shifted {
-  right: var(--parts-w);
+/* The tab whose panel is showing reads as pulled out. */
+.dock-tab.on {
+  color: var(--accent-text);
+  background: var(--panel);
+  border-color: var(--primary-border);
 }
 
 .parts-panel {
@@ -2081,6 +2095,130 @@ button.danger {
 
 .view-tool svg {
   display: block;
+}
+
+/* ---------------- undo / redo ---------------- */
+
+/* A joined pair, so they read as one control rather than two loose buttons. */
+.undo-redo {
+  display: flex;
+}
+
+.undo-redo button {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  color: var(--ink-dim);
+}
+
+.undo-redo button:first-child {
+  border-radius: 6px 0 0 6px;
+}
+
+.undo-redo button:last-child {
+  margin-left: -1px;
+  border-radius: 0 6px 6px 0;
+}
+
+.undo-redo button:hover:not(:disabled) {
+  color: var(--accent-text);
+  /* The hovered half owns the shared edge. */
+  position: relative;
+  z-index: 1;
+}
+
+.undo-redo svg {
+  display: block;
+}
+
+/* ---------------- history panel ---------------- */
+
+.history-actions {
+  display: flex;
+  gap: 6px;
+  padding: 10px 10px 0;
+}
+
+.history-actions button {
+  flex: 1 1 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.history-body {
+  padding-top: 10px;
+}
+
+.history-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.history-step {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-color: transparent;
+  background: none;
+  text-align: left;
+  font-size: 12px;
+  color: var(--ink-dim);
+}
+
+.history-step:hover:not(:disabled) {
+  background: var(--panel-2);
+  color: var(--ink);
+}
+
+/* Where the run is right now. */
+.history-step.on {
+  border-color: var(--primary-border);
+  background: var(--panel-2);
+  color: var(--ink);
+  font-weight: 600;
+}
+
+/* Undone, but still walkable — until the next edit drops it. */
+.history-step.ahead {
+  opacity: 0.5;
+}
+
+/* The timeline bead: hollow for a step you can walk to, filled for the one you are on. */
+.history-dot {
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  border: 1.5px solid var(--ink-mute);
+}
+
+.history-step.on .history-dot {
+  border-color: var(--accent-text);
+  background: var(--accent-text);
+}
+
+.history-label {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.history-time {
+  flex: 0 0 auto;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--ink-mute);
 }
 
 /* ---------------- live mouse diagram ---------------- */

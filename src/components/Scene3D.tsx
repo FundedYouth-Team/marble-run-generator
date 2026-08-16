@@ -4,7 +4,8 @@ import { ContactShadows, GizmoHelper, Grid, OrbitControls } from '@react-three/d
 import * as THREE from 'three'
 import ViewCube, { type CubePalette } from './ViewCube'
 import MouseLegend from './MouseLegend'
-import SettingsPanel from './SettingsPanel'
+import RightDock from './RightDock'
+import UndoRedo from './UndoRedo'
 import ActiveParts from './ActiveParts'
 import { FitIcon, HomeIcon } from './icons'
 import { buildPieceGeometry } from '../lib/geometry'
@@ -364,6 +365,7 @@ function Hud({ spec, asm }: { spec: TubeSpec; asm: Assembly }) {
 
   return (
     <div className="hud">
+      <UndoRedo />
       <button className={running ? 'primary on' : 'primary'} onClick={toggleRunning}>
         {running ? '❚❚ Pause' : '▶ Run marble'}
       </button>
@@ -409,9 +411,10 @@ function Hud({ spec, asm }: { spec: TubeSpec; asm: Assembly }) {
 const SETTINGS_WIDTH = 312
 
 export default function Scene3D() {
-  const { pieces, innerDiameter, wallThickness, variant, selectedId, select, theme, pieceColor, shading } =
+  const { pieces, innerDiameter, wallThickness, variant, selectedId, select, theme, pieceColor, shading, rightPanel } =
     useRun()
-  const [settingsOpen, setSettingsOpen] = useState(false)
+  // Either slide-out takes the same gutter, so the corner controls step aside for both.
+  const docked = rightPanel !== null
   const xray = shading === 'transparent'
   const palette = PALETTE[theme]
   const tint = useMemo(() => shades(pieceColor), [pieceColor])
@@ -544,14 +547,14 @@ export default function Scene3D() {
         <CameraRig asm={asm} goal={goal} orbitRef={orbitRef} />
         {/* Margin is the cube's centre; .view-tools is positioned to hang below it.
             The open parts list pushes the whole corner cluster clear of it. */}
-        <GizmoHelper alignment="top-right" margin={[64, settingsOpen ? 64 + SETTINGS_WIDTH : 64]}>
+        <GizmoHelper alignment="top-right" margin={[64, docked ? 64 + SETTINGS_WIDTH : 64]}>
           <ViewCube palette={palette.cube} onPick={snapTo} onOrbit={orbit} />
         </GizmoHelper>
       </Canvas>
 
       <Hud spec={spec} asm={asm} />
       <ActiveParts />
-      <div className={settingsOpen ? 'view-tools shifted' : 'view-tools'}>
+      <div className={docked ? 'view-tools shifted' : 'view-tools'}>
         <button
           className="view-tool"
           onClick={home}
@@ -571,22 +574,11 @@ export default function Scene3D() {
       </div>
       {/* Names the ground plane. Rides beside the mouse legend rather than sitting
           in the scene, so it stays legible and unmirrored at any camera angle. */}
-      <div className={settingsOpen ? 'workplane-tag shifted' : 'workplane-tag'} aria-hidden="true">
+      <div className={docked ? 'workplane-tag shifted' : 'workplane-tag'} aria-hidden="true">
         Workplane
       </div>
-      <MouseLegend stage={stage} shifted={settingsOpen} />
-      {/* Filing-tab handle on the right edge — rides out with the panel so it
-          always sits against whichever edge the panel is showing. */}
-      <button
-        className={settingsOpen ? 'settings-tab shifted' : 'settings-tab'}
-        onClick={() => setSettingsOpen((v) => !v)}
-        title={settingsOpen ? 'Hide settings' : 'Show settings'}
-        aria-label="Settings"
-        aria-expanded={settingsOpen}
-      >
-        Settings
-      </button>
-      <SettingsPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      <MouseLegend stage={stage} shifted={docked} />
+      <RightDock />
     </div>
   )
 }
