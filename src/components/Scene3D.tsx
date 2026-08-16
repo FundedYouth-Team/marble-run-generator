@@ -177,8 +177,13 @@ function Marble({ asm, spec }: { asm: Assembly; spec: TubeSpec }) {
   )
 }
 
-/** The angle the home button returns to. */
-const HOME_DIR = new THREE.Vector3(0.62, 0.5, 0.6).normalize()
+/**
+ * The angle the home button returns to. A run with no turns travels down +Z,
+ * so the camera stands on the -X side: from there +Z projects to screen right
+ * and the marble reads start-on-the-left, the same way the 2D elevation
+ * develops. Mirroring this to +X silently reverses the run on screen.
+ */
+const HOME_DIR = new THREE.Vector3(-0.62, 0.5, 0.6).normalize()
 
 /**
  * Headroom left around whatever is being framed. Fit crops in close on its
@@ -467,7 +472,8 @@ export default function Scene3D() {
       <Canvas
         shadows
         dpr={[1, 2]}
-        camera={{ fov: 45, position: [200, 160, 260] }}
+        // Opening pose, kept on the same side as HOME_DIR.
+        camera={{ fov: 45, position: [-200, 160, 260] }}
         // Only the left button selects, so only the left button clears the selection.
         onPointerMissed={(e) => e.button === 0 && select(null)}
       >
@@ -475,13 +481,15 @@ export default function Scene3D() {
         <fog attach="fog" args={[palette.background, 1200, 4200]} />
 
         <hemisphereLight args={[palette.skyLight, palette.groundLight, palette.hemiIntensity]} />
+        {/* Key and fill are mirrored in X along with the home camera, so the run
+            keeps the same lit/shaded sides relative to the viewer. */}
         <directionalLight
-          position={[300, 500, 250]}
+          position={[-300, 500, 250]}
           intensity={palette.keyIntensity}
           castShadow
           shadow-mapSize={[1024, 1024]}
         />
-        <directionalLight position={[-250, 180, -200]} intensity={0.5} color={palette.fillLight} />
+        <directionalLight position={[250, 180, -200]} intensity={0.5} color={palette.fillLight} />
 
         <Grid
           position={[0, groundY, 0]}
