@@ -8,12 +8,22 @@ import {
   formatBytes,
   type ExportResult,
 } from '../lib/exporters'
-import { useRun, tubeSpec } from '../store'
+import { useRun, tubeSpec, projectSlug, exportBasename } from '../store'
 import CollapsiblePanel from './CollapsiblePanel'
 
 export default function ExportPanel() {
-  const { pieces, innerDiameter, wallThickness, variant, selectedId, exportFormat, setExportFormat } =
-    useRun()
+  const {
+    pieces,
+    innerDiameter,
+    wallThickness,
+    variant,
+    selectedId,
+    exportFormat,
+    setExportFormat,
+    projectName,
+    exportName,
+    setExportName,
+  } = useRun()
   const spec = useMemo(
     () => tubeSpec(innerDiameter, wallThickness, variant),
     [innerDiameter, wallThickness, variant],
@@ -25,6 +35,10 @@ export default function ExportPanel() {
   const selectedIndex = pieces.findIndex((p) => p.id === selectedId)
   const empty = pieces.length === 0
   const formatNote = FORMATS.find((f) => f.id === exportFormat)?.note
+
+  // The project name is the standing default; typing here overrides it until cleared.
+  const fromProject = projectSlug(projectName)
+  const basename = exportBasename({ projectName, exportName })
 
   const run = (fn: () => ExportResult) => {
     try {
@@ -38,6 +52,26 @@ export default function ExportPanel() {
 
   return (
     <CollapsiblePanel title="Export" defaultOpen={false}>
+      <label className="field">
+        <span className="field-label">
+          File name
+          <em>from the project name</em>
+        </span>
+        <input
+          className="text-field"
+          type="text"
+          value={exportName}
+          placeholder={fromProject}
+          maxLength={60}
+          aria-label="Export file name"
+          onChange={(e) => setExportName(e.target.value)}
+        />
+      </label>
+      <p className="note">
+        Files are written as <b>{basename}-plate-{Math.max(pieces.length, 1)}pc.{exportFormat}</b>{' '}
+        and friends — each export adds what it is. Leave this blank to follow the project name.
+      </p>
+
       <span className="field-label">Format</span>
       <div className="segmented">
         {FORMATS.map((f) => (
@@ -57,20 +91,22 @@ export default function ExportPanel() {
         <button
           className="primary"
           disabled={empty}
-          onClick={() => run(() => exportPrintPlate(spec, asm.placed, exportFormat))}
+          onClick={() => run(() => exportPrintPlate(spec, asm.placed, exportFormat, basename))}
         >
           ⤓ Print plate
         </button>
         <button
           disabled={empty}
-          onClick={() => run(() => exportAssembly(spec, asm.placed, exportFormat))}
+          onClick={() => run(() => exportAssembly(spec, asm.placed, exportFormat, basename))}
         >
           ⤓ Assembly
         </button>
         <button
           disabled={selectedIndex < 0}
           onClick={() =>
-            run(() => exportPiece(spec, pieces[selectedIndex].length, selectedIndex, exportFormat))
+            run(() =>
+              exportPiece(spec, pieces[selectedIndex].length, selectedIndex, exportFormat, basename),
+            )
           }
         >
           ⤓ Selected piece

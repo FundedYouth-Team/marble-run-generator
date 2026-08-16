@@ -143,13 +143,16 @@ function write(group: THREE.Group, basename: string, format: ExportFormat): Expo
   return { filename, parts: group.children.length, triangles, bytes: blob.size, instanced }
 }
 
-const slug = (spec: TubeSpec) => `id${spec.innerR * 2}-w${spec.wall}-${spec.variant}`
-
-/** The whole run, assembled exactly as designed. */
+/**
+ * Every export is named after the project, then after what it is — so a
+ * project called "Big Drop" writes `big-drop-plate-4pc.3mf` next to
+ * `big-drop-assembly.3mf`.
+ */
 export function exportAssembly(
   spec: TubeSpec,
   placed: PlacedPiece[],
   format: ExportFormat,
+  name: string,
 ): ExportResult {
   const cache = geometryCache(spec)
   const inner = new THREE.Group()
@@ -166,7 +169,7 @@ export function exportAssembly(
   inner.applyMatrix4(Y_TO_Z)
   seatOnPlate(group)
 
-  const result = write(group, `marble-run-assembly-${slug(spec)}`, format)
+  const result = write(group, `${name}-assembly`, format)
   cache.dispose()
   return { ...result, parts: placed.length }
 }
@@ -179,6 +182,7 @@ export function exportPrintPlate(
   spec: TubeSpec,
   placed: PlacedPiece[],
   format: ExportFormat,
+  name: string,
 ): ExportResult {
   const cache = geometryCache(spec)
   const group = new THREE.Group()
@@ -194,7 +198,7 @@ export function exportPrintPlate(
   })
 
   seatOnPlate(group)
-  const result = write(group, `marble-run-plate-${lengths.length}pc-${slug(spec)}`, format)
+  const result = write(group, `${name}-plate-${lengths.length}pc`, format)
   cache.dispose()
   return result
 }
@@ -205,6 +209,7 @@ export function exportPiece(
   length: number,
   index: number,
   format: ExportFormat,
+  name: string,
 ): ExportResult {
   const geom = buildPieceGeometry(spec, length)
   const mesh = new THREE.Mesh(geom)
@@ -214,8 +219,8 @@ export function exportPiece(
   group.add(mesh)
   seatOnPlate(group)
 
-  const name = `marble-run-piece${String(index + 1).padStart(2, '0')}-${length}mm-${slug(spec)}`
-  const result = write(group, name, format)
+  const basename = `${name}-piece${String(index + 1).padStart(2, '0')}-${length}mm`
+  const result = write(group, basename, format)
   geom.dispose()
   return result
 }

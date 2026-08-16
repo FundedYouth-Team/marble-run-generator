@@ -51,7 +51,7 @@ const HELP: Record<Mode, Group[]> = {
       title: 'HUD',
       rows: [
         { keys: ['↶', '↷'], action: 'Step back and forward through the last 10 changes', note: 'listed in the History tab' },
-        { keys: ['▶ Run marble'], action: 'Start the simulation', note: 'the same button pauses it' },
+        { keys: ['▶ Simulator'], action: 'Start the simulation', note: 'the same button pauses it' },
         { keys: ['↺ Reset'], action: 'Send the marble back to the start' },
         { keys: ['◉ Solid', '◍ Transparent'], action: 'See through the tube walls' },
         { keys: ['⤓ 3MF', '⤓ STL'], action: 'Export the print plate', note: 'format is set in the sidebar' },

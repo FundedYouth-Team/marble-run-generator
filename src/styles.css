@@ -245,6 +245,95 @@ body {
   text-transform: uppercase;
 }
 
+/* The run's name sits with the brand — it is the run's identity, and the name
+   every export is written under. */
+.project {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.project-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.project-name > span {
+  flex: 0 0 auto;
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+}
+
+.project-name input {
+  width: 170px;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--input-bg);
+  color: var(--ink);
+  font: inherit;
+  font-size: 12px;
+}
+
+.project-name input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.new-project-btn {
+  flex: 0 0 auto;
+  padding: 7px 12px;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+/* Small centred dialog for a choice that cannot be undone. */
+.confirm-sheet {
+  width: min(420px, 100%);
+  padding: 16px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: 0 18px 48px rgba(4, 10, 18, 0.4);
+}
+
+.confirm-sheet h3 {
+  margin: 0 0 8px;
+  font-size: 14px;
+}
+
+.confirm-btns {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+/* Plain single-line text entry inside a panel — the export file name. */
+.text-field {
+  width: 100%;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--input-bg);
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.text-field:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
 .spec-strip {
   margin-left: auto;
   display: flex;

@@ -5,6 +5,7 @@ import Scene3D from './components/Scene3D'
 import ThemeToggle from './components/ThemeToggle'
 import HelpOverlay from './components/HelpOverlay'
 import PartLibrary from './components/PartLibrary'
+import ProjectBar from './components/ProjectBar'
 import { useRun, tubeSpec, VARIANT_LABEL } from './store'
 
 /** Fields own their own undo stack — the run's only takes over outside them. */
@@ -44,6 +45,8 @@ export default function App() {
             <p>parametric tube CAD</p>
           </div>
         </div>
+
+        <ProjectBar />
 
         <div className="segmented mode">
           <button className={mode === '3d' ? 'on' : ''} onClick={() => setMode('3d')}>

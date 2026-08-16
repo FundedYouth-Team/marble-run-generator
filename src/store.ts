@@ -124,6 +124,30 @@ export const MARBLE_CLEARANCE = 4
 /** Bore that a standard marble rolls through comfortably. */
 export const STANDARD_BORE = STANDARD_MARBLE + MARBLE_CLEARANCE
 
+/** What every new project is called until it is given a name. */
+export const UNTITLED_PROJECT = 'Untitled'
+
+/**
+ * Filename-safe form of the project name — this is what exports are named
+ * after, so "Big Drop v2" writes `big-drop-v2-plate-3pc.3mf`.
+ */
+export function projectSlug(name: string): string {
+  const slug = name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+  return slug || 'untitled'
+}
+
+/**
+ * The name every export is written under: whatever was typed in the Export
+ * panel, and the project's own name whenever that field is left blank.
+ */
+export function exportBasename(s: { projectName: string; exportName: string }): string {
+  return projectSlug(s.exportName.trim() ? s.exportName : s.projectName)
+}
+
 /** What each part type is called wherever a piece is listed. */
 export const PART_LABEL: Record<PieceType, string> = { straight: 'Tube' }
 
@@ -209,6 +233,11 @@ function editLabel(name: string, patch: Partial<Piece>): string {
 }
 
 interface RunState {
+  /** Names the run in the top bar, and every file it exports. */
+  projectName: string
+  /** Export file name typed in the Export panel; blank follows the project name. */
+  exportName: string
+
   mode: Mode
   draftView: DraftView
   theme: Theme
@@ -247,6 +276,11 @@ interface RunState {
   /** Oldest first; the entry at `historyIndex` is the model on screen. */
   history: HistoryEntry[]
   historyIndex: number
+
+  setProjectName: (v: string) => void
+  setExportName: (v: string) => void
+  /** Clears the stage back to a single default part under a fresh Untitled name. */
+  newProject: () => void
 
   setRightPanel: (p: RightPanel) => void
   toggleRightPanel: (p: Exclude<RightPanel, null>) => void
@@ -287,14 +321,19 @@ interface RunState {
   select: (id: string | null) => void
 }
 
-const INITIAL_SNAPSHOT: Snapshot = {
-  pieces: [makePiece({ length: 140, slope: 8 })],
-  selectedId: null,
-  innerDiameter: STANDARD_BORE,
-  wallThickness: 3,
-  variant: 'threequarter',
-  marbleDiameter: STANDARD_MARBLE,
+/** The model a project opens on — a new one each call, so ids never repeat. */
+function freshSnapshot(): Snapshot {
+  return {
+    pieces: [makePiece({ length: 140, slope: 8 })],
+    selectedId: null,
+    innerDiameter: STANDARD_BORE,
+    wallThickness: 3,
+    variant: 'threequarter',
+    marbleDiameter: STANDARD_MARBLE,
+  }
 }
+
+const INITIAL_SNAPSHOT: Snapshot = freshSnapshot()
 
 let entrySeq = 0
 
@@ -348,6 +387,9 @@ export const useRun = create<RunState>((set, get) => {
     })
 
   return {
+    projectName: UNTITLED_PROJECT,
+    exportName: '',
+
     // 3D is where a run is built; the 2D draft is for working a single part.
     mode: '3d',
     draftView: 'elevation',
@@ -383,6 +425,30 @@ export const useRun = create<RunState>((set, get) => {
     // The run always has somewhere to step back to, even before the first edit.
     history: [{ id: ++entrySeq, label: 'Opening state', at: Date.now(), snap: INITIAL_SNAPSHOT }],
     historyIndex: 0,
+
+    // Naming the run is not a change to the run, so neither of these is a step.
+    setProjectName: (projectName) => set({ projectName }),
+    setExportName: (exportName) => set({ exportName }),
+
+    /**
+     * A clean sheet: the default model, the default name, and a timeline with
+     * nothing behind it. Preferences that outlive a project — theme, colours,
+     * screen calibration — are left as they are.
+     */
+    newProject: () =>
+      set((s) => {
+        recent = null
+        const snap = freshSnapshot()
+        return {
+          ...snap,
+          projectName: UNTITLED_PROJECT,
+          exportName: '',
+          running: false,
+          resetToken: s.resetToken + 1,
+          history: [{ id: ++entrySeq, label: 'New project', at: Date.now(), snap }],
+          historyIndex: 0,
+        }
+      }),
 
     setRightPanel: (rightPanel) => set({ rightPanel }),
     // Clicking the open panel's own tab closes it — the tab is a toggle, not a switch.

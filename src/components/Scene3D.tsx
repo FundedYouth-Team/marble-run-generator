@@ -12,7 +12,7 @@ import { buildPieceGeometry } from '../lib/geometry'
 import { buildAssembly, type Assembly } from '../lib/layout'
 import { createMarble, resetMarble, stepMarble } from '../lib/sim'
 import { exportPrintPlate } from '../lib/exporters'
-import { useRun, tubeSpec, type TubeSpec, type Theme } from '../store'
+import { useRun, tubeSpec, exportBasename, type TubeSpec, type Theme } from '../store'
 
 /** See-through opacity for the tube wall; the selected piece stays a touch more solid. */
 const XRAY_OPACITY = 0.3
@@ -356,6 +356,8 @@ function CameraRig({
 
 function Hud({ spec, asm }: { spec: TubeSpec; asm: Assembly }) {
   const { running, toggleRunning, resetSim, exportFormat, shading, toggleShading } = useRun()
+  // Same name the Export panel would give it — the HUD is just a shortcut.
+  const basename = useRun(exportBasename)
   const [t, setT] = useState({ speed: 0, distance: 0, airborne: false })
 
   useEffect(() => {
@@ -366,8 +368,9 @@ function Hud({ spec, asm }: { spec: TubeSpec; asm: Assembly }) {
   return (
     <div className="hud">
       <UndoRedo />
-      <button className={running ? 'primary on' : 'primary'} onClick={toggleRunning}>
-        {running ? '❚❚ Pause' : '▶ Run marble'}
+      {/* Orange only while running — idle it stays a plain HUD button. */}
+      <button className={running ? 'primary on' : ''} onClick={toggleRunning}>
+        {running ? '❚❚ Simulator' : '▶ Simulator'}
       </button>
       <button onClick={resetSim}>↺ Reset</button>
       <button
@@ -385,7 +388,7 @@ function Hud({ spec, asm }: { spec: TubeSpec; asm: Assembly }) {
       <button
         disabled={!asm.placed.length}
         title={`Print plate as ${exportFormat.toUpperCase()} — every piece laid flat and separated, ready to slice`}
-        onClick={() => exportPrintPlate(spec, asm.placed, exportFormat)}
+        onClick={() => exportPrintPlate(spec, asm.placed, exportFormat, basename)}
       >
         ⤓ {exportFormat.toUpperCase()}
       </button>
