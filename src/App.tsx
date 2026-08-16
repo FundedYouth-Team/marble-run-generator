@@ -41,8 +41,14 @@ export default function App() {
         <div className="brand">
           <span className="logo" />
           <div>
-            <h1>Marble Run Generator</h1>
-            <p>parametric tube CAD</p>
+            <h1>
+              Marble Run Generator
+              {/* The app is still being built — said next to the name, where it is read first. */}
+              <span className="beta" title="Under active development — press ? for what that means">
+                Beta
+              </span>
+            </h1>
+            <p>Parametric CAD Tool</p>
           </div>
         </div>
 

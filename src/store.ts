@@ -334,10 +334,10 @@ interface RunState {
   select: (id: string | null) => void
 }
 
-/** The model a project opens on — a new one each call, so ids never repeat. */
+/** The model a project opens on — an empty plane, waiting for its first part. */
 function freshSnapshot(): Snapshot {
   return {
-    pieces: [makePiece({ length: 140, slope: 8 })],
+    pieces: [],
     selectedId: null,
     innerDiameter: STANDARD_BORE,
     wallThickness: 3,

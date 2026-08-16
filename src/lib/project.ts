@@ -123,8 +123,9 @@ export function parseProject(text: string): LoadedProject {
   if (typeof o.version === 'number' && o.version > PROJECT_VERSION) {
     throw new Error('That project was saved by a newer version of the app.')
   }
-  if (!Array.isArray(o.pieces) || o.pieces.length === 0) {
-    throw new Error('That project file has no parts in it.')
+  // An empty run is a real one to save and reopen, so only a missing list is wrong.
+  if (!Array.isArray(o.pieces)) {
+    throw new Error('That project file has no parts list in it.')
   }
 
   const innerDiameter = num(

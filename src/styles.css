@@ -46,6 +46,11 @@
   --primary-on-border: #e08340;
   --danger-border: #e8bcc1;
 
+  /* Beta badge — orange, so "unfinished" never reads as a green go-ahead. */
+  --beta-ink: #a34a09;
+  --beta-bg: rgba(221, 96, 20, 0.14);
+  --beta-border: rgba(221, 96, 20, 0.42);
+
   /* Add Part sits in a green-dominant bar, so it takes the orange accent. */
   --addpart-a: #f59331;
   --addpart-b: #dd6014;
@@ -135,6 +140,10 @@
   --primary-on-b: #7d3f14;
   --primary-on-border: #ff9d5c;
   --danger-border: #40232b;
+
+  --beta-ink: #ffa268;
+  --beta-bg: rgba(255, 122, 69, 0.16);
+  --beta-border: rgba(255, 122, 69, 0.4);
 
   --addpart-a: #ff8a3d;
   --addpart-b: #e2661a;
@@ -232,9 +241,29 @@ body {
 
 .brand h1 {
   margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
   font-size: 14px;
   letter-spacing: 0.04em;
   text-transform: uppercase;
+}
+
+/* Small, quiet and always next to the name — a standing note, not an alert. */
+.beta {
+  flex: 0 0 auto;
+  padding: 1px 6px;
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 1.6;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--beta-ink);
+  background: var(--beta-bg);
+  border: 1px solid var(--beta-border);
+  border-radius: 999px;
+  white-space: nowrap;
+  cursor: help;
 }
 
 .brand p {
@@ -599,6 +628,50 @@ body {
 .link-btn:disabled {
   opacity: 0.45;
   cursor: default;
+}
+
+/* Sits above the tabs' content because it is true of all of them. Bordered in
+   the badge's own orange so the eye ties the two together. */
+.help-beta {
+  padding: 10px 12px;
+  border: 1px solid var(--beta-border);
+  border-radius: 8px;
+  background: var(--beta-bg);
+}
+
+.help-beta h4 {
+  margin: 0 0 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink);
+}
+
+.help-beta .beta {
+  cursor: default;
+  background: var(--panel);
+}
+
+.help-beta dl {
+  margin: 0;
+  display: grid;
+  gap: 7px;
+}
+
+.help-beta dt {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.help-beta dd {
+  margin: 2px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--ink-dim);
 }
 
 .help-group h4 {

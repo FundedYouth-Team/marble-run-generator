@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useRun, type Mode } from '../store'
+import { PROJECT_EXT, PROJECT_VERSION } from '../lib/project'
 
 /** One line of the cheat sheet: what you press, and what it does. */
 interface Shortcut {
@@ -183,6 +184,30 @@ const ALWAYS: Group = {
   ],
 }
 
+/**
+ * What the Beta badge in the top bar is promising — and what it is not. Shown
+ * above every tab rather than filed under one, because it is true of the whole
+ * app, not of one workspace.
+ */
+const BETA: { heading: string; body: string }[] = [
+  {
+    heading: 'It is still being built',
+    body: 'Parts, settings and buttons are added, renamed and moved between versions. Something that is here today may work differently — or sit somewhere else — tomorrow.',
+  },
+  {
+    heading: 'Keep your own copies',
+    body: `The saved ${PROJECT_EXT} format is at version ${PROJECT_VERSION} and may change. Older files are meant to keep opening, but nothing is guaranteed yet, so keep the printable exports of anything you care about rather than trusting the project file alone.`,
+  },
+  {
+    heading: 'Check before you print',
+    body: 'Geometry, fits and the marble simulation are approximations. Test-print a single joint and check the marble runs before committing a full plate of filament.',
+  },
+  {
+    heading: 'Expect rough edges',
+    body: 'Bugs, missing parts and half-finished corners are expected at this stage. Nothing leaves your machine — the run lives in the browser until you save or export it.',
+  },
+]
+
 const TAB_LABEL: Record<HelpTab, string> = {
   project: 'Project',
   '2d': '2D Draft',
@@ -288,6 +313,20 @@ export default function HelpOverlay() {
             </header>
 
             <div className="help-body">
+              <section className="help-beta">
+                <h4>
+                  <span className="beta">Beta</span> This is a work in progress
+                </h4>
+                <dl>
+                  {BETA.map((b) => (
+                    <div key={b.heading}>
+                      <dt>{b.heading}</dt>
+                      <dd>{b.body}</dd>
+                    </div>
+                  ))}
+                </dl>
+              </section>
+
               {HELP[tab].map((g) => (
                 <Rows key={g.title} group={g} />
               ))}
