@@ -1,10 +1,12 @@
 import SettingsPanel from './SettingsPanel'
 import HistoryPanel from './HistoryPanel'
+import AiMcpPanel from './AiMcpPanel'
 import { useRun, type RightPanel } from '../store'
 
 const TABS: { id: Exclude<RightPanel, null>; label: string; title: string }[] = [
   { id: 'history', label: 'History', title: 'The last changes to the run — step back or forward' },
   { id: 'settings', label: 'Settings', title: 'Marble, screen and export settings' },
+  { id: 'ai', label: 'AI MCP', title: 'Planned: build a run by describing it — not built yet' },
 ]
 
 /**
@@ -35,6 +37,7 @@ export default function RightDock() {
 
       <SettingsPanel open={rightPanel === 'settings'} onClose={() => setRightPanel(null)} />
       <HistoryPanel open={rightPanel === 'history'} onClose={() => setRightPanel(null)} />
+      <AiMcpPanel open={rightPanel === 'ai'} onClose={() => setRightPanel(null)} />
     </>
   )
 }

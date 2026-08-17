@@ -34,7 +34,7 @@ export type Theme = 'light' | 'dark'
 /** How the 3D pieces are shaded — see-through mode exposes the bore and the marble. */
 export type Shading = 'solid' | 'transparent'
 /** Which slide-out is showing on the right edge of the stage, if any. */
-export type RightPanel = 'settings' | 'history' | null
+export type RightPanel = 'settings' | 'history' | 'ai' | null
 
 const THEME_KEY = 'mrg.theme'
 const PIECE_COLOR_KEY = 'mrg.pieceColor'

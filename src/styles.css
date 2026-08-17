@@ -690,6 +690,14 @@ body {
   color: var(--ink-dim);
 }
 
+/* Same box used for a plain standing note rather than a list of caveats. */
+.help-beta p {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--ink-dim);
+}
+
 .help-group h4 {
   margin: 0 0 6px;
   font-size: 11px;
