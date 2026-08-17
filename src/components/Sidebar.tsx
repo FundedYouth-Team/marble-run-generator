@@ -110,7 +110,7 @@ export default function Sidebar() {
         </HoverHint>
       </header>
 
-      <CollapsiblePanel title="Tube Diameter">
+      <CollapsiblePanel title="Tube Size">
         <span className="field-label">
           {selected ? pieceLabel(selected, selectedIndex) : 'Run tube'}
           <em>
@@ -375,11 +375,6 @@ export default function Sidebar() {
                     {...PIECE_LIMITS.length}
                   />
                 )}
-                <div className="row-btns">
-                  <button className="danger" onClick={() => s.removePiece(selected.id)}>
-                    Delete
-                  </button>
-                </div>
               </div>
             </div>
           ) : (
@@ -569,22 +564,6 @@ export default function Sidebar() {
               : 'No parts yet — pick one from Add Part in the top bar.'}
           </p>
         )}
-      </CollapsiblePanel>
-
-      <CollapsiblePanel title="Duplicate Part">
-        <button
-          className="primary"
-          onClick={() => selected && s.duplicatePiece(selected.id)}
-          disabled={!selected}
-          title={selected ? undefined : 'Select a part first'}
-        >
-          + Duplicate Selected Part
-        </button>
-        <p className="note">
-          {selected
-            ? `Sets a copy of ${pieceLabel(selected, selectedIndex)} down beside the run, unjoined, and selects it.`
-            : 'Select a part to copy it.'}
-        </p>
       </CollapsiblePanel>
     </aside>
   )

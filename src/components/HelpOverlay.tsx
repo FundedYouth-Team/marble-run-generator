@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useRun, type Mode } from '../store'
 import { PROJECT_EXT, PROJECT_VERSION } from '../lib/project'
+import { MOD_LABEL, formatShortcut, type ShortcutMap } from '../lib/shortcuts'
 
 /** One line of the cheat sheet: what you press, and what it does. */
 interface Shortcut {
@@ -30,7 +31,7 @@ interface HowTo {
 
 /**
  * The help is tabbed by what you are working on: the run as a whole, or one of
- * the two workspaces. Anything true of both workspaces lives in `ALWAYS`
+ * the two workspaces. Anything true of both workspaces lives in `alwaysGroup`
  * instead, so it is said once rather than in every tab.
  */
 type HelpTab = 'project' | Mode
@@ -48,7 +49,7 @@ const HELP: Record<HelpTab, Group[]> = {
         {
           keys: ['Save'],
           action: 'Write the run to a .mrun.json file on your machine',
-          note: 'parts, tube size, style and marble fit — the run itself, ready to open again',
+          note: 'parts, tube size, style, marble fit and your shortcut keys — ready to open again',
         },
         {
           keys: ['Open'],
@@ -154,6 +155,11 @@ const HELP: Record<HelpTab, Group[]> = {
           note: 'it turns about the part you picked, so that one stands still while the rest comes round it',
         },
         {
+          keys: ['Drop to Workplane'],
+          action: 'Set the selected part’s run straight down until its lowest wall rests on the plane',
+          note: 'one click rather than a mode — nothing else about the run moves, and a run left sunk below the plane is lifted onto it instead; also on a part’s right-click menu',
+        },
+        {
           keys: ['Connector'],
           action: 'Join two parts: click the end you want to move, then the end it travels to',
           note: 'the first end picked is the one that moves; an inlet mates with an outlet, and the ends that cannot take the one in hand go grey',
@@ -257,9 +263,9 @@ const HELP: Record<HelpTab, Group[]> = {
       title: 'Reading the drawing',
       rows: [
         {
-          keys: ['Tube face'],
+          keys: ['Tube Size'],
           action: 'Live cross-section of the tube the selected part is cut from',
-          note: 'the second tab at the top of the drawing — scroll on it to zoom, drag to pan once you are in, double-click or Fit to go back to the whole section',
+          note: 'the second tab at the top of the drawing — scroll to zoom, right-drag or wheel-drag to pan, double-click or Fit to go back to the whole section',
         },
         { keys: ['Ghost circle'], action: 'The marble, shown resting in the bore' },
       ],
@@ -310,7 +316,7 @@ const HOWTO: Partial<Record<HelpTab, HowTo[]>> = {
         'Click the joint at the part’s inlet — it goes red under the pointer. The part and everything joined behind it comes away as its own run, standing where it stood.',
         'Break the joint on its far side too, and the part is on its own; then move it, delete it, or join it back on somewhere else.',
       ],
-      note: 'Ctrl+Z puts any of this back if it was not what you wanted.',
+      note: 'Undo puts any of this back if it was not what you wanted — the ↺ button, or its shortcut.',
     },
     {
       question: 'Which run does the marble roll down?',
@@ -323,29 +329,52 @@ const HOWTO: Partial<Record<HelpTab, HowTo[]>> = {
   ],
 }
 
-const ALWAYS: Group = {
-  title: 'Anywhere',
-  rows: [
-    {
-      keys: ['＋ Add Part'],
-      action: 'Browse the part library and drop a part on the stage',
-      note: 'top of the window; it lands unjoined, in clear space beside whatever is already there',
-    },
-    { keys: ['2D Draft Mode', '3D Mode'], action: 'Switch workspace', note: 'top of the window' },
-    {
-      keys: ['Settings tab', 'History tab'],
-      action: 'Slide out the settings, or the last changes to the run',
-      note: 'the vertical tabs on the right edge; Esc closes them',
-    },
-    {
-      keys: ['Settings', 'Units'],
-      action: 'Read and type every measurement in millimeters or inches',
-      note: 'display only — the run is held in millimeters, and exports are always millimeters',
-    },
-    { keys: ['Ctrl', 'Z'], action: 'Undo the last change', note: 'Ctrl+Shift+Z redoes it; ⌘ on a Mac' },
-    { keys: ['?'], action: 'Open this help' },
-    { keys: ['Esc'], action: 'Close this help' },
-  ],
+/**
+ * The rows every tab ends with. The key ones are worked out from the bindings
+ * rather than written in: they are the user's to change in Settings, so the sheet
+ * has to say whatever they are set to now.
+ */
+function alwaysGroup(keys: ShortcutMap): Group {
+  return {
+    title: 'Anywhere',
+    rows: [
+      {
+        keys: ['＋ Add Part'],
+        action: 'Browse the part library and drop a part on the stage',
+        note: 'top of the window; it lands unjoined, in clear space beside whatever is already there',
+      },
+      { keys: ['2D Draft Mode', '3D Mode'], action: 'Switch workspace', note: 'top of the window' },
+      {
+        keys: ['Settings tab', 'History tab'],
+        action: 'Slide out the settings, or the last changes to the run',
+        note: 'the vertical tabs on the right edge; Esc closes them',
+      },
+      {
+        keys: ['Settings', 'Units'],
+        action: 'Read and type every measurement in millimeters or inches',
+        note: 'display only — the run is held in millimeters, and exports are always millimeters',
+      },
+      {
+        // One cap rather than two: the rows either side read as alternatives, and
+        // this is a path — the panel, then the section inside it.
+        keys: ['Settings → Shortcut Keys'],
+        action: 'Change any of the keys below',
+        note: 'click the keys on the row you want, then press the new combination',
+      },
+      {
+        keys: [formatShortcut(keys.undo)],
+        action: 'Undo the last change',
+        note: `${formatShortcut(keys.redo)} redoes it, and so does ${MOD_LABEL}+Shift+Z`,
+      },
+      {
+        keys: [formatShortcut(keys.duplicate)],
+        action: 'Duplicate the selected part',
+        note: 'the copy lands unjoined, beside the run',
+      },
+      { keys: ['?'], action: 'Open this help' },
+      { keys: ['Esc'], action: 'Close this help' },
+    ],
+  }
 }
 
 /**
@@ -432,6 +461,7 @@ function HowTos({ items }: { items: HowTo[] }) {
  */
 export default function HelpOverlay() {
   const mode = useRun((s) => s.mode)
+  const shortcuts = useRun((s) => s.shortcuts)
   const [open, setOpen] = useState(false)
   const [tab, setTab] = useState<HelpTab>(mode)
 
@@ -516,7 +546,7 @@ export default function HelpOverlay() {
               ))}
               {/* Worked examples sit under the controls they string together. */}
               {HOWTO[tab] && <HowTos items={HOWTO[tab]!} />}
-              <Rows group={ALWAYS} />
+              <Rows group={alwaysGroup(shortcuts)} />
             </div>
           </div>
         </div>

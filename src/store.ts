@@ -1,11 +1,20 @@
 import { create } from 'zustand'
 import type { ExportFormat } from './lib/exporters'
 import { formatLength, type Unit } from './lib/units'
+import {
+  DEFAULT_SHORTCUTS,
+  SHORTCUT_ACTIONS,
+  parseShortcuts,
+  sameShortcut,
+  type Shortcut,
+  type ShortcutAction,
+  type ShortcutMap,
+} from './lib/shortcuts'
 // Standing one run against another needs to know where its far end actually
 // lands in the world, and the layout is the one place that works that out. It is
 // only ever called from an action, so the two modules importing each other never
 // meet at load time.
-import { buildAssembly } from './lib/layout'
+import { buildAssembly, chainBox } from './lib/layout'
 
 /**
  * All dimensions in this app are millimetres. The unit setting only changes how
@@ -35,6 +44,28 @@ export type Theme = 'light' | 'dark'
 export type Shading = 'solid' | 'transparent'
 /** Which slide-out is showing on the right edge of the stage, if any. */
 export type RightPanel = 'settings' | 'history' | 'ai' | null
+/** Which column is folded out on the left edge of the workspace, if any. */
+export type LeftPanel = 'parameters' | null
+
+/**
+ * A piece of on-screen furniture the user can switch off. None of these are
+ * part of the run — they are readouts and helpers around it, and someone who
+ * knows their way around may want the stage clear of them.
+ */
+export type Overlay = 'axes' | 'mouse' | 'parts' | 'scrubber'
+export type OverlayMap = Record<Overlay, boolean>
+
+/** Listed in the order they are offered in Settings. */
+export const OVERLAYS: { id: Overlay; label: string; hint: string }[] = [
+  {
+    id: 'axes',
+    label: 'Axis triad',
+    hint: 'the red/green/blue X-Y-Z corner marker in 3D',
+  },
+  { id: 'mouse', label: 'Mouse guide', hint: 'what each button does, bottom right' },
+  { id: 'parts', label: 'Active parts list', hint: 'the run’s parts, top left' },
+  { id: 'scrubber', label: 'Simulator slider', hint: 'the transport bar along the bottom' },
+]
 
 const THEME_KEY = 'mrg.theme'
 const PIECE_COLOR_KEY = 'mrg.pieceColor'
@@ -43,6 +74,8 @@ const SHADING_KEY = 'mrg.shading'
 const SCREEN_KEY = 'mrg.screenPxPerMm'
 const KEEP_CONNECTED_KEY = 'mrg.keepConnected'
 const UNITS_KEY = 'mrg.units'
+const SHORTCUTS_KEY = 'mrg.shortcuts'
+const OVERLAYS_KEY = 'mrg.overlays'
 
 /**
  * CSS pins an inch to 96px no matter what the panel actually is, so this is
@@ -125,6 +158,30 @@ function initialKeepConnected(): boolean {
 function initialUnits(): Unit {
   const saved = typeof localStorage !== 'undefined' ? localStorage.getItem(UNITS_KEY) : null
   return saved === 'in' ? 'in' : 'mm'
+}
+
+/**
+ * Everything is on out of the box, so anything missing or unreadable in storage
+ * reads as shown — an overlay is only hidden by an explicit past choice.
+ */
+function initialOverlays(): OverlayMap {
+  const shown = { axes: true, mouse: true, parts: true, scrubber: true }
+  const saved = typeof localStorage !== 'undefined' ? localStorage.getItem(OVERLAYS_KEY) : null
+  if (!saved) return shown
+  try {
+    const stored = JSON.parse(saved) as Partial<Record<Overlay, unknown>>
+    for (const { id } of OVERLAYS) if (stored[id] === false) shown[id] = false
+  } catch {
+    // Junk in storage is no reason to start with a stripped stage.
+  }
+  return shown
+}
+
+/** The stock keys unless the user has re-bound something on this machine. */
+function initialShortcuts(): ShortcutMap {
+  return parseShortcuts(
+    typeof localStorage !== 'undefined' ? localStorage.getItem(SHORTCUTS_KEY) : null,
+  )
 }
 
 /**
@@ -817,6 +874,12 @@ interface Snapshot {
 /** A run read back off disk: the model, under the name it was saved with. */
 export interface LoadedProject extends Omit<Snapshot, 'selectedId'> {
   projectName: string
+  /**
+   * The keys the file was saved with. Absent on a file written before shortcuts
+   * were settable, and absent means "leave this machine's keys alone" rather
+   * than "put them back to stock".
+   */
+  shortcuts?: ShortcutMap
 }
 
 export interface HistoryEntry {
@@ -892,6 +955,12 @@ interface RunState {
    * millimetres whichever this is — see `lib/units`.
    */
   units: Unit
+  /**
+   * What the keyboard reaches — the key each command answers to. A preference
+   * rather than part of the run, like the theme, but it rides along in a saved
+   * file so a project opens with the keys it was built with.
+   */
+  shortcuts: ShortcutMap
 
   // Tube front-face definition. Bore and wall are the run's throughout; the
   // style is only what a part falls back to when it has none of its own.
@@ -947,6 +1016,12 @@ interface RunState {
   /** Which slide-out is open on the right edge — one at a time, shared by both stages. */
   rightPanel: RightPanel
 
+  /** Which column is out on the left edge — the part parameters, folded away or not. */
+  leftPanel: LeftPanel
+
+  /** Which pieces of on-screen furniture are showing. Kept per machine, not per run. */
+  overlays: OverlayMap
+
   /** Oldest first; the entry at `historyIndex` is the model on screen. */
   history: HistoryEntry[]
   historyIndex: number
@@ -960,6 +1035,8 @@ interface RunState {
 
   setRightPanel: (p: RightPanel) => void
   toggleRightPanel: (p: Exclude<RightPanel, null>) => void
+  setLeftPanel: (p: LeftPanel) => void
+  toggleLeftPanel: (p: Exclude<LeftPanel, null>) => void
   undo: () => void
   redo: () => void
   /** Jump straight to a step from the History list. */
@@ -973,6 +1050,19 @@ interface RunState {
    * the run changes, so this is not a step on the timeline.
    */
   setUnits: (v: Unit) => void
+  /**
+   * Shows or hides one piece of on-screen furniture. A preference about the
+   * view, not the run, so it stays off the timeline and is remembered here.
+   */
+  setOverlay: (id: Overlay, shown: boolean) => void
+  /**
+   * Re-binds one command. A key another command already holds is swapped rather
+   * than shared: the two trade bindings, so nothing is ever left unreachable and
+   * one key never means two things.
+   */
+  setShortcut: (action: ShortcutAction, shortcut: Shortcut) => void
+  /** Puts every command back on its stock key. */
+  resetShortcuts: () => void
   /** The bore parts fall back to — every part that has none of its own follows it. */
   setInnerDiameter: (v: number) => void
   /** The wall parts fall back to — every part that has none of its own follows it. */
@@ -1050,6 +1140,17 @@ interface RunState {
    * which is what being bonded means.
    */
   moveChain: (pieceId: string, x: number, y: number, z: number) => void
+  /**
+   * Sets the run `pieceId` belongs to down on the workplane: it falls straight
+   * down the upright until its lowest wall rests on y = 0, and nothing else
+   * about it moves — same place on the plan, same heading, same angles. A run
+   * that has been left sunk below the plane is lifted onto it instead, which is
+   * the same thing said the other way round.
+   *
+   * The whole run travels, for the reason {@link RunState.moveChain} does: a
+   * bonded part cannot be moved on its own.
+   */
+  dropToWorkplane: (pieceId: string) => void
   /**
    * Stands the run `pieceId` belongs to on a fresh placement — the same job
    * {@link RunState.moveChain} does, with the heading in it as well. Only the
@@ -1168,6 +1269,8 @@ export const useRun = create<RunState>((set, get) => {
     draftView: 'developed',
     theme: initialTheme(),
     units: labelUnits,
+    shortcuts: initialShortcuts(),
+    overlays: initialOverlays(),
 
     // Sized for a standard glass marble out of the box.
     innerDiameter: INITIAL_SNAPSHOT.innerDiameter,
@@ -1199,6 +1302,9 @@ export const useRun = create<RunState>((set, get) => {
     })(),
 
     rightPanel: null,
+    // The parameters are what most of the work is typed into, so the column
+    // starts out — the tab is there to win the width back, not to find it.
+    leftPanel: 'parameters',
 
     // The run always has somewhere to step back to, even before the first edit.
     history: [{ id: ++entrySeq, label: 'Opening state', at: Date.now(), snap: INITIAL_SNAPSHOT }],
@@ -1235,12 +1341,16 @@ export const useRun = create<RunState>((set, get) => {
      * the whole model, so the timeline starts again from it and there is
      * nothing behind it to step back to.
      */
-    loadProject: ({ projectName, ...model }) =>
+    loadProject: ({ projectName, shortcuts, ...model }) =>
       set((s) => {
         recent = null
         const snap: Snapshot = { ...model, selectedId: null }
+        // The keys in the file are a preference the file happens to carry, so
+        // they are taken on and kept for this machine — but only if it had any.
+        if (shortcuts) remember(SHORTCUTS_KEY, JSON.stringify(shortcuts))
         return {
           ...snap,
+          ...(shortcuts ? { shortcuts } : {}),
           projectName,
           exportName: '',
           pendingPort: null,
@@ -1255,6 +1365,8 @@ export const useRun = create<RunState>((set, get) => {
     setRightPanel: (rightPanel) => set({ rightPanel }),
     // Clicking the open panel's own tab closes it — the tab is a toggle, not a switch.
     toggleRightPanel: (p) => set((s) => ({ rightPanel: s.rightPanel === p ? null : p })),
+    setLeftPanel: (leftPanel) => set({ leftPanel }),
+    toggleLeftPanel: (p) => set((s) => ({ leftPanel: s.leftPanel === p ? null : p })),
     undo: () => goto(get().historyIndex - 1),
     redo: () => goto(get().historyIndex + 1),
     gotoHistory: goto,
@@ -1271,6 +1383,31 @@ export const useRun = create<RunState>((set, get) => {
       labelUnits = units
       remember(UNITS_KEY, units)
       set({ units })
+    },
+    setOverlay: (id, shown) => {
+      const overlays = { ...get().overlays, [id]: shown }
+      remember(OVERLAYS_KEY, JSON.stringify(overlays))
+      set({ overlays })
+    },
+    // Re-binding is a preference, not a change to the run, so it stays off the
+    // timeline: undo walks the model, and the key that walks it is not part of it.
+    setShortcut: (action, shortcut) => {
+      const current = get().shortcuts
+      if (sameShortcut(current[action], shortcut)) return
+      const shortcuts = { ...current, [action]: shortcut }
+      // Whoever held that key takes the one being given up, so the pair trade
+      // rather than both answering to it.
+      const clash = SHORTCUT_ACTIONS.find(
+        (a) => a !== action && sameShortcut(current[a], shortcut),
+      )
+      if (clash) shortcuts[clash] = current[action]
+      remember(SHORTCUTS_KEY, JSON.stringify(shortcuts))
+      set({ shortcuts })
+    },
+    resetShortcuts: () => {
+      const shortcuts = { ...DEFAULT_SHORTCUTS }
+      remember(SHORTCUTS_KEY, JSON.stringify(shortcuts))
+      set({ shortcuts })
     },
     setInnerDiameter: (innerDiameter) =>
       commit(
@@ -1550,6 +1687,34 @@ export const useRun = create<RunState>((set, get) => {
         // One drag of the arrows is one step, however far it travels.
         `piece:${pieceId}:move`,
       ),
+
+    dropToWorkplane: (pieceId) =>
+      commit(`Drop ${nameOf(get(), pieceId)} to the workplane`, (s) => {
+        const i = s.pieces.findIndex((p) => p.id === pieceId)
+        if (i < 0) return null
+        const root = chainRootOf(s.pieces, i)
+        const at = placementOf(s.pieces[root])
+        // The run on its own, stood up where it actually is: only the parts
+        // bonded into it are being set down, and the rest of the stage stays
+        // where it is. The head of the slice is a run's head by construction,
+        // so it is laid out from this very placement.
+        const asm = buildAssembly(s.pieces.slice(root, chainTailOf(s.pieces, i) + 1))
+        const floor = chainBox(
+          asm,
+          0,
+          (p) => boreOf(p, s.innerDiameter) / 2 + wallOf(p, s.wallThickness),
+        ).min.y
+        if (!Number.isFinite(floor)) return null
+        // Tenths of a millimetre, like every other placement. A run already
+        // standing within a tenth of the plane is left exactly where it is: that
+        // is as fine as any height on screen is written, so nudging it would be
+        // a step in the timeline for a move nothing can see.
+        const y = Math.round((at.y - floor) * 10) / 10
+        if (y === at.y) return null
+        return {
+          pieces: s.pieces.map((p, j) => (j === root ? { ...p, at: { ...at, y } } : p)),
+        }
+      }),
 
     rotateChain: (pieceId, at) =>
       commit(

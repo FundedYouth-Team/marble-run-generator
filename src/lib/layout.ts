@@ -208,6 +208,30 @@ export function buildAssembly(pieces: Piece[]): Assembly {
   }
 }
 
+/**
+ * Where a whole run stands in the world: every part bonded into it, padded out
+ * to its own wall. This is what the height figure under the move arrows is
+ * measured off, and what setting a run down on the workplane goes by, so a run
+ * that has been dropped reads zero rather than half a tube high.
+ *
+ * `radiusOf` hands back the outer radius the part is cut to, which is not the
+ * run's if that part has been sized on its own.
+ */
+export function chainBox(
+  asm: Assembly,
+  chain: number,
+  radiusOf: (piece: Piece) => number,
+): THREE.Box3 {
+  const box = new THREE.Box3()
+  for (const i of asm.chains[chain]?.pieces ?? []) {
+    const p = asm.placed[i]
+    // Every chord, so a bent part counts on what it really occupies.
+    const points = [p.start, p.end, ...p.segments.map((seg) => seg.end)]
+    box.union(new THREE.Box3().setFromPoints(points).expandByScalar(radiusOf(p.piece)))
+  }
+  return box
+}
+
 /** Point + direction at arc length `s` along the axis, and the chord it falls on. */
 export function sampleAssembly(asm: Assembly, s: number) {
   if (!asm.segments.length) {

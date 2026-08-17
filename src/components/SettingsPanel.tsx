@@ -5,8 +5,10 @@ import InfoNote from './InfoNote'
 import CollapsiblePanel from './CollapsiblePanel'
 import ExportPanel from './ExportPanel'
 import CalibrateScreen from './CalibrateScreen'
+import ShortcutsPanel from './ShortcutsPanel'
 import {
   useRun,
+  OVERLAYS,
   STANDARD_MARBLE,
   STANDARD_BORE,
   MARBLE_CLEARANCE,
@@ -89,6 +91,36 @@ export default function SettingsPanel({ open, onClose }: { open: boolean; onClos
             and type: {formatLength(STANDARD_MARBLE, 'mm')} and{' '}
             {formatLength(STANDARD_MARBLE, 'in')} are the same marble.
           </InfoNote>
+        </CollapsiblePanel>
+
+        <CollapsiblePanel title="Show / Hide" defaultOpen={false}>
+          <span className="field-label">
+            On-screen helpers
+            <em>switch off anything you do not need — the run itself is untouched</em>
+          </span>
+          {OVERLAYS.map((o) => (
+            <label className="check overlay-check" key={o.id}>
+              <input
+                type="checkbox"
+                checked={s.overlays[o.id]}
+                onChange={(e) => s.setOverlay(o.id, e.target.checked)}
+              />
+              <span>
+                {o.label}
+                <em>{o.hint}</em>
+              </span>
+            </label>
+          ))}
+          <InfoNote label="Will hiding these change my run?">
+            No. These are readouts and helpers drawn over the stage, not part of the model — nothing
+            here reaches the pieces or an export. Hiding the simulator slider does not stop the
+            marble either; the Simulator button still runs it. Your choices are remembered on this
+            machine.
+          </InfoNote>
+        </CollapsiblePanel>
+
+        <CollapsiblePanel title="Shortcut Keys" defaultOpen={false}>
+          <ShortcutsPanel />
         </CollapsiblePanel>
 
         <CollapsiblePanel title="Marble Size & Color" defaultOpen={false}>

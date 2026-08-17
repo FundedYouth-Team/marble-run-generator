@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import Sidebar from './components/Sidebar'
+import LeftDock from './components/LeftDock'
 import Draft2D from './components/Draft2D'
 import Scene3D from './components/Scene3D'
 import ThemeToggle from './components/ThemeToggle'
@@ -9,6 +9,7 @@ import ProjectBar from './components/ProjectBar'
 import { pieceAxisLength } from './lib/centerline'
 import { useRun, tubeSpec, variantOf, sizedLikeRun, VARIANT_LABEL } from './store'
 import { formatCoarse, lengthText } from './lib/units'
+import { actionFor } from './lib/shortcuts'
 
 /** Fields own their own undo stack — the run's only takes over outside them. */
 function isTyping(el: EventTarget | null) {
@@ -19,17 +20,29 @@ function isTyping(el: EventTarget | null) {
 export default function App() {
   const { mode, setMode, pieces, innerDiameter, wallThickness, variant, units } = useRun()
 
-  // The usual shortcuts, wherever you are — both stages share the one timeline.
+  // The shortcuts, wherever you are — both stages share the one timeline. The
+  // bindings are read at press time rather than watched, so re-binding one in
+  // Settings takes effect on the next key press without re-hanging the listener.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (!(e.metaKey || e.ctrlKey) || e.altKey || isTyping(e.target)) return
-      const key = e.key.toLowerCase()
-      if (key !== 'z' && key !== 'y') return
+      if (isTyping(e.target)) return
+      const s = useRun.getState()
+      const action = actionFor(e, s.shortcuts)
+      // Ctrl+Shift+Z is the redo every other app also takes, so it stands
+      // alongside whatever Redo is bound to — unless something is bound over it.
+      const altRedo =
+        !action &&
+        (e.metaKey || e.ctrlKey) &&
+        e.shiftKey &&
+        !e.altKey &&
+        e.key.toLowerCase() === 'z'
+      if (!action && !altRedo) return
       e.preventDefault()
-      const { undo, redo } = useRun.getState()
-      // Ctrl+Y is the Windows redo; Shift+Z is everyone else's.
-      if (key === 'y' || e.shiftKey) redo()
-      else undo()
+      if (altRedo || action === 'redo') s.redo()
+      else if (action === 'undo') s.undo()
+      // Nothing selected is nothing to copy, but the key is still ours: swallowing
+      // it beats handing Ctrl+D back to the browser's bookmark bar mid-build.
+      else if (action === 'duplicate' && s.selectedId) s.duplicatePiece(s.selectedId)
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
@@ -93,7 +106,7 @@ export default function App() {
       </header>
 
       <div className="workspace">
-        <Sidebar />
+        <LeftDock />
         <main className="stage">{mode === '2d' ? <Draft2D /> : <Scene3D />}</main>
       </div>
     </div>

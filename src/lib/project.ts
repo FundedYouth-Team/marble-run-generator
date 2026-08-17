@@ -15,6 +15,7 @@ import {
   type PieceType,
   type TubeVariant,
 } from '../store'
+import { readShortcuts, type ShortcutMap } from './shortcuts'
 
 /**
  * Saving and opening a run as a plain JSON file. This is the project itself —
@@ -45,13 +46,20 @@ export const PROJECT_FORMAT = 'marble-run-generator'
  * part to the run's tube, so a run built from more than one size would come back
  * the wrong size — parts that were never meant to mate would look as though they
  * did.
+ * The shortcut keys ride along inside v6 without a bump, the same way per-part
+ * colour rode along inside v3: an older reader ignores them and keeps whatever
+ * keys that machine is already using, which is only how it always behaved and
+ * never touches the run.
  */
 export const PROJECT_VERSION = 6
 
 /** Double-barrelled so a saved run reads as a project, not as loose data. */
 export const PROJECT_EXT = '.mrun.json'
 
-/** What a saved file holds. Everything else is a preference or a view, not the run. */
+/**
+ * What a saved file holds: the run, and the handful of settings that travel with
+ * it. Everything else is a preference or a view, not the run.
+ */
 export interface ProjectFile {
   format: typeof PROJECT_FORMAT
   version: number
@@ -63,6 +71,12 @@ export interface ProjectFile {
   variant: TubeVariant
   marbleDiameter: number
   pieces: Array<Omit<Piece, 'id'>>
+  /**
+   * The keys each command answers to. Not part of the run, but kept with it so a
+   * project opens ready to work the way it was built — on a second machine as
+   * well as the one it was saved on.
+   */
+  shortcuts: ShortcutMap
 }
 
 /** The part of the store a save covers — the model, under its name. */
@@ -80,6 +94,7 @@ export function serialiseProject(s: ProjectSource): string {
     marbleDiameter: s.marbleDiameter,
     // Ids are internal handles — they are minted fresh on the way back in.
     pieces: s.pieces.map(({ id: _id, ...rest }) => rest),
+    shortcuts: readShortcuts(s.shortcuts),
   }
   // Indented, because a run someone keeps is a file they may well open and read.
   return JSON.stringify(file, null, 2)
@@ -260,6 +275,12 @@ export function parseProject(text: string): LoadedProject {
     variant: isVariant(o.variant) ? o.variant : 'threequarter',
     // The marble has to stay inside whatever bore the file arrived with.
     marbleDiameter: num(o.marbleDiameter, 4, Math.max(4, innerDiameter - 1), 16),
+    // A file from before the keys were settable says nothing about them, and
+    // that is left to mean "keep the keys this machine already uses" rather than
+    // quietly resetting them.
+    ...(o.shortcuts && typeof o.shortcuts === 'object'
+      ? { shortcuts: readShortcuts(o.shortcuts) }
+      : {}),
     // The first part is never joined to anything: there is nothing ahead of it.
     pieces: o.pieces.map((raw, i) =>
       readPiece(raw, i > 0 && (welded || (raw as Record<string, unknown> | null)?.joined === true)),

@@ -1,4 +1,5 @@
 import { useRun } from '../store'
+import { formatShortcut } from '../lib/shortcuts'
 import { UndoIcon, RedoIcon } from './icons'
 
 /**
@@ -7,7 +8,7 @@ import { UndoIcon, RedoIcon } from './icons'
  * History panel behind the right-edge tab.
  */
 export default function UndoRedo({ className = '' }: { className?: string }) {
-  const { history, historyIndex, undo, redo } = useRun()
+  const { history, historyIndex, undo, redo, shortcuts } = useRun()
   const back = historyIndex > 0 ? history[historyIndex].label : null
   const forward = historyIndex < history.length - 1 ? history[historyIndex + 1].label : null
 
@@ -17,7 +18,7 @@ export default function UndoRedo({ className = '' }: { className?: string }) {
         onClick={undo}
         disabled={!back}
         aria-label="Undo"
-        title={back ? `Undo ${back} — Ctrl+Z` : 'Nothing to undo'}
+        title={back ? `Undo ${back} — ${formatShortcut(shortcuts.undo)}` : 'Nothing to undo'}
       >
         <UndoIcon />
       </button>
@@ -25,7 +26,7 @@ export default function UndoRedo({ className = '' }: { className?: string }) {
         onClick={redo}
         disabled={!forward}
         aria-label="Redo"
-        title={forward ? `Redo ${forward} — Ctrl+Shift+Z` : 'Nothing to redo'}
+        title={forward ? `Redo ${forward} — ${formatShortcut(shortcuts.redo)}` : 'Nothing to redo'}
       >
         <RedoIcon />
       </button>

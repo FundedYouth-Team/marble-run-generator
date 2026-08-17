@@ -3,6 +3,7 @@ import HoverHint from './HoverHint'
 import MouseLegend, { type MouseConfig } from './MouseLegend'
 import RightDock from './RightDock'
 import ActiveParts from './ActiveParts'
+import PartContextMenu, { type MenuAction, type MenuTarget } from './PartContextMenu'
 import UndoRedo from './UndoRedo'
 import { FitIcon } from './icons'
 import { crossSectionPath } from '../lib/geometry'
@@ -107,6 +108,8 @@ function Dim({
   x2,
   y2,
   label,
+  title,
+  titleGap = 3.4,
   markerId,
   off = 6,
   upright = false,
@@ -116,6 +119,13 @@ function Dim({
   x2: number
   y2: number
   label: string
+  /**
+   * What the figure measures, set on its own line above the number. A drawing
+   * read by someone who did not draw it should not need a key.
+   */
+  title?: string
+  /** Line spacing between the title and the figure, in user units. */
+  titleGap?: number
   markerId: string
   /** Text offset from the dimension line, in this SVG's user units. */
   off?: number
@@ -131,16 +141,30 @@ function Dim({
   const my = (y1 + y2) / 2
   let angle = (Math.atan2(y2 - y1, x2 - x1) * 180) / Math.PI
   if (angle > 90 || angle < -90) angle += 180
+  // The title sits a line above the figure, so both are hung off the same
+  // anchor and the number keeps the place it had without one.
+  const lines = title ? (
+    <>
+      <tspan className="dim-title" x={mx} dy={-titleGap}>
+        {title}
+      </tspan>
+      <tspan x={mx} dy={titleGap}>
+        {label}
+      </tspan>
+    </>
+  ) : (
+    label
+  )
   return (
     <g className="dim">
       <line x1={x1} y1={y1} x2={x2} y2={y2} markerStart={`url(#${markerId}-tick)`} markerEnd={`url(#${markerId}-tick)`} />
       {upright ? (
         <text x={mx} y={Math.min(y1, y2) - off}>
-          {label}
+          {lines}
         </text>
       ) : (
         <text x={mx} y={my} transform={`rotate(${angle} ${mx} ${my}) translate(0 ${-off})`}>
-          {label}
+          {lines}
         </text>
       )}
     </g>
@@ -360,8 +384,29 @@ function FlowCap({
 /* Front face / cross-section                                          */
 /* ------------------------------------------------------------------ */
 
-function CrossSection() {
-  const { innerDiameter, wallThickness, variant, marbleDiameter, pieces, selectedId, units } =
+/** Widest the section itself is drawn, however wide the pane it sits on gets. */
+const SECTION_FRAME_MAX_PX = 420
+
+/**
+ * The assembly draft's bindings, minus the ones that need something to pick:
+ * the section is one drawn tube rather than a run of parts, so the left button
+ * has nothing to select and stays dark. Panning and zooming are the same
+ * gestures on both sheets.
+ */
+const SECTION_MOUSE: MouseConfig = {
+  buttons: { left: null, right: 'Pan', wheel: 'Pan' },
+  scroll: 'Zoom',
+  hints: [
+    ['right-drag', 'pan'],
+    ['middle-drag', 'pan'],
+    ['scroll', 'zoom'],
+    ['double-click', 'fit view'],
+  ],
+}
+
+/** `shifted` steps the legend aside when the settings panel is out. */
+function CrossSection({ shifted }: { shifted: boolean }) {
+  const { innerDiameter, wallThickness, variant, marbleDiameter, pieces, selectedId, units, overlays } =
     useRun()
   // Bore, wall and style are each a part's own, so the front face is the section
   // of the selected part — and the run's own tube whenever nothing is picked.
@@ -402,44 +447,78 @@ function CrossSection() {
    */
   const [view, setView] = useState({ z: 1, dx: 0, dy: 0 })
   const svgRef = useRef<SVGSVGElement>(null)
-  const drag = useRef<{ x: number; y: number; dx: number; dy: number } | null>(null)
-  const vw = 100 / view.z
-  const vh = frameH / view.z
+  const drag = useRef<{
+    x: number
+    y: number
+    dx: number
+    dy: number
+    panning: boolean
+  } | null>(null)
+
+  // The drawing sheet is the whole pane, so the graph paper runs to its edges
+  // the way the assembly draft's does. The section itself keeps the size it
+  // had: the frame is fitted into the pane up to the width it was capped at
+  // before, and the rest of the pane is paper around it.
+  const { ref: stageRef, size } = useSize<HTMLDivElement>()
+  const framePx = Math.max(
+    80,
+    Math.min(size.w * 0.92, ((size.h * 0.92) * 100) / frameH, SECTION_FRAME_MAX_PX),
+  )
+  /** Section units per screen pixel, before zoom. */
+  const upp = 100 / framePx
+  const vw = (size.w * upp) / view.z
+  const vh = (size.h * upp) / view.z
+  const viewX = view.dx - vw / 2
+  const viewY = frameCy + view.dy - vh / 2
+
+  /** Back to the frame, whatever the wheel and the panning did to it. */
+  const fit = () => setView({ z: 1, dx: 0, dy: 0 })
 
   const onWheel = (e: React.WheelEvent) => {
     const rect = svgRef.current?.getBoundingClientRect()
     if (!rect) return
-    const z = clamp(view.z * Math.exp(-e.deltaY * 0.0015), 1, 12)
-    // All the way back out is the frame itself, however far the view wandered
-    // while it was in.
-    if (z === 1) return setView({ z: 1, dx: 0, dy: 0 })
+    // The same range the assembly draft's wheel has: out past the frame as well
+    // as into it, rather than stopping at the fitted view.
+    const z = clamp(view.z * Math.exp(-e.deltaY * 0.0015), 0.25, 24)
     // Whatever sits under the pointer is what has to stay under it.
     const fx = (e.clientX - rect.left) / rect.width - 0.5
     const fy = (e.clientY - rect.top) / rect.height - 0.5
     const ux = view.dx + fx * vw
     const uy = view.dy + fy * vh
-    setView({ z, dx: ux - (fx * 100) / z, dy: uy - (fy * frameH) / z })
+    setView({ z, dx: ux - fx * ((size.w * upp) / z), dy: uy - fy * ((size.h * upp) / z) })
   }
 
-  // Only worth dragging once there is something off-frame to drag into view.
+  // The right button and the wheel click pan, as they do on the assembly draft;
+  // the left button is left alone so a press on the drawing means the same on
+  // both sheets.
   const onPointerDown = (e: React.PointerEvent) => {
-    if (view.z === 1 || e.button !== 0) return
-    drag.current = { x: e.clientX, y: e.clientY, dx: view.dx, dy: view.dy }
-    e.currentTarget.setPointerCapture(e.pointerId)
+    if (e.button !== 1 && e.button !== 2) return
+    // Keep the browser's middle-click autoscroll off the sheet.
+    e.preventDefault()
+    // Capture is claimed lazily on the first real move, so a plain right-click
+    // is still a click rather than a one-pixel pan.
+    drag.current = { x: e.clientX, y: e.clientY, dx: view.dx, dy: view.dy, panning: false }
   }
   const onPointerMove = (e: React.PointerEvent) => {
     const d = drag.current
     const rect = svgRef.current?.getBoundingClientRect()
     if (!d || !rect) return
+    if (!d.panning) {
+      if (Math.hypot(e.clientX - d.x, e.clientY - d.y) <= 3) return
+      d.panning = true
+      stageRef.current?.classList.add('panning')
+      e.currentTarget.setPointerCapture(e.pointerId)
+    }
     // The drawing follows the pointer, so the frame moves against it.
     setView({
       z: view.z,
-      dx: clamp(d.dx - ((e.clientX - d.x) / rect.width) * vw, -50, 50),
-      dy: clamp(d.dy - ((e.clientY - d.y) / rect.height) * vh, -frameH / 2, frameH / 2),
+      dx: d.dx - ((e.clientX - d.x) / rect.width) * vw,
+      dy: d.dy - ((e.clientY - d.y) / rect.height) * vh,
     })
   }
   const onPointerUp = () => {
     drag.current = null
+    stageRef.current?.classList.remove('panning')
   }
 
   return (
@@ -452,27 +531,50 @@ function CrossSection() {
         <UndoRedo />
         <button
           className="view-tool"
-          onClick={() => setView({ z: 1, dx: 0, dy: 0 })}
+          onClick={fit}
           title="Fit view — frame the whole section"
           aria-label="Fit view"
         >
           <FitIcon />
         </button>
       </div>
-      <div className="section-stage">
+      <div className="section-stage" ref={stageRef}>
         <svg
           ref={svgRef}
-          className={view.z > 1 ? 'section-svg zoomed' : 'section-svg'}
-          viewBox={`${view.dx - vw / 2} ${frameCy + view.dy - vh / 2} ${vw} ${vh}`}
+          className="section-svg"
+          width={size.w}
+          height={size.h}
+          viewBox={`${viewX} ${viewY} ${vw} ${vh}`}
           onWheel={onWheel}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
           onPointerCancel={onPointerUp}
-          onDoubleClick={() => setView({ z: 1, dx: 0, dy: 0 })}
+          onContextMenu={(e) => e.preventDefault()}
+          onDoubleClick={fit}
         >
           <Defs id="xs" hatch={1.6} grid={u(5)} lw={0.5} />
-          <rect x={-50} y={top} width={100} height={bottom - top} fill="url(#xs-grid)" />
+          <defs>
+            {/* Every fifth line carried heavier, the same graph paper the
+                assembly draft is drawn on. */}
+            <pattern
+              id="xs-grid-coarse"
+              width={u(25)}
+              height={u(25)}
+              patternUnits="userSpaceOnUse"
+            >
+              <rect width={u(25)} height={u(25)} fill="url(#xs-grid)" />
+              <path
+                className="grid-line coarse"
+                d={`M ${u(25)} 0 L 0 0 0 ${u(25)}`}
+                fill="none"
+                strokeWidth={0.24}
+              />
+            </pattern>
+          </defs>
+          {/* The paper is whatever the pane is showing, so it never runs out
+              from under the drawing however the view is zoomed or panned. */}
+          <rect x={viewX} y={viewY} width={vw} height={vh} fill="url(#xs-grid-coarse)" />
 
           {/* Centre lines */}
           <g className="centerline">
@@ -501,6 +603,7 @@ function CrossSection() {
             x2={ri}
             y2={dimY1}
             label={formatLength(spec.innerR * 2, units)}
+            title="Inner Diameter"
             off={1.4}
           />
           <Dim
@@ -510,6 +613,7 @@ function CrossSection() {
             x2={ro}
             y2={dimY2}
             label={formatLength(R * 2, units)}
+            title="Outer Diameter"
             off={1.4}
           />
 
@@ -524,7 +628,8 @@ function CrossSection() {
             y1={ri}
             x2={wallX}
             y2={ro}
-            label={`t ${formatLength(spec.wall, units)}`}
+            label={formatLength(spec.wall, units)}
+            title="Wall Thickness"
             off={1.4}
             upright
           />
@@ -534,6 +639,9 @@ function CrossSection() {
             {spec.closed ? 'Closed tube — 360° wall' : `${openDeg}° open — ${VARIANT_LABEL[style]}`}
           </text>
         </svg>
+
+        {/* Bottom-right of the sheet, where the assembly draft keeps its own. */}
+        {overlays.mouse && <MouseLegend stage={stageRef} config={SECTION_MOUSE} shifted={shifted} />}
       </div>
     </div>
   )
@@ -762,6 +870,7 @@ const draftMouse = (joint: string): MouseConfig => ({
   hints: [
     ['left-click', 'select part'],
     ['click empty', 'deselect'],
+    ['right-click part', 'part menu'],
     ['right-drag', 'pan'],
     ['middle-drag', 'pan'],
     ['scroll', 'zoom'],
@@ -790,6 +899,17 @@ function useSize<T extends HTMLElement>() {
   return { ref, size }
 }
 
+/** How far a press may travel and still count as a click rather than a pan. */
+const CLICK_SLOP = 4
+
+/**
+ * What the draft's right-click menu offers. Move and rotate take up 3D handles
+ * that have no counterpart on flat paper, and a part is switched off here from
+ * the model tree beside the drawing, so the menu is left with the two things
+ * that mean the same on paper as they do on the stage.
+ */
+const DRAFT_MENU: MenuAction[] = ['select', 'delete']
+
 /** `shifted` steps the corner captions aside when the settings panel is out. */
 function AssemblyDraft({ shifted }: { shifted: boolean }) {
   const {
@@ -809,6 +929,7 @@ function AssemblyDraft({ shifted }: { shifted: boolean }) {
     keepConnected,
     setKeepConnected,
     units,
+    overlays,
   } = useRun()
   // The tube the run is cut from — what a part with no size of its own follows.
   const spec = useMemo(
@@ -830,6 +951,15 @@ function AssemblyDraft({ shifted }: { shifted: boolean }) {
   /** The run and the framing as they stood when the handle was grabbed. */
   const before = useRef<{ pieces: Piece[]; tx: number; ty: number } | null>(null)
   const [grabbed, setGrabbed] = useState<string | null>(null)
+
+  /**
+   * The right button does two jobs on this canvas, as it does on the 3D stage:
+   * it pans the paper, and on a part it opens that part's menu. Which one it was
+   * is only known on release — a press that stayed put is a click, a press that
+   * travelled was a pan — so the part under the press is parked here until then.
+   */
+  const [menu, setMenu] = useState<MenuTarget | null>(null)
+  const pressed = useRef<{ pieceId: string; x: number; y: number } | null>(null)
 
   const { parts, chains, grips } = useMemo(() => {
     const asm = buildAssembly(pieces)
@@ -1449,6 +1579,7 @@ function AssemblyDraft({ shifted }: { shifted: boolean }) {
   const endDrag = () => {
     drag.current = null
     handle.current = null
+    pressed.current = null
     pinned.current = null
     before.current = null
     ref.current?.classList.remove('panning')
@@ -1487,8 +1618,26 @@ function AssemblyDraft({ shifted }: { shifted: boolean }) {
     ) {
       select(null)
     }
+    // A right press that stayed on the part it landed on was an ask for the
+    // menu, not a pan that happened to start there.
+    const hit = pressed.current
+    if (
+      e.button === 2 &&
+      hit &&
+      !stray &&
+      Math.hypot(e.clientX - hit.x, e.clientY - hit.y) <= CLICK_SLOP
+    ) {
+      const box = ref.current?.getBoundingClientRect()
+      setMenu({ pieceId: hit.pieceId, x: e.clientX - (box?.left ?? 0), y: e.clientY - (box?.top ?? 0) })
+    }
     endDrag()
   }
+
+  // A part that has gone — deleted, or switched off in the tree — takes its menu
+  // with it, rather than leaving one open over a part that is no longer drawn.
+  useEffect(() => {
+    if (menu && !visible.some((p) => p.id === menu.pieceId)) setMenu(null)
+  }, [visible, menu])
 
   // Escape puts the run — and the framing a head drag slid — back as they were
   // when the handle was grabbed. The whole run, because a drag swings the parts
@@ -1605,8 +1754,13 @@ function AssemblyDraft({ shifted }: { shifted: boolean }) {
         className="draft-canvas"
         ref={ref}
         onWheel={onWheel}
-        // The right button pans here, so its menu would land on every pan.
+        // The canvas has its own menu; the browser's would only cover it.
         onContextMenu={(e) => e.preventDefault()}
+        // Ahead of the parts, so a right-press that lands on bare paper has
+        // already cleared the last one by the time they get their say.
+        onPointerDownCapture={(e) => {
+          if (e.button === 2) pressed.current = null
+        }}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
@@ -1658,6 +1812,11 @@ function AssemblyDraft({ shifted }: { shifted: boolean }) {
               <g
                 key={part.id}
                 className={`seg ${on ? 'on' : ''}`}
+                onPointerDown={(e) => {
+                  // Held for the canvas to judge on release: a pan may well start
+                  // on a part, and only a press that stays put asks for the menu.
+                  if (e.button === 2) pressed.current = { pieceId: part.id, x: e.clientX, y: e.clientY }
+                }}
                 onPointerUp={(e) => {
                   // Picking is a left-button gesture; releasing a pan here selects nothing.
                   if (e.button !== 0) return
@@ -1860,16 +2019,30 @@ function AssemblyDraft({ shifted }: { shifted: boolean }) {
 
         {/* The same model tree as the 3D stage: what it switches off here is
             what it switches off there, so both views show the one set of parts. */}
-        <ActiveParts />
+        {overlays.parts && <ActiveParts />}
 
         {/* Names the drawing plane, parked beside the legend as it is in 3D —
             and in 2D the plane is whichever view is on, so it says which. */}
-        <div className={shifted ? 'workplane-tag shifted' : 'workplane-tag'} aria-hidden="true">
+        <div
+          className={`workplane-tag${shifted ? ' shifted' : ''}${overlays.mouse ? '' : ' bare'}`}
+          aria-hidden="true"
+        >
           {proj.developed ? 'Developed elevation' : `${proj.label} view`}
         </div>
 
         {/* Bottom-right of the canvas, opposite the scale bar. */}
-        <MouseLegend stage={ref} config={mouse} shifted={shifted} />
+        {overlays.mouse && <MouseLegend stage={ref} config={mouse} shifted={shifted} />}
+
+        {/* Keyed on the part, so a menu opened on a second part starts fresh
+            rather than carrying the first one's state across. */}
+        {menu && (
+          <PartContextMenu
+            key={menu.pieceId}
+            target={menu}
+            actions={DRAFT_MENU}
+            onClose={() => setMenu(null)}
+          />
+        )}
       </div>
     </div>
   )
@@ -1883,7 +2056,7 @@ const SETTINGS_WIDTH = 312
 /** The two drawings 2D mode holds, in the order they are tabbed. */
 const DRAFT_TABS = [
   { key: 'assembly', label: 'Assembly draft', meta: 'parts in the run' },
-  { key: 'section', label: 'Tube face', meta: 'tube cross-section' },
+  { key: 'section', label: 'Tube Size', meta: 'tube cross-section' },
 ] as const
 
 type DraftTab = (typeof DRAFT_TABS)[number]['key']
@@ -1923,7 +2096,7 @@ export default function Draft2D() {
             look at the tube it is cut from should not cost you that. */}
         <div className="pane-body">
           <AssemblyDraft shifted={docked} />
-          {tab === 'section' && <CrossSection />}
+          {tab === 'section' && <CrossSection shifted={docked} />}
         </div>
       </div>
 

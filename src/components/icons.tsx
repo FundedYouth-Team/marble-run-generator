@@ -164,6 +164,40 @@ export function SelectIcon({ size = 16 }: { size?: number }) {
   )
 }
 
+/**
+ * A part falling onto the plane it comes to rest on — "set this run down on the
+ * workplane". The arrow is the only thing that moves in the picture, and it only
+ * moves down: that is the whole of what the tool does.
+ */
+export function DropToPlaneIcon({ size = 17 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 2.6v5.2" />
+      <path d="m9.3 5.2 2.7 2.6 2.7-2.6" />
+      {/* Faintly filled, so it reads as the part rather than as another frame. */}
+      <rect x="6.7" y="9.9" width="10.6" height="6.5" rx="1.4" fill="currentColor" fillOpacity="0.16" />
+      {/* The workplane, on its stand — the datum the part lands on. */}
+      <path d="M3.2 18.4h17.6" />
+      <path d="M6.2 18.4v2.6M17.8 18.4v2.6" />
+    </svg>
+  )
+}
+
+/**
+ * One part with a copy of itself set down behind it — "make another of these".
+ * The copy is the one in front and faintly filled, because that is the part the
+ * click leaves you holding.
+ */
+export function DuplicateIcon({ size = 17 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+      {/* The original, behind — drawn as the three sides that stay visible. */}
+      <path d="M16.4 8.4V5.2a1.6 1.6 0 0 0-1.6-1.6H5.2a1.6 1.6 0 0 0-1.6 1.6v9.6a1.6 1.6 0 0 0 1.6 1.6h3.2" />
+      <rect x="8.4" y="8.4" width="12" height="12" rx="1.6" fill="currentColor" fillOpacity="0.16" />
+    </svg>
+  )
+}
+
 /** Waste bin — "take this part out of the run". */
 export function TrashIcon({ size = 14 }: { size?: number }) {
   return (

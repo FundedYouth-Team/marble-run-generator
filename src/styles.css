@@ -625,6 +625,69 @@ body {
   color: var(--ink-mute);
 }
 
+/* ---------------- re-bindable shortcut rows ---------------- */
+
+.shortcut-list {
+  display: grid;
+  gap: 6px;
+}
+
+.shortcut-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.shortcut-name {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  font-size: 12px;
+  color: var(--ink-dim);
+}
+
+.shortcut-name em {
+  font-style: normal;
+  font-size: 10px;
+  color: var(--field-hint);
+}
+
+/* The key caps are the button: clicking them is what starts the re-bind. */
+.shortcut-keys {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex: 0 0 auto;
+  padding: 3px 5px;
+  background: none;
+  border: 1px dashed transparent;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.shortcut-keys:hover:not(:disabled) {
+  border-color: var(--line);
+  background: var(--chip-bg);
+}
+
+.shortcut-keys.recording {
+  border-color: var(--accent);
+  border-style: solid;
+  background: var(--chip-bg);
+}
+
+.shortcut-plus {
+  font-size: 10px;
+  color: var(--ink-mute);
+  margin: 0 3px;
+}
+
+.shortcut-waiting {
+  font-size: 11px;
+  color: var(--accent);
+}
+
 /* Quiet, text-only action — never competes with the primary button. */
 .link-btn {
   padding: 0;
@@ -746,7 +809,8 @@ body {
   margin-right: 4px;
 }
 
-.help-row kbd {
+.help-row kbd,
+.shortcut-keys kbd {
   font-family: var(--mono);
   font-size: 11px;
   line-height: 1.5;
@@ -814,16 +878,48 @@ body {
   min-height: 0;
 }
 
+/* The left column and its filing tabs travel together: the tabs sit on the
+   column's inner edge, against the stage, so they stay put as it folds. */
+.left-dock {
+  position: relative;
+  display: flex;
+  min-height: 0;
+  flex: 0 0 auto;
+  z-index: 6;
+}
+
+/* Hung off the column's outer edge rather than parked in the row: the tabs
+   take no width of their own, so the stage — grid and all — runs on behind
+   them, the way the right-hand tabs sit over it. */
+.left-dock-tabs {
+  position: absolute;
+  top: 50%;
+  left: 100%;
+  transform: translateY(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
 .sidebar {
   width: 322px;
-  flex: 0 0 322px;
+  flex: 0 0 auto;
   overflow-y: auto;
+  overflow-x: hidden;
   background: var(--panel);
   border-right: 1px solid var(--line);
   padding: 12px;
   display: flex;
   flex-direction: column;
   gap: 12px;
+  transition: margin-left 0.24s ease;
+}
+
+/* Folded away — slid off the edge rather than squeezed shut, so the fields
+   keep their width on the way out and nothing reflows as it moves. The stage
+   takes the width back: a negative margin is off the flex row's books. */
+.left-dock:not(.open) .sidebar {
+  margin-left: -322px;
 }
 
 .stage {
@@ -1541,6 +1637,28 @@ button.danger {
   accent-color: var(--accent);
 }
 
+/* A checkbox that carries a line of explanation under its name, so the box
+   still lines up with the name rather than the middle of the pair. */
+.overlay-check {
+  align-items: flex-start;
+}
+
+.overlay-check input {
+  margin-top: 1px;
+}
+
+.overlay-check span {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.overlay-check em {
+  font-style: normal;
+  font-size: 10px;
+  color: var(--field-hint);
+}
+
 /* ---------------- piece list ---------------- */
 
 .piece-list {
@@ -1743,27 +1861,24 @@ button.danger {
 .section-stage {
   flex: 1 1 auto;
   min-height: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 10px;
+  min-width: 0;
+  position: relative;
+  overflow: hidden;
 }
 
+/* The sheet is the whole pane so the graph paper runs to its edges; the
+   section is fitted within it by the view's own scale, not by the box. */
 .section-svg {
+  display: block;
   width: 100%;
-  max-width: 420px;
-  height: auto;
-  max-height: 100%;
+  height: 100%;
   /* The wheel zooms the section rather than scrolling the pane under it. */
   touch-action: none;
 }
 
-/* Only draggable once the wheel has taken the view in past the frame. */
-.section-svg.zoomed {
-  cursor: grab;
-}
-
-.section-svg.zoomed:active {
+/* Panning is a right-drag or a wheel-click, so the sheet only grabs while it
+   pans — the same as the assembly draft's canvas. */
+.section-stage.panning {
   cursor: grabbing;
 }
 
@@ -1808,6 +1923,14 @@ button.danger {
   font-family: var(--mono);
   font-size: 3px;
   text-anchor: middle;
+}
+
+/* What the figure below it measures: set smaller and lighter, so the number
+   stays the thing read first. */
+.section-svg .dim text .dim-title {
+  font-size: 2.2px;
+  fill: var(--callout);
+  letter-spacing: 0.12px;
 }
 
 .section-svg .callout {
@@ -2229,6 +2352,13 @@ button.danger {
 .tool-btn svg {
   display: block;
   flex: 0 0 auto;
+}
+
+/* Taking a part out of the run is the one tool that undoes work, so it is the
+   one tool that looks like it — but only while there is a part to take out. */
+.tool-btn.danger:not(:disabled) {
+  color: var(--danger);
+  border-color: var(--danger-border);
 }
 
 /* The hover hint. Hung off the body and placed in viewport pixels, because the
@@ -2844,6 +2974,19 @@ button.danger {
   border-color: var(--primary-border);
 }
 
+/* Same tab, hung the other way round — it leans on the left column instead. */
+.dock-tab.left {
+  border-right: 1px solid var(--line);
+  border-left: none;
+  border-radius: 0 10px 10px 0;
+  box-shadow: 2px 0 8px rgba(0, 0, 0, 0.12);
+}
+
+.dock-tab.left.on {
+  border-color: var(--primary-border);
+  border-left: none;
+}
+
 /* Slides out below the toolbar, so the bar stays unbroken across the stage. */
 .parts-panel {
   position: absolute;
@@ -3025,6 +3168,98 @@ button.danger {
   --legend-w: 84px;
 }
 
+/* ---------------- move figures ----------------
+   The height over the workplane, and the travel of the drag in hand. Drawn in
+   the DOM over the canvas rather than in the scene, so the text stays crisp and
+   the right way round however the camera is swung. Annotation throughout: not
+   one part of it ever takes a press. */
+.move-figures {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.move-dim {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.move-dim .bar {
+  stroke: var(--dim-line);
+  stroke-width: 1.2;
+}
+
+/* The heads take their fill from the bar they cap, so the two never drift apart. */
+.move-dim marker path {
+  fill: var(--dim-line);
+}
+
+/* Squared off the run and the workplane — reference lines, not material. */
+.move-dim .ext {
+  stroke: var(--ext-line);
+  stroke-width: 0.9;
+  stroke-dasharray: 4 3;
+  opacity: 0.75;
+}
+
+.move-figure {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  padding: 3px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--hud-bg);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.16);
+  white-space: nowrap;
+  user-select: none;
+}
+
+.move-figure .cap {
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--ink-mute);
+}
+
+.move-figure b {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The axis a figure is on, ahead of the number it carries. */
+.move-figure b i {
+  font-style: normal;
+  font-size: 10px;
+  color: var(--ink-faint);
+}
+
+/* Rides beside the arrows being dragged — up and to the right, clear of the
+   pointer, so the hand holding the drag never covers what the drag is doing.
+   Its numbers are the live ones, so they take the working accent. */
+.move-figure.travel {
+  transform: translate(18px, calc(-100% - 18px));
+  align-items: flex-start;
+  border-color: var(--accent-2);
+}
+
+.move-figure.travel b {
+  color: var(--accent-2);
+}
+
 /* Name-plate for the ground plane — a caption, not a control. */
 .workplane-tag {
   position: absolute;
@@ -3047,6 +3282,16 @@ button.danger {
 
 .workplane-tag.shifted {
   right: calc(24px + var(--legend-w) + var(--parts-w));
+}
+
+/* With the mouse guide switched off there is no box to sit beside, so the tag
+   takes the corner itself rather than leaving a gap where the legend was. */
+.workplane-tag.bare {
+  right: 14px;
+}
+
+.workplane-tag.bare.shifted {
+  right: calc(14px + var(--parts-w));
 }
 
 .mouse-legend {

@@ -1,5 +1,13 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { EyeOffIcon, MoveIcon, PencilIcon, PickIcon, RotateIcon, TrashIcon } from './icons'
+import {
+  DropToPlaneIcon,
+  EyeOffIcon,
+  MoveIcon,
+  PencilIcon,
+  PickIcon,
+  RotateIcon,
+  TrashIcon,
+} from './icons'
 import { useRun, pieceLabel, pieceTypeLabel, type Tool } from '../store'
 
 /** Kept this far off the stage edges, so a menu opened in a corner still fits. */
@@ -13,6 +21,27 @@ export interface MenuTarget {
   y: number
 }
 
+/** One thing the menu can do to the part it was opened on. */
+export type MenuAction = 'select' | 'move' | 'rotate' | 'drop' | 'hide' | 'rename' | 'delete'
+
+/**
+ * What the 3D stage offers, which is everything: it has the handles the move and
+ * rotate items take up, the workplane the drop item sets a run down on, and the
+ * model tree the rename mirrors.
+ */
+const STAGE_ACTIONS: MenuAction[] = [
+  'select',
+  'move',
+  'rotate',
+  'drop',
+  'hide',
+  'rename',
+  'delete',
+]
+
+/** The items above the rule, so a view that offers neither group skips the rule. */
+const UPPER: MenuAction[] = ['select', 'move', 'rotate', 'drop']
+
 /**
  * The right-click menu for a part in the 3D viewport: the handful of things you
  * reach for with a part already under the cursor, without crossing the screen to
@@ -21,17 +50,31 @@ export interface MenuTarget {
  * somewhere else.
  *
  * Opened by Scene3D, which decides what counts as a click — a right-drag is an
- * orbit, and must not leave a menu behind.
+ * orbit, and must not leave a menu behind — and by the assembly draft, which
+ * makes the same call about a right-drag that pans. The draft has no handles to
+ * take up and no ring to turn, so it asks for the shorter list through `actions`
+ * rather than showing items that would do nothing on flat paper.
  */
 export default function PartContextMenu({
   target,
+  actions = STAGE_ACTIONS,
   onClose,
 }: {
   target: MenuTarget
+  actions?: MenuAction[]
   onClose: () => void
 }) {
-  const { pieces, selectedId, select, tool, setTool, togglePieceHidden, renamePiece, removePiece } =
-    useRun()
+  const {
+    pieces,
+    selectedId,
+    select,
+    tool,
+    setTool,
+    dropToWorkplane,
+    togglePieceHidden,
+    renamePiece,
+    removePiece,
+  } = useRun()
   const ref = useRef<HTMLDivElement>(null)
   const [renaming, setRenaming] = useState(false)
   const [draft, setDraft] = useState('')
@@ -130,6 +173,10 @@ export default function PartContextMenu({
       setTool(next)
     })
 
+  const has = (a: MenuAction) => actions.includes(a)
+  // A rule between two groups only, never one left hanging at an end.
+  const ruled = UPPER.some(has) && actions.some((a) => !UPPER.includes(a))
+
   return (
     <div
       ref={ref}
@@ -170,51 +217,73 @@ export default function PartContextMenu({
         </div>
       ) : (
         <>
-          <button role="menuitem" onClick={run(() => select(picked ? null : piece.id))}>
-            <PickIcon />
-            {picked ? 'Deselect' : 'Select'}
-          </button>
-          <button
-            className={picked && tool === 'move' ? 'on' : ''}
-            role="menuitemcheckbox"
-            aria-checked={picked && tool === 'move'}
-            title="Pick this part and take up the arrows that move its run"
-            onClick={hold('move')}
-          >
-            <MoveIcon size={14} />
-            Move
-          </button>
-          <button
-            className={picked && tool === 'rotate' ? 'on' : ''}
-            role="menuitemcheckbox"
-            aria-checked={picked && tool === 'rotate'}
-            title="Pick this part and take up the ring that turns its run about the upright"
-            onClick={hold('rotate')}
-          >
-            <RotateIcon size={14} />
-            Rotate
-          </button>
+          {has('select') && (
+            <button role="menuitem" onClick={run(() => select(picked ? null : piece.id))}>
+              <PickIcon />
+              {picked ? 'Deselect' : 'Select'}
+            </button>
+          )}
+          {has('move') && (
+            <button
+              className={picked && tool === 'move' ? 'on' : ''}
+              role="menuitemcheckbox"
+              aria-checked={picked && tool === 'move'}
+              title="Pick this part and take up the arrows that move its run"
+              onClick={hold('move')}
+            >
+              <MoveIcon size={14} />
+              Move
+            </button>
+          )}
+          {has('rotate') && (
+            <button
+              className={picked && tool === 'rotate' ? 'on' : ''}
+              role="menuitemcheckbox"
+              aria-checked={picked && tool === 'rotate'}
+              title="Pick this part and take up the ring that turns its run about the upright"
+              onClick={hold('rotate')}
+            >
+              <RotateIcon size={14} />
+              Rotate
+            </button>
+          )}
+          {has('drop') && (
+            <button
+              role="menuitem"
+              title="Set this part's run straight down on the workplane, until its lowest wall rests on it"
+              onClick={run(() => dropToWorkplane(piece.id))}
+            >
+              <DropToPlaneIcon size={14} />
+              Drop to Workplane
+            </button>
+          )}
 
-          <div className="part-menu-sep" role="separator" />
+          {ruled && <div className="part-menu-sep" role="separator" />}
 
-          <button role="menuitem" onClick={run(() => togglePieceHidden(piece.id))}>
-            <EyeOffIcon />
-            Hide
-          </button>
-          <button
-            role="menuitem"
-            onClick={() => {
-              setDraft(piece.name?.trim() ?? '')
-              setRenaming(true)
-            }}
-          >
-            <PencilIcon size={14} />
-            Rename
-          </button>
-          <button className="danger" role="menuitem" onClick={run(() => removePiece(piece.id))}>
-            <TrashIcon />
-            Delete
-          </button>
+          {has('hide') && (
+            <button role="menuitem" onClick={run(() => togglePieceHidden(piece.id))}>
+              <EyeOffIcon />
+              Hide
+            </button>
+          )}
+          {has('rename') && (
+            <button
+              role="menuitem"
+              onClick={() => {
+                setDraft(piece.name?.trim() ?? '')
+                setRenaming(true)
+              }}
+            >
+              <PencilIcon size={14} />
+              Rename
+            </button>
+          )}
+          {has('delete') && (
+            <button className="danger" role="menuitem" onClick={run(() => removePiece(piece.id))}>
+              <TrashIcon />
+              Delete
+            </button>
+          )}
         </>
       )}
     </div>

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useRun, UNTITLED_PROJECT, type LoadedProject } from '../store'
 import { PROJECT_EXT, readProjectFile, saveProjectFile } from '../lib/project'
+import HoverHint from './HoverHint'
 
 /**
  * A run pending an Open — read off disk and checked over, but not on the stage
@@ -90,15 +91,34 @@ export default function ProjectBar() {
       </label>
 
       <div className="project-btns">
-        <button onClick={save} title={`Save the run as a ${PROJECT_EXT} file you can open again`}>
-          Save
-        </button>
-        <button onClick={() => fileInput.current?.click()} title="Open a saved project file">
-          Open
-        </button>
-        <button onClick={() => setConfirming(true)} title="Clear the stage and start a new project">
-          New
-        </button>
+        <HoverHint
+          label="Save"
+          hint={
+            <>
+              Writes the run to your computer as a <b>{PROJECT_EXT}</b> file, so you can come back to
+              it later. Use Open to load it again.
+            </>
+          }
+        >
+          <button onClick={save}>Save</button>
+        </HoverHint>
+        <HoverHint
+          label="Open"
+          hint={
+            <>
+              Loads a <b>{PROJECT_EXT}</b> project file you saved earlier from your computer, putting
+              that run back on the stage.
+            </>
+          }
+        >
+          <button onClick={() => fileInput.current?.click()}>Open</button>
+        </HoverHint>
+        <HoverHint
+          label="New"
+          hint="Clears the workspace and starts a fresh project. This cannot be undone — save first if you want to keep this run."
+        >
+          <button onClick={() => setConfirming(true)}>New</button>
+        </HoverHint>
       </div>
 
       <input

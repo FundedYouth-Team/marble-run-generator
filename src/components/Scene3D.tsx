@@ -17,10 +17,12 @@ import PartContextMenu, { type MenuTarget } from './PartContextMenu'
 import { FitIcon, HomeIcon } from './icons'
 import { buildEndBandGeometry, buildPieceGeometry } from '../lib/geometry'
 import { centerlineFor, shapeKey } from '../lib/centerline'
-import { buildAssembly, type Assembly } from '../lib/layout'
+import { buildAssembly, chainBox, type Assembly } from '../lib/layout'
 import { createMarble, resetMarble, seekMarble, stepMarble } from '../lib/sim'
 import { scrub, telemetry } from '../lib/telemetry'
-import { coarseText, formatCoarse } from '../lib/units'
+import { measure, type MoveMeasure } from '../lib/measure'
+import { tidyGizmo, type GizmoControls } from '../lib/gizmo'
+import { coarseText, formatCoarse, formatLength, type Unit } from '../lib/units'
 import {
   useRun,
   boreOf,
@@ -390,6 +392,78 @@ function Joints({ asm, specOf }: { asm: Assembly; specOf: (piece: Piece) => Tube
   )
 }
 
+/** Scratch vector for the projection below, so the per-frame path allocates nothing. */
+const ndc = new THREE.Vector3()
+
+/**
+ * Posts where the move figures belong on the glass, every frame.
+ *
+ * The points themselves are in the world — the foot of the drop line on the
+ * workplane, its head on the underside of the run, and the part the arrows sit
+ * on — so the figures stay pinned to the run as the camera swings around it.
+ * Only the projection happens here; the drawing is done in the DOM over the
+ * canvas, where text stays crisp and unmirrored at any angle.
+ */
+function MoveProbe({
+  foot,
+  head,
+  anchor,
+  height,
+  travel,
+}: {
+  foot: THREE.Vector3
+  head: THREE.Vector3
+  anchor: THREE.Vector3
+  /** Underside of the run over the workplane, mm. */
+  height: number
+  /** Travel since the drag began, mm; null when the arrows are only sitting there. */
+  travel: { x: number; y: number; z: number } | null
+}) {
+  const camera = useThree((s) => s.camera)
+  const size = useThree((s) => s.size)
+
+  useFrame(() => {
+    /** Onto the glass; false for a point that has gone behind the camera. */
+    const put = (v: THREE.Vector3, out: { x: number; y: number }) => {
+      ndc.copy(v).project(camera)
+      out.x = (ndc.x * 0.5 + 0.5) * size.width
+      out.y = (0.5 - ndc.y * 0.5) * size.height
+      return ndc.z <= 1
+    }
+    const footOn = put(foot, measure.foot)
+    const headOn = put(head, measure.head)
+    measure.spanOn = footOn && headOn
+    measure.anchorOn = put(anchor, measure.anchor)
+    measure.height = height
+    measure.dragging = travel !== null
+    measure.travel.x = travel?.x ?? 0
+    measure.travel.y = travel?.y ?? 0
+    measure.travel.z = travel?.z ?? 0
+    measure.live = true
+  })
+
+  // Nothing selected, or the tool put down: the figures go with the arrows.
+  useEffect(() => () => void (measure.live = false), [])
+  return null
+}
+
+/**
+ * Puts the gizmo corrections on whichever handle is on stage — the arrows and
+ * the turn ring are the same object underneath, so both are held to the same
+ * rules. Hands back the ref callback the control is mounted with.
+ */
+function useTidyGizmo() {
+  const [controls, setControls] = useState<GizmoControls | null>(null)
+  useEffect(() => (controls ? tidyGizmo(controls) : undefined), [controls])
+  // Taken as the plain object it is on the way in: three-stdlib marks the fields
+  // the corrections read as private, and the class itself is drei's to import,
+  // not ours.
+  return useCallback(
+    (instance: THREE.Object3D | null) => setControls(instance as GizmoControls | null),
+    [],
+  )
+}
+
 /**
  * The three axis arrows, on the selected part. Dragging one moves the whole run
  * that part belongs to: a bonded part cannot travel on its own, which is what
@@ -400,9 +474,16 @@ function Joints({ asm, specOf }: { asm: Assembly; specOf: (piece: Piece) => Tube
  * run, so it is where the pointer already is; the fixed offset between the two
  * is what turns a drag there into a placement here.
  */
-function MoveGizmo({ asm }: { asm: Assembly }) {
+function MoveGizmo({ asm, specOf }: { asm: Assembly; specOf: (piece: Piece) => TubeSpec }) {
   const { selectedId, moveChain } = useRun()
   const [proxy, setProxy] = useState<THREE.Object3D | null>(null)
+  /**
+   * Where the run stood when the drag began; null between drags. The travel
+   * figure is measured off it rather than off the last frame, so it reports one
+   * whole drag however many frames it took.
+   */
+  const [origin, setOrigin] = useState<Placement | null>(null)
+  const setControls = useTidyGizmo()
   const placed = asm.placed.find((p) => p.piece.id === selectedId)
   const root = placed ? asm.chains[placed.chain]?.pieces[0] : undefined
   const at = root === undefined ? null : placementOf(asm.placed[root].piece)
@@ -417,15 +498,27 @@ function MoveGizmo({ asm }: { asm: Assembly }) {
   // numbers in the timeline readable.
   const tidy = (v: number) => Math.round(v * 10) / 10
 
+  // The drop line hangs from the middle of the run's footprint: an edge would
+  // have to be chosen afresh every time the camera swung past it, and the middle
+  // is the one point that reads the same from every side.
+  const box = chainBox(asm, placed.chain, (piece) => specOf(piece).outerR)
+  const midX = (box.min.x + box.max.x) / 2
+  const midZ = (box.min.z + box.max.z) / 2
+  const head = new THREE.Vector3(midX, box.min.y, midZ)
+  const foot = new THREE.Vector3(midX, 0, midZ)
+
   return (
     <>
       <object3D ref={setProxy} position={[placed.start.x, placed.start.y, placed.start.z]} />
       {proxy && (
         <TransformControls
+          ref={setControls}
           object={proxy}
           mode="translate"
           space="world"
           size={0.85}
+          onMouseDown={() => setOrigin(at)}
+          onMouseUp={() => setOrigin(null)}
           onObjectChange={() =>
             moveChain(
               selectedId,
@@ -436,6 +529,13 @@ function MoveGizmo({ asm }: { asm: Assembly }) {
           }
         />
       )}
+      <MoveProbe
+        foot={foot}
+        head={head}
+        anchor={placed.start}
+        height={box.min.y}
+        travel={origin && { x: at.x - origin.x, y: at.y - origin.y, z: at.z - origin.z }}
+      />
     </>
   )
 }
@@ -473,6 +573,7 @@ function RotateGizmo({ asm }: { asm: Assembly }) {
    * into a drift over a long swing.
    */
   const from = useRef<{ at: Placement; pivot: THREE.Vector3; angle: number } | null>(null)
+  const setControls = useTidyGizmo()
   const placed = asm.placed.find((p) => p.piece.id === selectedId)
   const root = placed ? asm.chains[placed.chain]?.pieces[0] : undefined
   const at = root === undefined ? null : placementOf(asm.placed[root].piece)
@@ -486,6 +587,7 @@ function RotateGizmo({ asm }: { asm: Assembly }) {
       <object3D ref={setProxy} position={[placed.start.x, placed.start.y, placed.start.z]} />
       {proxy && (
         <TransformControls
+          ref={setControls}
           object={proxy}
           mode="rotate"
           space="world"
@@ -597,12 +699,98 @@ function Marble({ asm }: { asm: Assembly }) {
 }
 
 /**
- * The angle the home button returns to. A run with no turns travels down +Z,
- * so the camera stands on the -X side: from there +Z projects to screen right
- * and the marble reads start-on-the-left, the same way the 2D elevation
- * develops. Mirroring this to +X silently reverses the run on screen.
+ * The triad rides in a corner viewport of its own, where a unit is a screen
+ * pixel rather than a millimetre — so these are the size it draws on screen, at
+ * any zoom. Roughly half the view cube in the opposite corner.
  */
-const HOME_DIR = new THREE.Vector3(-0.62, 0.5, 0.6).normalize()
+const AXIS_LENGTH = 26
+/** Shaft radius, and the head it opens out into at the tip. */
+const AXIS_SHAFT_R = 1.1
+const AXIS_HEAD_R = 3.2
+const AXIS_HEAD_LEN = 8
+
+/** RGB in axis order, the convention every CAD package shares. */
+const AXIS_COLORS = { x: '#e5484d', y: '#3fb950', z: '#4a8fe7' } as const
+
+/**
+ * A letter drawn to a canvas, for the sprite at an arrow's tip. Painted white on
+ * transparent and tinted by the sprite's own colour, so all three share one
+ * texture rather than one apiece.
+ */
+function letterTexture(letter: string) {
+  const size = 64
+  const canvas = document.createElement('canvas')
+  canvas.width = canvas.height = size
+  const ctx = canvas.getContext('2d')!
+  ctx.fillStyle = '#ffffff'
+  ctx.font = 'bold 48px system-ui, sans-serif'
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  ctx.fillText(letter, size / 2, size / 2 + 2)
+  const tex = new THREE.CanvasTexture(canvas)
+  tex.colorSpace = THREE.SRGBColorSpace
+  return tex
+}
+
+/**
+ * One arrow of the triad: a shaft along +Y in its own space, turned onto the
+ * axis it names by the caller's rotation, with a billboarded letter parked past
+ * the tip. Unlit, so the colour reads the same in either theme, and unpickable,
+ * so it never eats a click meant for the run behind it.
+ */
+function Axis({ axis, rotation }: { axis: 'x' | 'y' | 'z'; rotation: [number, number, number] }) {
+  const color = AXIS_COLORS[axis]
+  const label = useMemo(() => letterTexture(axis.toUpperCase()), [axis])
+  useEffect(() => () => label.dispose(), [label])
+  const shaftLen = AXIS_LENGTH - AXIS_HEAD_LEN
+
+  return (
+    <group rotation={rotation}>
+      <mesh position={[0, shaftLen / 2, 0]} raycast={() => null}>
+        <cylinderGeometry args={[AXIS_SHAFT_R, AXIS_SHAFT_R, shaftLen, 12]} />
+        <meshBasicMaterial color={color} toneMapped={false} />
+      </mesh>
+      <mesh position={[0, shaftLen + AXIS_HEAD_LEN / 2, 0]} raycast={() => null}>
+        <coneGeometry args={[AXIS_HEAD_R, AXIS_HEAD_LEN, 16]} />
+        <meshBasicMaterial color={color} toneMapped={false} />
+      </mesh>
+      <sprite position={[0, AXIS_LENGTH + 7, 0]} scale={[10, 10, 10]} raycast={() => null}>
+        <spriteMaterial map={label} color={color} toneMapped={false} depthTest={false} />
+      </sprite>
+    </group>
+  )
+}
+
+/**
+ * Which way is X, Y and Z. It sits in a corner rather than out in the run, and
+ * turns with the camera instead of the run turning under it, so it stays the
+ * same size in the same place however far you have zoomed or orbited. +Y is up;
+ * X and Z lie in the workplane.
+ */
+function AxisTriad() {
+  return (
+    <group>
+      {/* The arrow is modelled along +Y, so X and Z are that same arrow tipped over. */}
+      <Axis axis="x" rotation={[0, 0, -Math.PI / 2]} />
+      <Axis axis="y" rotation={[0, 0, 0]} />
+      <Axis axis="z" rotation={[Math.PI / 2, 0, 0]} />
+      <mesh raycast={() => null}>
+        <sphereGeometry args={[AXIS_SHAFT_R * 1.8, 16, 12]} />
+        <meshBasicMaterial color="#8a97a5" toneMapped={false} />
+      </mesh>
+    </group>
+  )
+}
+
+/**
+ * The angle the home button returns to. The camera stands on the +X side, the
+ * standard front-top-right that every CAD package opens on: from there the
+ * triad spreads out — Y up, X down to the right, Z down to the left — which is
+ * the whole point of having one. The cost is that a run with no turns travels
+ * down +Z, so it reads right-to-left on this stage, mirrored from the way the
+ * 2D elevation develops. Mirroring this back to -X un-spreads the triad.
+ */
+const HOME_DIR = new THREE.Vector3(0.62, 0.5, 0.6).normalize()
 
 /**
  * Headroom left around whatever is being framed. Fit crops in close on its
@@ -860,6 +1048,176 @@ function Scrubber({ asm, shifted }: { asm: Assembly; shifted: boolean }) {
   )
 }
 
+/** How far the height figure stands off the drop line it belongs to, in px. */
+const FIGURE_OFF = 46
+
+/** How far past the figure the extension lines reach, in px. */
+const EXT_OVER = 14
+
+/** Movement below this is nothing anyone asked for, so the axis is left out. */
+const TRAVEL_EPSILON = 0.05
+
+const AXES = ['x', 'y', 'z'] as const
+
+/** A travel figure carries its direction with it: `+12 mm`, or `-2 mm`. */
+const signed = (mm: number, unit: Unit) =>
+  `${mm >= 0 ? '+' : '-'}${formatLength(Math.abs(mm), unit)}`
+
+/**
+ * The two figures the move arrows are read by, drawn over the canvas rather
+ * than in it: where the run stands, and how far this drag has taken it.
+ *
+ * They answer different questions and so are placed apart. The height is a
+ * property of the run — how far its underside clears the workplane — so it is
+ * dimensioned against the workplane in the drafting way, a drop line squared off
+ * at both ends with the figure on it. The travel is a property of the drag, so
+ * it rides beside the arrows being dragged and leaves with them.
+ *
+ * Sampled on its own clock, like the scrubber: the numbers are rewritten every
+ * frame from inside the render loop, and an identical frame is dropped before it
+ * can cost a render, so a stage nobody is touching costs nothing.
+ */
+function MoveFigures() {
+  const { units } = useRun()
+  const [m, setM] = useState<MoveMeasure | null>(null)
+  /** What was last drawn, so an unchanged frame never re-renders. */
+  const stamp = useRef('')
+
+  useEffect(() => {
+    let id = 0
+    const tick = () => {
+      const key = measure.live
+        ? [
+            Math.round(measure.foot.x),
+            Math.round(measure.foot.y),
+            Math.round(measure.head.x),
+            Math.round(measure.head.y),
+            Math.round(measure.anchor.x),
+            Math.round(measure.anchor.y),
+            measure.height,
+            measure.dragging,
+            measure.spanOn,
+            measure.anchorOn,
+            measure.travel.x,
+            measure.travel.y,
+            measure.travel.z,
+          ].join(',')
+        : ''
+      if (key !== stamp.current) {
+        stamp.current = key
+        setM(
+          measure.live
+            ? {
+                ...measure,
+                travel: { ...measure.travel },
+                foot: { ...measure.foot },
+                head: { ...measure.head },
+                anchor: { ...measure.anchor },
+              }
+            : null,
+        )
+      }
+      id = requestAnimationFrame(tick)
+    }
+    id = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(id)
+  }, [])
+
+  if (!m) return null
+
+  const lx = m.head.x - m.foot.x
+  const ly = m.head.y - m.foot.y
+  // A run sitting on the workplane has no drop line to square off; the figure
+  // still belongs there, reading zero, so it is hung straight off the foot.
+  const len = Math.hypot(lx, ly) || 1
+  // Square across the drop line, always thrown to the right of it, so the figure
+  // never lands back on the run it is measuring.
+  let px = -ly / len
+  let py = lx / len
+  if (px < 0) {
+    px = -px
+    py = -py
+  }
+  const ox = px * FIGURE_OFF
+  const oy = py * FIGURE_OFF
+  const over = FIGURE_OFF + EXT_OVER
+  const moved = AXES.filter((a) => Math.abs(m.travel[a]) >= TRAVEL_EPSILON)
+
+  return (
+    <div className="move-figures" aria-hidden="true">
+      {m.spanOn && (
+        <>
+          <svg className="move-dim">
+            <defs>
+              {/* One head, turned about on the near end, so both point outward
+                  onto the lines they are measured between — the drafting way
+                  round. */}
+              <marker
+                id="move-tick"
+                markerWidth="9"
+                markerHeight="9"
+                refX="8.5"
+                refY="4.5"
+                orient="auto-start-reverse"
+                markerUnits="userSpaceOnUse"
+              >
+                <path d="M 1 1 L 8.5 4.5 L 1 8 z" />
+              </marker>
+            </defs>
+            <line
+              className="ext"
+              x1={m.foot.x}
+              y1={m.foot.y}
+              x2={m.foot.x + px * over}
+              y2={m.foot.y + py * over}
+            />
+            <line
+              className="ext"
+              x1={m.head.x}
+              y1={m.head.y}
+              x2={m.head.x + px * over}
+              y2={m.head.y + py * over}
+            />
+            <line
+              className="bar"
+              x1={m.foot.x + ox}
+              y1={m.foot.y + oy}
+              x2={m.head.x + ox}
+              y2={m.head.y + oy}
+              markerStart="url(#move-tick)"
+              markerEnd="url(#move-tick)"
+            />
+          </svg>
+          {/* Centred on the dimension line: the plate breaks the bar where it
+              sits, which is how a figure is set into one on a drawing. */}
+          <div
+            className="move-figure"
+            style={{ left: (m.foot.x + m.head.x) / 2 + ox, top: (m.foot.y + m.head.y) / 2 + oy }}
+          >
+            <span className="cap">Over workplane</span>
+            <b>{formatLength(m.height, units)}</b>
+          </div>
+        </>
+      )}
+      {m.dragging && m.anchorOn && (
+        <div className="move-figure travel" style={{ left: m.anchor.x, top: m.anchor.y }}>
+          <span className="cap">Moved</span>
+          {moved.length ? (
+            moved.map((a) => (
+              <b key={a}>
+                <i>{a.toUpperCase()}</i>
+                {signed(m.travel[a], units)}
+              </b>
+            ))
+          ) : (
+            <b>{formatLength(0, units)}</b>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 /** Width of the slide-out settings panel; the corner controls step aside by this much. */
 const SETTINGS_WIDTH = 312
 
@@ -876,7 +1234,7 @@ const TOOLBAR_HEIGHT = 62
 const CLICK_SLOP = 4
 
 export default function Scene3D() {
-  const { pieces, innerDiameter, wallThickness, variant, selectedId, select, theme, pieceColor, shading, rightPanel, simStarted, tool } =
+  const { pieces, innerDiameter, wallThickness, variant, selectedId, select, theme, pieceColor, shading, rightPanel, simStarted, tool, overlays } =
     useRun()
   // Either slide-out takes the same gutter, so the corner controls step aside for both.
   const docked = rightPanel !== null
@@ -1025,7 +1383,7 @@ export default function Scene3D() {
         shadows
         dpr={[1, 2]}
         // Opening pose, kept on the same side as HOME_DIR.
-        camera={{ fov: 45, position: [-200, 160, 260] }}
+        camera={{ fov: 45, position: [200, 160, 260] }}
         // Only the left button selects, so only the left button clears the
         // selection — and only while the left button is still ours to pick with.
         onPointerMissed={(e) => e.button === 0 && picking && select(null)}
@@ -1037,12 +1395,12 @@ export default function Scene3D() {
         {/* Key and fill are mirrored in X along with the home camera, so the run
             keeps the same lit/shaded sides relative to the viewer. */}
         <directionalLight
-          position={[-300, 500, 250]}
+          position={[300, 500, 250]}
           intensity={palette.keyIntensity}
           castShadow
           shadow-mapSize={[1024, 1024]}
         />
-        <directionalLight position={[250, 180, -200]} intensity={0.5} color={palette.fillLight} />
+        <directionalLight position={[-250, 180, -200]} intensity={0.5} color={palette.fillLight} />
 
         <Grid
           position={[0, groundY, 0]}
@@ -1088,7 +1446,7 @@ export default function Scene3D() {
         {simStarted && asm.placed.length > 0 && <Marble asm={asm} />}
         <Joints asm={asm} specOf={specOf} />
         {/* The handles are the tools themselves, so each is only on stage with its own in hand. */}
-        {tool === 'move' && <MoveGizmo asm={asm} />}
+        {tool === 'move' && <MoveGizmo asm={asm} specOf={specOf} />}
         {tool === 'rotate' && <RotateGizmo asm={asm} />}
 
         <OrbitControls
@@ -1112,11 +1470,23 @@ export default function Scene3D() {
         >
           <ViewCube palette={palette.cube} onPick={snapTo} onOrbit={orbit} />
         </GizmoHelper>
+        {/* Bottom left — the one corner with nothing else in it. Each gizmo draws
+            in a pass of its own, so this one takes the later priority: the first
+            pass draws the run, and a second one that also cleared it would wipe
+            the cube out. */}
+        {overlays.axes && (
+          <GizmoHelper alignment="bottom-left" margin={[62, 62]} renderPriority={2}>
+            <AxisTriad />
+          </GizmoHelper>
+        )}
       </Canvas>
 
+      {/* Over the canvas, under the furniture around it: the figures belong to
+          the run, but nothing they say is worth covering a control for. */}
+      <MoveFigures />
       <Toolbar spec={spec} asm={asm} />
-      <Scrubber asm={asm} shifted={docked} />
-      <ActiveParts />
+      {overlays.scrubber && <Scrubber asm={asm} shifted={docked} />}
+      {overlays.parts && <ActiveParts />}
       <div className={docked ? 'view-tools shifted' : 'view-tools'}>
         <button
           className="view-tool"
@@ -1137,10 +1507,13 @@ export default function Scene3D() {
       </div>
       {/* Names the ground plane. Rides beside the mouse legend rather than sitting
           in the scene, so it stays legible and unmirrored at any camera angle. */}
-      <div className={docked ? 'workplane-tag shifted' : 'workplane-tag'} aria-hidden="true">
+      <div
+        className={`workplane-tag${docked ? ' shifted' : ''}${overlays.mouse ? '' : ' bare'}`}
+        aria-hidden="true"
+      >
         Workplane
       </div>
-      <MouseLegend stage={stage} shifted={docked} />
+      {overlays.mouse && <MouseLegend stage={stage} shifted={docked} />}
       <RightDock />
       {/* Keyed on the part, so a menu opened on a second part starts fresh
           rather than inheriting a rename left open on the first. */}

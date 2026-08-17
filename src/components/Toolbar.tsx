@@ -1,9 +1,19 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import HoverHint from './HoverHint'
 import UndoRedo from './UndoRedo'
-import { ConnectIcon, DisconnectIcon, MoveIcon, RotateIcon, SelectIcon } from './icons'
+import {
+  ConnectIcon,
+  DisconnectIcon,
+  DropToPlaneIcon,
+  DuplicateIcon,
+  MoveIcon,
+  RotateIcon,
+  SelectIcon,
+  TrashIcon,
+} from './icons'
 import { telemetry } from '../lib/telemetry'
 import { UNIT_WORD, coarseText } from '../lib/units'
+import { formatShortcut } from '../lib/shortcuts'
 import { exportPrintPlate } from '../lib/exporters'
 import type { Assembly } from '../lib/layout'
 import {
@@ -30,8 +40,10 @@ function ToolGroup({ name, children }: { name: string; children: ReactNode }) {
 }
 
 /**
- * One of the modal tools. It reads as pressed while it holds the left button,
- * because until it is switched off every click on the stage belongs to it.
+ * One of the tools. A modal one reads as pressed while it holds the left button,
+ * because until it is switched off every click on the stage belongs to it; one
+ * that does its thing and hands the button straight back leaves `on` off
+ * altogether, so it is never described as a state the stage is in.
  *
  * Only the picture is in the bar — the tools earn their width back for the hint
  * line and the readout — and what it means is said on hover instead, in a
@@ -39,13 +51,17 @@ function ToolGroup({ name, children }: { name: string; children: ReactNode }) {
  */
 function ToolButton({
   on,
+  danger,
   label,
   icon,
   title,
   disabled,
   onClick,
 }: {
-  on: boolean
+  /** Left unset by a tool that is an action rather than a mode. */
+  on?: boolean
+  /** Set by the one tool that undoes work, so it is drawn as one. */
+  danger?: boolean
   label: string
   icon: ReactNode
   /** The longer line under the name, saying what the tool does. */
@@ -58,7 +74,7 @@ function ToolButton({
     // still hanging under it would be about a tool that is no longer in hand.
     <HoverHint label={label} hint={title} hideOnClick>
       <button
-        className={on ? 'tool-btn on' : 'tool-btn'}
+        className={['tool-btn', on ? 'on' : '', danger ? 'danger' : ''].filter(Boolean).join(' ')}
         aria-pressed={on}
         aria-label={label}
         disabled={disabled}
@@ -87,12 +103,16 @@ export default function Toolbar({ spec, asm }: { spec: TubeSpec; asm: Assembly }
     pendingPort,
     pieces,
     selectedId,
+    dropToWorkplane,
+    duplicatePiece,
+    removePiece,
     running,
     toggleRunning,
     resetSim,
     exportFormat,
     shading,
     toggleShading,
+    shortcuts,
   } = useRun()
   // Same name the Export panel would give it — the toolbar is just a shortcut.
   const basename = useRun(exportBasename)
@@ -164,6 +184,40 @@ export default function Toolbar({ spec, asm }: { spec: TubeSpec; asm: Assembly }
           icon={<RotateIcon />}
           title="Turn the selected part's run about the upright, with the part you picked standing still"
           onClick={() => pick('rotate')}
+        />
+        <ToolButton
+          label="Drop to Workplane"
+          icon={<DropToPlaneIcon />}
+          disabled={!selectedId}
+          title={
+            selected
+              ? `Set ${selected}'s run straight down on the workplane, until its lowest wall rests on it`
+              : 'Select a part to set its run down on the workplane'
+          }
+          onClick={() => selectedId && dropToWorkplane(selectedId)}
+        />
+        <ToolButton
+          label="Duplicate"
+          icon={<DuplicateIcon />}
+          disabled={!selectedId}
+          title={
+            selected
+              ? `Set a copy of ${selected} down beside the run, unjoined, and select it — ${formatShortcut(shortcuts.duplicate)}`
+              : 'Select a part to copy it'
+          }
+          onClick={() => selectedId && duplicatePiece(selectedId)}
+        />
+        <ToolButton
+          danger
+          label="Delete"
+          icon={<TrashIcon size={17} />}
+          disabled={!selectedId}
+          title={
+            selected
+              ? `Take ${selected} out of the run — what was joined to it closes up`
+              : 'Select a part to take it out of the run'
+          }
+          onClick={() => selectedId && removePiece(selectedId)}
         />
       </ToolGroup>
 
