@@ -7,6 +7,7 @@ import MouseLegend from './MouseLegend'
 import RightDock from './RightDock'
 import UndoRedo from './UndoRedo'
 import ActiveParts from './ActiveParts'
+import PartContextMenu, { type MenuTarget } from './PartContextMenu'
 import { FitIcon, HomeIcon } from './icons'
 import { buildPieceGeometry } from '../lib/geometry'
 import { centerlineFor, shapeKey } from '../lib/centerline'
@@ -111,6 +112,7 @@ function PieceMesh({
   tint,
   xray,
   onClick,
+  onRightDown,
 }: {
   spec: TubeSpec
   piece: Piece
@@ -120,6 +122,8 @@ function PieceMesh({
   tint: ReturnType<typeof shades>
   xray: boolean
   onClick: () => void
+  /** A right-press landed here; the stage decides whether it becomes a menu or an orbit. */
+  onRightDown: (x: number, y: number) => void
 }) {
   // Keyed on the shape rather than the piece, so nudging a part it sits behind
   // in the run — or renaming it — never rebuilds the solid.
@@ -139,6 +143,12 @@ function PieceMesh({
       onClick={(e) => {
         e.stopPropagation()
         onClick()
+      }}
+      // Only the nearest part under the cursor is the one the menu is about.
+      onPointerDown={(e) => {
+        if (e.button !== 2) return
+        e.stopPropagation()
+        onRightDown(e.nativeEvent.clientX, e.nativeEvent.clientY)
       }}
     >
       <meshStandardMaterial
@@ -630,6 +640,9 @@ function Scrubber({ asm, shifted }: { asm: Assembly; shifted: boolean }) {
 /** Width of the slide-out settings panel; the corner controls step aside by this much. */
 const SETTINGS_WIDTH = 312
 
+/** How far the pointer may wander between press and release and still count as a click, in px. */
+const CLICK_SLOP = 4
+
 export default function Scene3D() {
   const { pieces, innerDiameter, wallThickness, variant, selectedId, select, theme, pieceColor, shading, rightPanel, simStarted } =
     useRun()
@@ -701,11 +714,51 @@ export default function Scene3D() {
   const groundY = (asm.bounds.isEmpty() ? 0 : asm.bounds.min.y) - spec.outerR - 20
   const stage = useRef<HTMLDivElement>(null)
 
+  /**
+   * The right button does two jobs on this stage: it orbits the camera, and on a
+   * part it opens that part's menu. Which one it was is only known on release —
+   * a press that stayed put is a click, a press that travelled was an orbit — so
+   * the part under the press is parked here until then.
+   */
+  const [menu, setMenu] = useState<MenuTarget | null>(null)
+  const pressed = useRef<{ pieceId: string; x: number; y: number } | null>(null)
+
+  useEffect(() => {
+    const up = (e: PointerEvent) => {
+      const hit = pressed.current
+      pressed.current = null
+      if (e.button !== 2 || !hit) return
+      if (Math.hypot(e.clientX - hit.x, e.clientY - hit.y) > CLICK_SLOP) return
+      const box = stage.current?.getBoundingClientRect()
+      setMenu({ pieceId: hit.pieceId, x: e.clientX - (box?.left ?? 0), y: e.clientY - (box?.top ?? 0) })
+    }
+    // Released off the canvas — the press is spent either way.
+    const cancel = () => (pressed.current = null)
+    window.addEventListener('pointerup', up)
+    window.addEventListener('pointercancel', cancel)
+    return () => {
+      window.removeEventListener('pointerup', up)
+      window.removeEventListener('pointercancel', cancel)
+    }
+  }, [])
+
+  // A part that has gone — deleted, or switched off — takes its menu with it.
+  useEffect(() => {
+    if (menu && !pieces.some((p) => p.id === menu.pieceId && !p.hidden)) setMenu(null)
+  }, [pieces, menu])
+
   return (
     <div
       className="stage-3d"
       ref={stage}
       style={{ '--parts-w': `${SETTINGS_WIDTH}px` } as React.CSSProperties}
+      // Ahead of the canvas, so a right-press that lands on nothing has already
+      // cleared the last one by the time the parts get their say.
+      onPointerDownCapture={(e) => {
+        if (e.button === 2) pressed.current = null
+      }}
+      // The stage has its own menu; the browser's would only cover it.
+      onContextMenu={(e) => e.preventDefault()}
     >
       <Canvas
         shadows
@@ -764,6 +817,7 @@ export default function Scene3D() {
             tint={tints.get(colorOf(p.piece, pieceColor))!}
             xray={xray}
             onClick={() => select(p.piece.id === selectedId ? null : p.piece.id)}
+            onRightDown={(x, y) => (pressed.current = { pieceId: p.piece.id, x, y })}
           />
         ))}
 
@@ -817,6 +871,11 @@ export default function Scene3D() {
       </div>
       <MouseLegend stage={stage} shifted={docked} />
       <RightDock />
+      {/* Keyed on the part, so a menu opened on a second part starts fresh
+          rather than inheriting a rename left open on the first. */}
+      {menu && (
+        <PartContextMenu key={menu.pieceId} target={menu} onClose={() => setMenu(null)} />
+      )}
     </div>
   )
 }

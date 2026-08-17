@@ -31,6 +31,7 @@ export const ORBIT_MOUSE: MouseConfig = {
   hints: [
     ['left-click', 'select'],
     ['click joint', 'build there'],
+    ['right-click part', 'part menu'],
     ['right-drag', 'rotate'],
     ['middle-drag', 'pan'],
     ['scroll', 'zoom'],

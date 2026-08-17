@@ -26,22 +26,32 @@ function StraightLinePreview() {
   )
 }
 
-/** Two legs meeting at a break, with the angle called out over the corner. */
+/**
+ * Two legs meeting at a break, seen side-on, with a double arrow for the axis
+ * the far leg is free to move on. The arrow is what tells this apart from the
+ * corner at a glance — the silhouettes alone are near enough identical.
+ */
 function AngleConnectorPreview() {
   return (
     <svg width="78" height="50" viewBox="0 0 46 30" aria-hidden="true">
-      <path className="pp-arc" d="M15 24 A 11 11 0 0 1 33.5 16" />
-      <path className="pp-line" d="M6 24h20l14-15" />
+      <path className="pp-line" d="M3 24h12l10-11" />
+      <path
+        className="pp-arrow"
+        d="M38 3 L43 9.5 L39.8 9.5 L39.8 20.5 L43 20.5 L38 27 L33 20.5 L36.2 20.5 L36.2 9.5 L33 9.5 Z"
+      />
     </svg>
   )
 }
 
-/** The same two legs seen from above, turning across the page rather than up it. */
+/** The same two legs seen from above, so the break swings across the page. */
 function CornerConnectorPreview() {
   return (
     <svg width="78" height="50" viewBox="0 0 46 30" aria-hidden="true">
-      <path className="pp-arc" d="M20 21 A 11 11 0 0 0 29 12" />
-      <path className="pp-line" d="M4 26h13a9 9 0 0 0 9-9V4" />
+      <path className="pp-line" d="M2 24h9a9 9 0 0 0 9-9V4" />
+      <path
+        className="pp-arrow"
+        d="M26 15 L32.5 9 L32.5 12.8 L38.5 12.8 L38.5 9 L45 15 L38.5 21 L38.5 17.2 L32.5 17.2 L32.5 21 Z"
+      />
     </svg>
   )
 }
@@ -76,6 +86,12 @@ interface Part {
   id: string
   name: string
   category: Category
+  /**
+   * The axis the part breaks on, for the pair that are otherwise told apart
+   * only by that. Sits beside the name rather than inside it, so the short name
+   * still matches what a piece is called once it is on the stage.
+   */
+  axis?: string
   blurb: string
   preview: () => ReactElement
   /** Undefined while the generator for this part is still to be written. */
@@ -95,8 +111,9 @@ const PARTS: Part[] = [
     id: 'angle',
     name: 'Angle Connector',
     category: 'track',
+    axis: 'Up / Down',
     blurb:
-      'Short two-leg connector that breaks the run to a new angle. The inlet stays rigid; the leg past the break tips up or down. Rounded at the corner by default, so the marble rolls through the change.',
+      'Short two-leg connector that breaks the run up or down to a new slope. The inlet stays rigid; the leg past the break tips above or below it. Rounded at the corner by default, so the marble rolls through the change.',
     preview: AngleConnectorPreview,
     add: () => useRun.getState().addPiece('angle'),
   },
@@ -104,8 +121,9 @@ const PARTS: Part[] = [
     id: 'corner',
     name: 'Corner Connector',
     category: 'track',
+    axis: 'Left / Right',
     blurb:
-      'Short two-leg connector that breaks the run to a new heading. The inlet stays rigid; the leg past the break swings right or left. Rounded at the corner by default, so the marble carries its speed round the turn.',
+      'Short two-leg connector that breaks the run left or right to a new heading. The inlet stays rigid; the leg past the break swings to one side of it. Rounded at the corner by default, so the marble carries its speed round the turn.',
     preview: CornerConnectorPreview,
     add: () => useRun.getState().addPiece('corner'),
   },
@@ -169,7 +187,10 @@ export default function PartLibrary() {
     return PARTS.filter(
       (p) =>
         (category === 'all' || p.category === category) &&
-        (!q || p.name.toLowerCase().includes(q) || p.blurb.toLowerCase().includes(q)),
+        (!q ||
+          p.name.toLowerCase().includes(q) ||
+          p.blurb.toLowerCase().includes(q) ||
+          !!p.axis?.toLowerCase().includes(q)),
     )
   }, [category, query])
 
@@ -238,7 +259,8 @@ export default function PartLibrary() {
                           <Preview />
                         </div>
                         <span className="lib-card-name">
-                          {p.name}
+                          <b>{p.name}</b>
+                          {p.axis && <i className="lib-card-axis">{p.axis}</i>}
                           {!p.add && <em>soon</em>}
                         </span>
                         <span className="lib-card-blurb">{p.blurb}</span>

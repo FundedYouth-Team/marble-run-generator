@@ -124,6 +124,11 @@ const HELP: Record<HelpTab, Group[]> = {
         { keys: ['Left-click a part'], action: 'Select it and open its settings in the sidebar' },
         { keys: ['Left-click empty space'], action: 'Deselect' },
         {
+          keys: ['Right-click a part'],
+          action: 'Part menu — select, hide, rename or delete it on the spot',
+          note: 'a right-drag still rotates the camera; only a press that stays put opens the menu',
+        },
+        {
           keys: ['Click a joint'],
           action: 'Build there — the next part from the library is joined on at that joint',
           note: 'click it again to go back to building at the end of the run',
