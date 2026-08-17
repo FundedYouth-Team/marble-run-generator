@@ -7,7 +7,7 @@ import HelpOverlay from './components/HelpOverlay'
 import PartLibrary from './components/PartLibrary'
 import ProjectBar from './components/ProjectBar'
 import { pieceAxisLength } from './lib/centerline'
-import { useRun, tubeSpec, VARIANT_LABEL } from './store'
+import { useRun, tubeSpec, variantOf, VARIANT_LABEL } from './store'
 
 /** Fields own their own undo stack — the run's only takes over outside them. */
 function isTyping(el: EventTarget | null) {
@@ -36,6 +36,9 @@ export default function App() {
   const spec = tubeSpec(innerDiameter, wallThickness, variant)
   // Centreline length, so a bent part counts what it actually carries.
   const total = Math.round(pieces.reduce((a, p) => a + pieceAxisLength(p), 0))
+  // Style is a part's own, so the strip only names one when the run agrees on it.
+  const styles = new Set(pieces.map((p) => variantOf(p, variant)))
+  const style = styles.size > 1 ? 'Mixed styles' : VARIANT_LABEL[[...styles][0] ?? variant]
 
   return (
     <div className="app">
@@ -73,7 +76,7 @@ export default function App() {
           <span>
             Ø{innerDiameter.toFixed(1)} bore / Ø{(spec.outerR * 2).toFixed(1)} outer
           </span>
-          <span>{VARIANT_LABEL[variant]}</span>
+          <span>{style}</span>
           <span>
             {pieces.length} pcs · {total} mm
           </span>

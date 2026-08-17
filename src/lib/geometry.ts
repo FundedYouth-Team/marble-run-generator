@@ -66,37 +66,55 @@ const near = (a: number, b: number) => Math.abs(a - b) < 1e-6
 
 /**
  * The closed profile of the piece in the (z, r) half-plane: out along the
- * outer wall, back along the bore. Sweeping this polygon about the axis is
- * what produces the solid, so every surface — walls, shoulders, barb, end
- * caps — comes from one consistently ordered loop.
+ * outer wall, back along the bore. Sweeping this loop about the axis is what
+ * produces the solid, so every surface — walls, shoulders, barb, end caps —
+ * comes from one consistently ordered loop.
  */
-function profilePolygon(spec: TubeSpec, length: number): ProfilePoint[] {
+interface Profile {
+  points: ProfilePoint[]
+  /**
+   * Where the bore chain starts. Everything before it runs out along the wall
+   * with z increasing; everything from it on comes back along the bore with z
+   * decreasing. Knowing the two chains apart is what lets the cut faces be
+   * triangulated as the band they are — see {@link bandTriangles}.
+   */
+  split: number
+}
+
+function profilePolygon(spec: TubeSpec, length: number): Profile {
   const stations = stationsFor(spec, length)
   const pts: ProfilePoint[] = []
-  const push = (z: number, r: number) => {
+  const wall: boolean[] = []
+  const push = (z: number, r: number, onWall: boolean) => {
     const last = pts[pts.length - 1]
     if (last && near(last.z, z) && near(last.r, r)) return
     pts.push({ z, r })
+    wall.push(onWall)
   }
 
-  for (const s of stations) push(s.z, s.ro)
-  for (let i = stations.length - 1; i >= 0; i--) push(stations[i].z, stations[i].ri)
+  for (const s of stations) push(s.z, s.ro, true)
+  for (let i = stations.length - 1; i >= 0; i--) push(stations[i].z, stations[i].ri, false)
   while (pts.length > 1) {
     const first = pts[0]
     const last = pts[pts.length - 1]
     if (!near(first.z, last.z) || !near(first.r, last.r)) break
     pts.pop()
+    wall.pop()
   }
 
   // Drop points that lie on the straight line between their neighbours; they
   // would only add strips of coplanar triangles.
-  const simplified = pts.filter((b, i) => {
+  const keep = pts.map((b, i) => {
     const a = pts[(i - 1 + pts.length) % pts.length]
     const c = pts[(i + 1) % pts.length]
     const cross = (b.z - a.z) * (c.r - a.r) - (b.r - a.r) * (c.z - a.z)
     return Math.abs(cross) > 1e-9
   })
-  return simplified.length >= 3 ? simplified : pts
+  const simplify = keep.filter(Boolean).length >= 3
+  const points = simplify ? pts.filter((_, i) => keep[i]) : pts
+  const flags = simplify ? wall.filter((_, i) => keep[i]) : wall
+  const split = flags.indexOf(false)
+  return { points, split: split < 0 ? points.length : split }
 }
 
 function signedArea(poly: ProfilePoint[]) {
@@ -208,14 +226,17 @@ function surfacePoint(ring: Ring, r: number, ca: number, sa: number) {
  * sweep straddles a bend. Without this the body would be one long strip drawn
  * straight between its two ends, cutting the corner off entirely.
  */
-function subdivide(poly: ProfilePoint[], line: Centerline): ProfilePoint[] {
+function subdivide(profile: Profile, line: Centerline): Profile {
   const breaks = line.distances.slice(1, -1)
-  if (!breaks.length) return poly
+  if (!breaks.length) return profile
 
+  const poly = profile.points
   const out: ProfilePoint[] = []
+  let split = poly.length
   for (let i = 0; i < poly.length; i++) {
     const a = poly[i]
     const b = poly[(i + 1) % poly.length]
+    if (i === profile.split) split = out.length
     out.push(a)
     if (near(a.z, b.z)) continue
     const lo = Math.min(a.z, b.z)
@@ -225,7 +246,44 @@ function subdivide(poly: ProfilePoint[], line: Centerline): ProfilePoint[] {
     inside.sort((p, q) => (b.z > a.z ? p - q : q - p))
     for (const z of inside) out.push({ z, r: a.r + ((b.r - a.r) * (z - a.z)) / (b.z - a.z) })
   }
-  return out
+  return { points: out, split }
+}
+
+/**
+ * Triangulates the profile as the band it actually is: the wall chain and the
+ * bore chain walked together in step, so every triangle spans one step of one
+ * chain and no more.
+ *
+ * The cut faces of an open tube are the one part of the solid that is a filled
+ * region rather than a strip, and on a bent part that region is not flat — it
+ * follows the centreline. Triangulating the loop as a free polygon would let a
+ * triangle join the socket end to the spigot end, which on a bend cuts straight
+ * across the corner and leaves a sail of material hanging off the outside of
+ * it. Stepping the two chains keeps every triangle inside a single chord, where
+ * the face really is flat. {@link subdivide} has already planted a point on
+ * both chains at every bend, so the steps line up.
+ */
+function bandTriangles(profile: Profile): [number, number, number][] {
+  const { points, split } = profile
+  const wall = points.map((_, i) => i).slice(0, split)
+  // The bore chain was laid down coming back, so walk it in reverse to run
+  // alongside the wall rather than against it.
+  const bore: number[] = []
+  for (let i = points.length - 1; i >= split; i--) bore.push(i)
+  if (wall.length < 2 || bore.length < 2) return []
+
+  const tris: [number, number, number][] = []
+  let i = 0
+  let j = 0
+  while (i < wall.length - 1 || j < bore.length - 1) {
+    // Advance whichever chain is lagging in z, so the rungs stay square-ish.
+    const stepWall =
+      j >= bore.length - 1 ||
+      (i < wall.length - 1 && points[wall[i + 1]].z <= points[bore[j + 1]].z)
+    if (stepWall) tris.push([wall[i], bore[j], wall[++i]])
+    else tris.push([wall[i], bore[j], bore[++j]])
+  }
+  return tris
 }
 
 /**
@@ -234,7 +292,8 @@ function subdivide(poly: ProfilePoint[], line: Centerline): ProfilePoint[] {
  * up, so the opening of a half / 3-4 tube faces +Y.
  */
 export function buildPieceGeometry(spec: TubeSpec, line: Centerline): THREE.BufferGeometry {
-  const poly = subdivide(profilePolygon(spec, line.length), line)
+  const profile = subdivide(profilePolygon(spec, line.length), line)
+  const poly = profile.points
   const frames = chordFrames(line)
   const rings = poly.map((p) => ringAt(line, frames, p.z))
 
@@ -276,8 +335,7 @@ export function buildPieceGeometry(spec: TubeSpec, line: Centerline): THREE.Buff
 
   // Radial faces closing the cut edges of an open tube.
   if (!spec.closed) {
-    const contour = poly.map((p) => new THREE.Vector2(p.z, p.r))
-    const faces = THREE.ShapeUtils.triangulateShape(contour, [])
+    const faces = bandTriangles(profile)
 
     for (const [i, outward] of [
       [0, -1],

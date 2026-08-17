@@ -1,13 +1,23 @@
 import { useState } from 'react'
-import { useRun, angleSpec, pieceLabel, pieceTypeLabel, type Piece } from '../store'
+import {
+  useRun,
+  angleSpec,
+  pieceLabel,
+  pieceTypeLabel,
+  variantOf,
+  VARIANT_LABEL,
+  type Piece,
+  type TubeVariant,
+} from '../store'
 
 /** What the part is, in one line, for the row's tooltip. */
-function summarise(p: Piece): string {
-  if (p.type !== 'angle') return `${p.length} mm · ${p.slope}° slope · ${p.turn}° turn`
+function summarise(p: Piece, style: TubeVariant): string {
+  const tube = VARIANT_LABEL[style]
+  if (p.type !== 'angle') return `${p.length} mm · ${p.slope}° slope · ${p.turn}° turn · ${tube}`
   const a = angleSpec(p)
   return `${a.entry}+${a.exit} mm · ${p.slope}° in, ${p.slope + a.bend}° out · ${
     a.fillet > 0 ? `r${a.fillet} corner` : 'sharp corner'
-  }`
+  } · ${tube}`
 }
 
 /** Points down when the list is open, right when it is rolled up. */
@@ -59,7 +69,8 @@ function EyeOffIcon() {
  * tag of what it actually is, so "Big Drop" is still visibly Tube 2.
  */
 export default function ActiveParts() {
-  const { pieces, selectedId, select, renamePiece, togglePieceHidden, showAllPieces } = useRun()
+  const { pieces, variant, selectedId, select, renamePiece, togglePieceHidden, showAllPieces } =
+    useRun()
   const [open, setOpen] = useState(true)
   /** Which row is being renamed, and the in-flight text — committed on Enter or blur. */
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -123,7 +134,7 @@ export default function ActiveParts() {
             <div
               key={p.id}
               className={classes.join(' ')}
-              title={`${renamed ? `${label} — ` : ''}${typeLabel} · ${summarise(p)}`}
+              title={`${renamed ? `${label} — ` : ''}${typeLabel} · ${summarise(p, variantOf(p, variant))}`}
               onClick={() => !editing && select(p.id === selectedId ? null : p.id)}
               onDoubleClick={() => startEdit(p.id, p.name)}
             >

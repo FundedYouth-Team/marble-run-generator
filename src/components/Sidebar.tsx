@@ -9,8 +9,11 @@ import {
   TUBE_LIMITS,
   ANGLE_DEFAULTS,
   angleSpec,
+  bendLimitsFor,
   exitSlope,
   tubeSpec,
+  colorOf,
+  variantOf,
   jointSpec,
   pieceLabel,
   pieceTypeLabel,
@@ -32,9 +35,18 @@ const VARIANT_NOTE: Record<TubeVariant, string> = {
 
 export default function Sidebar() {
   const s = useRun()
-  const spec = tubeSpec(s.innerDiameter, s.wallThickness, s.variant)
   const selectedIndex = s.pieces.findIndex((p) => p.id === s.selectedId)
   const selected = selectedIndex >= 0 ? s.pieces[selectedIndex] : null
+  // The style the buttons show and act on: the selected part's, or the run's
+  // when nothing is picked.
+  const style = selected ? variantOf(selected, s.variant) : s.variant
+  // Whether Apply to All has anything left to do — some part is cut differently.
+  const mixed = s.pieces.some((p) => variantOf(p, s.variant) !== style)
+  // Colour works the same way: the selected part's own, or the run's when
+  // nothing is picked, and Apply to All is live while some part differs.
+  const color = selected ? colorOf(selected, s.pieceColor) : s.pieceColor
+  const mixedColor = s.pieces.some((p) => colorOf(p, s.pieceColor) !== color)
+  const spec = tubeSpec(s.innerDiameter, s.wallThickness, style)
   // Centreline length, so a bent part counts what it actually carries.
   const totalLength = s.pieces.reduce((a, p) => a + pieceAxisLength(p), 0)
   const selectedLength = selected ? pieceAxisLength(selected) : 100
@@ -50,17 +62,17 @@ export default function Sidebar() {
             {selected ? pieceLabel(selected, selectedIndex) : 'none'}
           </span>
         </h2>
-        {/* Only length is per-piece — the rest of the sidebar is run-wide. */}
+        {/* Measurements, style and colour are per-piece; diameter is run-wide. */}
         <p className="scope-note">
           {selected ? (
             <>
-              Its measurements belong to this part alone. Tube diameter, style, and color apply to
-              every part in the run.
+              Its measurements, tube style and color belong to this part alone. Tube diameter
+              applies to every part in the run.
             </>
           ) : (
             <>
-              Pick a part in Active Parts or the list below to edit its measurements. Tube
-              diameter, style, and color apply to every part in the run.
+              Pick a part in Active Parts or the list below to edit its measurements, tube style
+              and color. Tube diameter applies to every part in the run.
             </>
           )}
         </p>
@@ -98,29 +110,62 @@ export default function Sidebar() {
       </CollapsiblePanel>
 
       <CollapsiblePanel title="Tube Style">
+        <span className="field-label">
+          {selected ? pieceLabel(selected, selectedIndex) : 'Run style'}
+          <em>
+            {selected
+              ? 'this part only'
+              : 'every part that has not been styled on its own, and every part added next'}
+          </em>
+        </span>
         <div className="segmented">
           {VARIANTS.map((v) => (
             <button
               key={v}
-              className={s.variant === v ? 'on' : ''}
-              onClick={() => s.setVariant(v)}
+              className={style === v ? 'on' : ''}
+              onClick={() => (selected ? s.setPieceVariant(selected.id, v) : s.setVariant(v))}
               title={VARIANT_NOTE[v]}
             >
               {VARIANT_LABEL[v]}
             </button>
           ))}
         </div>
-        <p className="note">{VARIANT_NOTE[s.variant]}</p>
+        <p className="note">{VARIANT_NOTE[style]}</p>
+        <button onClick={() => s.applyVariantToAll(style)} disabled={!mixed}>
+          Apply to All Parts
+        </button>
+        <p className="note">
+          {mixed
+            ? `Puts ${VARIANT_LABEL[style]} on all ${s.pieces.length} parts, and on every part added next.`
+            : s.pieces.length
+              ? `Every part is already ${VARIANT_LABEL[style]}.`
+              : 'No parts yet — this is the style the first one arrives in.'}
+        </p>
       </CollapsiblePanel>
 
       <CollapsiblePanel title="Color">
         <ColorField
-          label="Object color"
-          hint="3D view only — not exported"
-          value={s.pieceColor}
-          onChange={s.setPieceColor}
+          label={selected ? pieceLabel(selected, selectedIndex) : 'Run color'}
+          hint={
+            selected
+              ? 'this part only'
+              : 'every part that has not been painted on its own, and every part added next'
+          }
+          value={color}
+          onChange={(v) => (selected ? s.setPartColor(selected.id, v) : s.setPieceColor(v))}
           presets={PIECE_SWATCHES}
         />
+        <button onClick={() => s.applyColorToAll(color)} disabled={!mixedColor}>
+          Apply to All Parts
+        </button>
+        <p className="note">
+          {mixedColor
+            ? `Puts ${color} on all ${s.pieces.length} parts, and on every part added next.`
+            : s.pieces.length
+              ? 'Every part is already this color.'
+              : 'No parts yet — this is the color the first one arrives in.'}{' '}
+          3D view only — colors are never exported.
+        </p>
       </CollapsiblePanel>
 
       <CollapsiblePanel title="Measurement">
@@ -153,7 +198,7 @@ export default function Sidebar() {
                       unit="°"
                       value={angle.bend}
                       onChange={(v) => s.updatePiece(selected.id, { bend: v })}
-                      {...PIECE_LIMITS.bend}
+                      {...bendLimitsFor(selected)}
                     />
                     <NumberField
                       label="Exit leg"

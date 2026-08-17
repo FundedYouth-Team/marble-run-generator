@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import MouseLegend, { type MouseConfig } from './MouseLegend'
 import RightDock from './RightDock'
 import ActiveParts from './ActiveParts'
@@ -6,7 +6,18 @@ import UndoRedo from './UndoRedo'
 import { FitIcon } from './icons'
 import { crossSectionPath } from '../lib/geometry'
 import { buildAssembly } from '../lib/layout'
-import { useRun, tubeSpec, angleSpec, PIECE_LIMITS, VARIANT_LABEL, type Piece } from '../store'
+import {
+  useRun,
+  tubeSpec,
+  angleSpec,
+  variantOf,
+  PIECE_LIMITS,
+  slopeLimitsFor,
+  bendLimitsFor,
+  entrySwingLimitsFor,
+  VARIANT_LABEL,
+  type Piece,
+} from '../store'
 
 /* ------------------------------------------------------------------ */
 /* Shared drafting primitives                                          */
@@ -206,8 +217,12 @@ function FlowCap({
 /* ------------------------------------------------------------------ */
 
 function CrossSection() {
-  const { innerDiameter, wallThickness, variant, marbleDiameter } = useRun()
-  const spec = tubeSpec(innerDiameter, wallThickness, variant)
+  const { innerDiameter, wallThickness, variant, marbleDiameter, pieces, selectedId } = useRun()
+  // Style is a part's own, so the front face is the selected part's — and the
+  // run's own style whenever nothing is picked.
+  const selected = pieces.find((p) => p.id === selectedId)
+  const style = selected ? variantOf(selected, variant) : variant
+  const spec = tubeSpec(innerDiameter, wallThickness, style)
   const marbleR = marbleDiameter / 2
   const openDeg = Math.round(360 - (spec.sweep * 180) / Math.PI)
 
@@ -289,7 +304,7 @@ function CrossSection() {
 
       {/* Opening callout */}
       <text className="callout" x={0} y={top + 5} textAnchor="middle">
-        {spec.closed ? 'Closed tube — 360° wall' : `${openDeg}° open — ${VARIANT_LABEL[variant]}`}
+        {spec.closed ? 'Closed tube — 360° wall' : `${openDeg}° open — ${VARIANT_LABEL[style]}`}
       </text>
     </svg>
   )
@@ -329,6 +344,13 @@ interface DraftPart {
 interface Grip {
   key: string
   id: string
+  /**
+   * Which end of the leg this handle is on. A tail handle holds the joint
+   * behind it and swings the run downstream; a head handle holds the joint
+   * ahead of it — the break on a connector — and brings the run upstream round
+   * with it, so the pivot and everything past it stay put.
+   */
+  grab: 'tail' | 'head'
   /** Where the handle is drawn. */
   x: number
   y: number
@@ -337,6 +359,8 @@ interface Grip {
   oy: number
   /** What the drag angle sets. */
   angleField: 'slope' | 'bend' | 'turn'
+  /** How far that angle may go — narrowed to what the rest of the run can take. */
+  angleLimits: { min: number; max: number; step: number }
   /** What an Alt-drag stretches, if there is anything sensible to stretch. */
   lengthField: 'length' | 'exitLength' | null
   /** Pitch of the leg being stretched — a plan drag only shows its horizontal run. */
@@ -345,9 +369,13 @@ interface Grip {
   yawPrev: number
   /** Slope the bend is measured off, degrees. */
   base: number
+  /**
+   * Head handles only: hold the connector's outgoing leg where it is, so the
+   * bend gives back whatever the entry leg takes and the break is the one point
+   * in the drawing that does not move.
+   */
+  holdExit: boolean
   title: string
-  /** Values to restore if the drag is cancelled with Escape. */
-  original: Partial<Piece>
 }
 
 const DEG = 180 / Math.PI
@@ -358,6 +386,14 @@ const wrapDeg = (d: number) => d - 360 * Math.round(d / 360)
 
 /** How far a mitre may run out at a sharp corner before it is cut off square. */
 const MITRE_LIMIT = 4
+
+/**
+ * How far a head handle is stood off its joint, in screen px. A part's head sits
+ * exactly where the part before it ends, so the two handles would land on top of
+ * one another; standing the head handle off along its own leg keeps both
+ * grabbable and says which part each one swings.
+ */
+const HEAD_STANDOFF = 15
 
 /**
  * A path parallel to `pts`, offset sideways by `r` model mm — negative goes the
@@ -404,6 +440,7 @@ const draftMouse = (joint: string): MouseConfig => ({
     ['middle-drag', 'pan'],
     ['scroll', 'zoom'],
     ['drag joint', joint],
+    ['drag ring', 'swing from the head'],
     ['shift-drag', 'snap 5°'],
     ['alt-drag', 'length'],
     ['esc', 'cancel drag'],
@@ -438,6 +475,8 @@ function AssemblyDraft({ shifted }: { shifted: boolean }) {
     selectedId,
     select,
     updatePiece,
+    swingHead,
+    restoreDrag,
     screenPxPerMm,
     screenCalibrated,
     keepConnected,
@@ -448,6 +487,15 @@ function AssemblyDraft({ shifted }: { shifted: boolean }) {
   const [view, setView] = useState({ scale: 1, tx: 0, ty: 0 })
   const drag = useRef<{ x: number; y: number; tx: number; ty: number; panning: boolean } | null>(null)
   const handle = useRef<Grip | null>(null)
+  /**
+   * Where a head drag's pivot sits on the glass. The pivot moves through the
+   * model as the run ahead of it swings, so the drawing is slid back under it
+   * every frame — and the drag itself is measured from this fixed point rather
+   * than from a model position that is out of date the moment it is read.
+   */
+  const pinned = useRef<{ x: number; y: number } | null>(null)
+  /** The run and the framing as they stood when the handle was grabbed. */
+  const before = useRef<{ pieces: Piece[]; tx: number; ty: number } | null>(null)
   const [grabbed, setGrabbed] = useState<string | null>(null)
 
   const { parts, chain, grips } = useMemo(() => {
@@ -498,33 +546,45 @@ function AssemblyDraft({ shifted }: { shifted: boolean }) {
       })
 
       const yawPrev = p.yaw - (piece.turn * Math.PI) / 180
-      const original: Partial<Piece> = {
-        length: piece.length,
-        slope: piece.slope,
-        turn: piece.turn,
-        ...(angle ? { bend: a.bend, exitLength: a.exit } : {}),
+      const common = {
+        id: piece.id,
+        pitch: p.pitch,
+        yawPrev,
+        base: piece.slope,
+        holdExit: false,
       }
 
       if (!shown) continue
 
       if (!elevation) {
-        // Plan shows only the heading, so one handle per part swings the lot.
+        // Plan shows only the heading, so one handle per end swings the lot.
         grips.push({
+          ...common,
           key: piece.id,
-          id: piece.id,
+          grab: 'tail',
           x: last.x,
           y: last.y,
           ox: startX,
           oy: startY,
           angleField: 'turn',
+          angleLimits: PIECE_LIMITS.turn,
           // A connector has two legs stacked along the same plan line — there is
           // no telling from up here which one a stretch was meant for.
           lengthField: angle ? null : 'length',
-          pitch: p.pitch,
-          yawPrev,
-          base: piece.slope,
           title: `Drag to set turn (${piece.turn}°)`,
-          original,
+        })
+        grips.push({
+          ...common,
+          key: `${piece.id}:head`,
+          grab: 'head',
+          x: startX,
+          y: startY,
+          ox: last.x,
+          oy: last.y,
+          angleField: 'turn',
+          angleLimits: PIECE_LIMITS.turn,
+          lengthField: angle ? null : 'length',
+          title: 'Drag the start to swing this part about its end — the run ahead comes with it',
         })
         continue
       }
@@ -532,54 +592,78 @@ function AssemblyDraft({ shifted }: { shifted: boolean }) {
       if (angle && p.corner) {
         const cornerX = startX + run(p.start, p.corner)
         const cornerY = -p.corner.y
+        // The start: the break holds still and the entry leg swings about it,
+        // so the bend takes back whatever the entry gives and the outgoing leg
+        // — with the whole run past it — never moves.
+        grips.push({
+          ...common,
+          key: `${piece.id}:head`,
+          grab: 'head',
+          x: startX,
+          y: startY,
+          ox: cornerX,
+          oy: cornerY,
+          angleField: 'slope',
+          angleLimits: entrySwingLimitsFor(piece),
+          lengthField: 'length',
+          holdExit: true,
+          title: `Drag the start to swing the entry leg about the break (entering at ${piece.slope}°)`,
+        })
         // The entry leg: rigid against the part before it, so swinging it is
         // the same edit as swinging a plain tube.
         grips.push({
+          ...common,
           key: `${piece.id}:break`,
-          id: piece.id,
+          grab: 'tail',
           x: cornerX,
           y: cornerY,
           ox: startX,
           oy: startY,
           angleField: 'slope',
+          angleLimits: slopeLimitsFor(piece),
           lengthField: 'length',
-          pitch: p.pitch,
-          yawPrev,
-          base: piece.slope,
           title: `Drag to set the entry slope (${piece.slope}°)`,
-          original,
         })
         // The outlet: only the leg past the break moves, which is the bend.
         grips.push({
+          ...common,
           key: piece.id,
-          id: piece.id,
+          grab: 'tail',
           x: last.x,
           y: last.y,
           ox: cornerX,
           oy: cornerY,
           angleField: 'bend',
+          angleLimits: bendLimitsFor(piece),
           lengthField: 'exitLength',
-          pitch: p.pitch,
-          yawPrev,
-          base: piece.slope,
           title: `Drag to set bend (${a.bend}°, leaving at ${piece.slope + a.bend}°)`,
-          original,
         })
       } else {
         grips.push({
+          ...common,
+          key: `${piece.id}:head`,
+          grab: 'head',
+          x: startX,
+          y: startY,
+          ox: last.x,
+          oy: last.y,
+          angleField: 'slope',
+          angleLimits: PIECE_LIMITS.slope,
+          lengthField: 'length',
+          title: 'Drag the start to swing this part about its end — the run ahead comes with it',
+        })
+        grips.push({
+          ...common,
           key: piece.id,
-          id: piece.id,
+          grab: 'tail',
           x: last.x,
           y: last.y,
           ox: startX,
           oy: startY,
           angleField: 'slope',
+          angleLimits: slopeLimitsFor(piece),
           lengthField: 'length',
-          pitch: p.pitch,
-          yawPrev,
-          base: piece.slope,
           title: `Drag to set slope (${piece.slope}°)`,
-          original,
         })
       }
     }
@@ -661,14 +745,16 @@ function AssemblyDraft({ shifted }: { shifted: boolean }) {
     setView({ scale, tx: mx - (mx - view.tx) * r, ty: my - (my - view.ty) * r })
   }
 
+  /** Pointer → a point on the canvas, in the same px the drawing is laid out in. */
+  const toCanvas = (clientX: number, clientY: number) => {
+    const rect = ref.current?.getBoundingClientRect()
+    return rect ? { x: clientX - rect.left, y: clientY - rect.top } : null
+  }
+
   /** Screen point → model mm, in the current view's coordinates. */
   const toModel = (clientX: number, clientY: number) => {
-    const rect = ref.current?.getBoundingClientRect()
-    if (!rect) return null
-    return {
-      x: (clientX - rect.left - view.tx) / view.scale,
-      y: (clientY - rect.top - view.ty) / view.scale,
-    }
+    const c = toCanvas(clientX, clientY)
+    return c ? { x: (c.x - view.tx) / view.scale, y: (c.y - view.ty) / view.scale } : null
   }
 
   const onHandleDown = (e: React.PointerEvent, grip: Grip) => {
@@ -676,12 +762,64 @@ function AssemblyDraft({ shifted }: { shifted: boolean }) {
     e.stopPropagation()
     ref.current?.setPointerCapture(e.pointerId)
     handle.current = grip
+    // A head drag pins its pivot where it is on the glass; a tail drag leaves
+    // the framing alone, because its pivot does not move in the first place.
+    pinned.current = grip.grab === 'head' ? { x: px(grip.ox), y: py(grip.oy) } : null
+    before.current = { pieces: useRun.getState().pieces, tx: view.tx, ty: view.ty }
     setGrabbed(grip.key)
     select(grip.id)
   }
 
+  /**
+   * Drag a part by its head: the far end of the leg holds still on the glass and
+   * the part swings about it, bringing the run ahead of it round as it goes.
+   * Measured in canvas px from the pinned pivot, so the drawing sliding under
+   * the pointer never feeds back into the angle being read.
+   */
+  const dragHead = (h: Grip, e: React.PointerEvent) => {
+    const pivot = pinned.current
+    const c = toCanvas(e.clientX, e.clientY)
+    if (!pivot || !c) return
+    // From the pivot back to the pointer, so the leg reads the way it is drawn:
+    // the head lies behind the pivot, not in front of it.
+    const dx = pivot.x - c.x
+    const dy = pivot.y - c.y
+    const dist = Math.hypot(dx, dy)
+    if (dist < 1e-3) return
+    const pieces = useRun.getState().pieces
+    const at = pieces.findIndex((p) => p.id === h.id)
+    if (at < 0) return
+
+    const A = h.angleLimits
+    const step = e.shiftKey ? 5 : A.step
+    let delta: number
+    if (h.angleField === 'turn') {
+      // Plan: the headings of every part up to this one add up to where it points.
+      const yaw = pieces.slice(0, at + 1).reduce((sum, p) => sum + p.turn, 0)
+      delta = wrapDeg(snapTo(Math.atan2(dx, dy) * DEG, step) - yaw)
+    } else {
+      delta = clamp(snapTo(Math.atan2(dy, Math.max(dx, 1e-6)) * DEG, step), A.min, A.max) - pieces[at].slope
+    }
+
+    let patch: Partial<Piece> | undefined
+    if (e.altKey && h.lengthField) {
+      const L = PIECE_LIMITS[h.lengthField]
+      const mm = dist / view.scale
+      // The plan only shows the horizontal run, so divide the pitch back out.
+      const cos = Math.cos(h.pitch)
+      const reach = h.angleField === 'turn' && cos > 1e-3 ? mm / cos : mm
+      patch = { [h.lengthField]: clamp(snapTo(reach, L.step), L.min, L.max) }
+    }
+
+    swingHead(h.id, h.angleField === 'turn' ? 'turn' : 'slope', delta, {
+      holdExit: h.holdExit,
+      patch,
+    })
+  }
+
   /** Drag a joint: the angle follows the pointer, Alt also stretches the leg. */
   const dragHandle = (h: Grip, e: React.PointerEvent) => {
+    if (h.grab === 'head') return dragHead(h, e)
     const m = toModel(e.clientX, e.clientY)
     if (!m) return
     const dx = m.x - h.ox
@@ -706,15 +844,16 @@ function AssemblyDraft({ shifted }: { shifted: boolean }) {
     } else {
       // Developed elevation: the run is length·cos(pitch) and the drop length·sin(pitch),
       // so the pointer offset maps straight onto pitch and length.
+      // A leg is drawn by its horizontal run, which only ever goes forward, so
+      // the pointer reads straight down as vertical and no further.
       const deg = Math.atan2(dy, Math.max(dx, 1e-6)) * DEG
+      const A = h.angleLimits
       if (h.angleField === 'bend') {
         // The bend is what the outgoing leg does relative to the entry leg, so
         // the entry slope comes back out of the angle the pointer is at.
-        const B = PIECE_LIMITS.bend
-        patch.bend = clamp(snapTo(deg - h.base, e.shiftKey ? 5 : B.step), B.min, B.max)
+        patch.bend = clamp(snapTo(deg - h.base, e.shiftKey ? 5 : A.step), A.min, A.max)
       } else {
-        const S = PIECE_LIMITS.slope
-        patch.slope = clamp(snapTo(deg, e.shiftKey ? 5 : S.step), S.min, S.max)
+        patch.slope = clamp(snapTo(deg, e.shiftKey ? 5 : A.step), A.min, A.max)
       }
     }
 
@@ -756,9 +895,30 @@ function AssemblyDraft({ shifted }: { shifted: boolean }) {
   const endDrag = () => {
     drag.current = null
     handle.current = null
+    pinned.current = null
+    before.current = null
     ref.current?.classList.remove('panning')
     setGrabbed(null)
   }
+
+  /**
+   * Holds a head drag's pivot on the glass. The parts ahead of it have just
+   * swung, which in the model moves the pivot itself, so the framing is slid to
+   * put it back where it was — before the browser paints, so what the eye sees
+   * is one leg swinging about a point that never budges.
+   */
+  useLayoutEffect(() => {
+    const pivot = pinned.current
+    const h = handle.current
+    if (!pivot || !h) return
+    const g = grips.find((q) => q.key === h.key)
+    if (!g) return
+    setView((v) => {
+      const tx = pivot.x - g.ox * v.scale
+      const ty = pivot.y - g.oy * v.scale
+      return Math.abs(tx - v.tx) < 0.01 && Math.abs(ty - v.ty) < 0.01 ? v : { ...v, tx, ty }
+    })
+  }, [grips])
 
   const onPointerUp = (e: React.PointerEvent) => {
     // A left click on bare workplane clears the selection. Pans and joint drags
@@ -776,18 +936,22 @@ function AssemblyDraft({ shifted }: { shifted: boolean }) {
     endDrag()
   }
 
-  // Escape restores the piece to what it was when the handle was grabbed.
+  // Escape puts the run — and the framing a head drag slid — back as they were
+  // when the handle was grabbed. The whole run, because a drag swings the parts
+  // either side of the one under the pointer as well as the part itself.
   useEffect(() => {
     if (!grabbed) return
     const onKey = (e: KeyboardEvent) => {
       const h = handle.current
-      if (e.key !== 'Escape' || !h) return
-      updatePiece(h.id, h.original)
+      const was = before.current
+      if (e.key !== 'Escape' || !h || !was) return
+      restoreDrag(h.id, was.pieces)
+      setView((v) => ({ ...v, tx: was.tx, ty: was.ty }))
       endDrag()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [grabbed, updatePiece])
+  }, [grabbed, restoreDrag])
 
   const mouse = useMemo(
     () => draftMouse(draftView === 'elevation' ? 'slope / bend' : 'turn'),
@@ -1006,15 +1170,29 @@ function AssemblyDraft({ shifted }: { shifted: boolean }) {
           {grips.map((g) => {
             const on = g.id === selectedId
             const live = grabbed === g.key
+            const head = g.grab === 'head'
             const stretch = g.lengthField === 'exitLength' ? ' · Alt = exit leg' : g.lengthField ? ' · Alt = length' : ''
+            // A head handle shares its joint with the tail handle of the part
+            // before it, so it is stood off along its own leg: neither handle
+            // covers the other, and each one sits on the part it swings.
+            const dx = g.ox - g.x
+            const dy = g.oy - g.y
+            const len = Math.hypot(dx, dy) || 1
+            // Zoomed out far enough, a short leg is worth less than the standoff
+            // itself — the ring stays on its own leg rather than sliding past the
+            // joint at the other end of it.
+            const off = head ? Math.min(HEAD_STANDOFF, len * view.scale * 0.4) / len : 0
+            const cx = px(g.x) + dx * off
+            const cy = py(g.y) + dy * off
             return (
               <g
                 key={g.key}
-                className={`joint-handle ${on ? 'on' : ''} ${live ? 'live' : ''}`}
+                className={`joint-handle ${head ? 'head ' : ''}${on ? 'on' : ''} ${live ? 'live' : ''}`}
                 onPointerDown={(e) => onHandleDown(e, g)}
               >
-                <circle className="hit" cx={px(g.x)} cy={py(g.y)} r={11} />
-                <circle className="joint" cx={px(g.x)} cy={py(g.y)} r={live ? 5.5 : 4} />
+                {head && <line className="stem" x1={px(g.x)} y1={py(g.y)} x2={cx} y2={cy} />}
+                <circle className="hit" cx={cx} cy={cy} r={11} />
+                <circle className="joint" cx={cx} cy={cy} r={live ? 5.5 : 4} />
                 <title>
                   {g.title}
                   {` · Shift = 5°${stretch} · Esc = cancel`}

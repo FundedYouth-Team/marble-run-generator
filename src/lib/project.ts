@@ -5,6 +5,7 @@ import {
   TUBE_LIMITS,
   UNTITLED_PROJECT,
   VARIANT_LABEL,
+  isHexColor,
   makePiece,
   projectSlug,
   type LoadedProject,
@@ -25,8 +26,13 @@ export const PROJECT_FORMAT = 'marble-run-generator'
  * Bumped only when the shape below changes in a way older readers can't take.
  * v2 added part types: a v1 reader would silently turn every angle connector
  * into a straight tube, so it is told to stay out rather than mangle the run.
+ * v3 gave each part its own tube style, which a v2 reader would drop — every
+ * part would come back in the run's one style.
+ * Per-part colour rides along inside v3 without a bump: an older reader ignores
+ * it and draws the run in one colour, which is only how it always looked and
+ * never touches the parts themselves.
  */
-export const PROJECT_VERSION = 2
+export const PROJECT_VERSION = 3
 
 /** Double-barrelled so a saved run reads as a project, not as loose data. */
 export const PROJECT_EXT = '.mrun.json'
@@ -39,6 +45,7 @@ export interface ProjectFile {
   name: string
   innerDiameter: number
   wallThickness: number
+  /** The run's style — what a part with none of its own is cut in. */
   variant: TubeVariant
   marbleDiameter: number
   pieces: Array<Omit<Piece, 'id'>>
@@ -135,6 +142,10 @@ function readPiece(raw: unknown): Piece {
           ),
         }
       : {}),
+    // No style of its own is the normal case — that part follows the run's.
+    ...(isVariant(o.variant) ? { variant: o.variant } : {}),
+    // Same for colour, and a part painted something unreadable simply follows it too.
+    ...(isHexColor(o.color) ? { color: o.color.toLowerCase() } : {}),
     ...(o.hidden === true ? { hidden: true } : {}),
   })
 }

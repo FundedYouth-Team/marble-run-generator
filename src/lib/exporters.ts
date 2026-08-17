@@ -5,7 +5,7 @@ import { buildPieceGeometry } from './geometry'
 import { centerlineFor, shapeKey } from './centerline'
 import { buildThreeMF } from './threemf'
 import type { PlacedPiece } from './layout'
-import { angleSpec, type Piece, type TubeSpec } from '../store'
+import { angleSpec, pieceSpec, type Piece, type TubeSpec } from '../store'
 
 /**
  * All three formats are written at 1 unit = 1 mm, which is already this app's
@@ -79,15 +79,18 @@ export interface ExportResult {
 /**
  * One mesh per distinct shape. 3MF instancing keys off geometry identity, so
  * sharing here is also what lets a plate of identical parts store them once.
+ * `spec` carries the run's bore and wall, and the style a part falls back to
+ * when it has none of its own.
  */
 function geometryCache(spec: TubeSpec) {
   const cache = new Map<string, THREE.BufferGeometry>()
   return {
     get(piece: Piece) {
-      const key = shapeKey(piece)
+      const own = pieceSpec(spec, piece)
+      const key = shapeKey(piece, own.variant)
       let g = cache.get(key)
       if (!g) {
-        g = buildPieceGeometry(spec, centerlineFor(piece))
+        g = buildPieceGeometry(own, centerlineFor(piece))
         cache.set(key, g)
       }
       return g
@@ -230,7 +233,7 @@ export function exportPiece(
   name: string,
 ): ExportResult {
   const line = centerlineFor(piece)
-  const geom = buildPieceGeometry(spec, line)
+  const geom = buildPieceGeometry(pieceSpec(spec, piece), line)
   const mesh = new THREE.Mesh(geom)
   mesh.applyMatrix4(layFlat(piece))
 

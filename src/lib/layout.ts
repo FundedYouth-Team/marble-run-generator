@@ -63,19 +63,22 @@ export interface Assembly {
   polyline: THREE.Vector3[]
 }
 
-const WORLD_UP = new THREE.Vector3(0, 1, 0)
-
 export function directionFor(yaw: number, pitch: number) {
   const c = Math.cos(pitch)
   return new THREE.Vector3(Math.sin(yaw) * c, -Math.sin(pitch), Math.cos(yaw) * c)
 }
 
-/** Orientation with Z along the axis and Y kept as close to world-up as possible. */
-export function frameFor(dir: THREE.Vector3) {
-  const z = dir.clone().normalize()
-  let x = new THREE.Vector3().crossVectors(WORLD_UP, z)
-  if (x.lengthSq() < 1e-8) x = new THREE.Vector3(1, 0, 0)
-  x.normalize()
+/**
+ * Orientation with Z along the axis and Y up. Taken from the heading and pitch
+ * rather than from the direction alone: away from vertical the two agree, but a
+ * straight drop points along world-up, and a direction on its own cannot say
+ * which way round the opening should face — it would snap to a fixed axis and
+ * roll the part as the run steepened past 90°. Coming off the heading, the
+ * opening keeps facing the way the run was already travelling.
+ */
+export function frameFor(yaw: number, pitch: number) {
+  const z = directionFor(yaw, pitch)
+  const x = new THREE.Vector3(Math.cos(yaw), 0, -Math.sin(yaw))
   const y = new THREE.Vector3().crossVectors(z, x).normalize()
   return new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(x, y, z))
 }
@@ -95,7 +98,7 @@ export function buildAssembly(pieces: Piece[]): Assembly {
     yaw += THREE.MathUtils.degToRad(piece.turn)
     const pitch = THREE.MathUtils.degToRad(piece.slope)
     const dir = directionFor(yaw, pitch)
-    const quaternion = frameFor(dir)
+    const quaternion = frameFor(yaw, pitch)
     const start = cursor.clone()
 
     // The part carries its own shape; placing it is just standing that shape up

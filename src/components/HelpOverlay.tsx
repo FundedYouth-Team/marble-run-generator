@@ -183,7 +183,12 @@ const HELP: Record<HelpTab, Group[]> = {
         {
           keys: ['Drag a joint'],
           action: 'Set slope or turn',
-          note: 'which one depends on the view; the first joint is a fixed origin',
+          note: 'which one depends on the view; the part swings about the joint behind it',
+        },
+        {
+          keys: ['Drag a ring'],
+          action: "Swing a part from its head, about its own far end",
+          note: 'the run ahead of it comes round with it; nothing past the pivot moves',
         },
         {
           keys: ['Drag the break'],

@@ -45,6 +45,53 @@ function seat(m: MarbleState, asm: Assembly, restOffset: number) {
   m.position.y -= restOffset
 }
 
+/**
+ * The speed a marble released at the top would be carrying by arc length `s`.
+ *
+ * Over one straight chord the acceleration is constant, so v·dv/ds = a solves in
+ * closed form and the whole run integrates chord by chord — no time-stepping.
+ * That is what lets the scrubber drop the marble anywhere on the run and have it
+ * carry on at the speed it would have had if it had rolled there.
+ */
+export function speedAt(asm: Assembly, s: number, friction: number) {
+  const target = THREE.MathUtils.clamp(s, 0, asm.totalLength)
+  let v2 = 0
+  for (let i = 0; i < asm.segments.length; i++) {
+    const seg = asm.segments[i]
+    if (seg.startS >= target) break
+    const span = Math.min(seg.length, target - seg.startS)
+    const a = ROLL * G * Math.sin(seg.pitch) - friction * G * Math.cos(seg.pitch)
+    // Clamped at rest, the same stall the stepper gives a climb it cannot make.
+    v2 = Math.max(0, v2 + 2 * a * span)
+    if (span < seg.length) break
+    const following = asm.segments[i + 1]
+    // Kink loss at the joint, squared because this walk is carrying v².
+    if (following) {
+      const cos = THREE.MathUtils.clamp(seg.dir.dot(following.dir), 0, 1)
+      v2 *= cos * cos
+    }
+  }
+  return Math.sqrt(v2)
+}
+
+/** Drops the marble at arc length `s`, moving at whatever speed the run gives it there. */
+export function seekMarble(
+  m: MarbleState,
+  asm: Assembly,
+  s: number,
+  friction: number,
+  restOffset: number,
+  radius: number,
+) {
+  m.s = THREE.MathUtils.clamp(s, 0, asm.totalLength)
+  m.v = speedAt(asm, m.s, friction)
+  m.airborne = false
+  m.velocity.set(0, 0, 0)
+  // Rolling without slipping ties spin to distance, so scrubbing back unrolls it.
+  m.spin = m.s / Math.max(radius, 0.1)
+  seat(m, asm, restOffset)
+}
+
 export interface StepResult {
   /** True when the marble has fallen far enough to warrant a reset. */
   lost: boolean

@@ -11,11 +11,13 @@ import { FitIcon, HomeIcon } from './icons'
 import { buildPieceGeometry } from '../lib/geometry'
 import { centerlineFor, shapeKey } from '../lib/centerline'
 import { buildAssembly, type Assembly } from '../lib/layout'
-import { createMarble, resetMarble, stepMarble } from '../lib/sim'
+import { createMarble, resetMarble, seekMarble, stepMarble } from '../lib/sim'
 import { exportPrintPlate } from '../lib/exporters'
 import {
   useRun,
-  tubeSpec,
+  tubeSpecs,
+  colorOf,
+  variantOf,
   exportBasename,
   type Piece,
   type Port,
@@ -34,6 +36,14 @@ const PORT_IDLE = '#8aa0b4'
 
 /** Live telemetry, read by the HUD outside the render loop. */
 const telemetry = { speed: 0, distance: 0, airborne: false }
+
+/**
+ * The scrubber's channel to the marble, both ways: the marble posts where it is
+ * every frame, and the slider posts where it should be next. A plain object
+ * rather than store state — this changes every frame, and nothing outside the
+ * render loop should re-render on it.
+ */
+const scrub = { s: 0, seek: null as number | null }
 
 /** Scene colours live in JS, so they get their own light/dark palette. */
 interface ScenePalette {
@@ -113,7 +123,7 @@ function PieceMesh({
 }) {
   // Keyed on the shape rather than the piece, so nudging a part it sits behind
   // in the run — or renaming it — never rebuilds the solid.
-  const shape = shapeKey(piece)
+  const shape = shapeKey(piece, spec.variant)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const geom = useMemo(() => buildPieceGeometry(spec, centerlineFor(piece)), [spec, shape])
   useEffect(() => () => geom.dispose(), [geom])
@@ -242,6 +252,7 @@ function Marble({ asm, spec }: { asm: Assembly; spec: TubeSpec }) {
   useLayoutEffect(() => {
     resetMarble(state.current, asm, restOffset)
     mesh.current?.position.copy(state.current.position)
+    scrub.s = 0
   }, [asm, restOffset, resetToken])
 
   // Off stage means no readout to give — leave the HUD at zero, not at the last run's numbers.
@@ -250,13 +261,19 @@ function Marble({ asm, spec }: { asm: Assembly; spec: TubeSpec }) {
       telemetry.speed = 0
       telemetry.distance = 0
       telemetry.airborne = false
+      scrub.seek = null
+      scrub.s = 0
     },
     [],
   )
 
   useFrame((_, delta) => {
     const m = state.current
-    if (running) {
+    // The scrubber has the wheel whenever it has posted somewhere to be.
+    if (scrub.seek !== null) {
+      seekMarble(m, asm, scrub.seek, friction, restOffset, radius)
+      scrub.seek = null
+    } else if (running) {
       const dt = Math.min(delta, 1 / 30) * timeScale
       // Fixed sub-steps keep the joint hand-off stable at high speed.
       const steps = 4
@@ -273,6 +290,8 @@ function Marble({ asm, spec }: { asm: Assembly; spec: TubeSpec }) {
     telemetry.speed = m.airborne ? m.velocity.length() : m.v
     telemetry.distance = m.s
     telemetry.airborne = m.airborne
+    // Off the end there is no arc length left to report, so the slider sits at the stop.
+    scrub.s = m.airborne ? asm.totalLength : m.s
   })
 
   return (
@@ -520,6 +539,94 @@ function Hud({ spec, asm }: { spec: TubeSpec; asm: Assembly }) {
   )
 }
 
+/**
+ * The transport bar along the bottom of the workplane: run and pause, and a
+ * slider from the start of the run to its end that both follows the marble and
+ * drives it. Scrubbing pauses, so a drag is never fighting the simulation, and
+ * the marble is re-seated at the speed the run would have given it there — let
+ * go anywhere and it carries on as if it had rolled to that point.
+ */
+function Scrubber({ asm, shifted }: { asm: Assembly; shifted: boolean }) {
+  const { running, toggleRunning, scrubSim, resetSim } = useRun()
+  const total = asm.totalLength
+  const [s, setS] = useState(0)
+  /**
+   * Where the thumb has been dragged to, held until the marble reports back from
+   * there — without it the slider snaps back for the frame between asking and
+   * arriving. `age` is the escape hatch: if the marble never turns up (a reset
+   * landed in between, or it is not on stage yet) the thumb stops waiting.
+   */
+  const pending = useRef<{ at: number; age: number } | null>(null)
+
+  // Per frame, not the HUD's 100 ms poll — a slider that steps ten times a
+  // second reads as broken. Identical values are dropped by React, so a paused
+  // run costs nothing.
+  useEffect(() => {
+    let id = 0
+    const tick = () => {
+      const want = pending.current
+      if (!want) setS(scrub.s)
+      else if (Math.abs(scrub.s - want.at) < 0.5 || ++want.age > 10) pending.current = null
+      id = requestAnimationFrame(tick)
+    }
+    id = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(id)
+  }, [])
+
+  // A run with nothing on it has no timeline to scrub.
+  if (total <= 0) return null
+
+  const seek = (value: number) => {
+    const at = Math.max(0, Math.min(value, total))
+    pending.current = { at, age: 0 }
+    scrub.seek = at
+    setS(at)
+    scrubSim()
+  }
+
+  const pct = Math.round((s / total) * 100)
+
+  return (
+    <div className={shifted ? 'scrubber shifted' : 'scrubber'}>
+      <button
+        className={running ? 'scrub-play on' : 'scrub-play'}
+        onClick={toggleRunning}
+        title={running ? 'Pause the marble' : 'Run the marble'}
+        aria-label={running ? 'Pause' : 'Run'}
+      >
+        {running ? '❚❚' : '▶'}
+      </button>
+      <div className="scrub-track">
+        <input
+          type="range"
+          min={0}
+          max={total}
+          step={0.1}
+          value={s}
+          onChange={(e) => seek(Number(e.target.value))}
+          aria-label="Marble position along the run"
+          aria-valuetext={`${Math.round(s)} of ${Math.round(total)} mm`}
+        />
+        <div className="scrub-ends">
+          <span>Start · 0 mm</span>
+          <b>
+            {Math.round(s)} mm · {pct}%
+          </b>
+          <span>End · {Math.round(total)} mm</span>
+        </div>
+      </div>
+      <button
+        className="scrub-play"
+        onClick={resetSim}
+        title="Send the marble back to the start"
+        aria-label="Back to start"
+      >
+        ↺
+      </button>
+    </div>
+  )
+}
+
 /** Width of the slide-out settings panel; the corner controls step aside by this much. */
 const SETTINGS_WIDTH = 312
 
@@ -530,11 +637,24 @@ export default function Scene3D() {
   const docked = rightPanel !== null
   const xray = shading === 'transparent'
   const palette = PALETTE[theme]
-  const tint = useMemo(() => shades(pieceColor), [pieceColor])
-  const spec = useMemo(
-    () => tubeSpec(innerDiameter, wallThickness, variant),
-    [innerDiameter, wallThickness, variant],
+  // One set of shades per colour in play, so parts painted alike share theirs
+  // and nothing is rebuilt while the run is only being moved around.
+  const tints = useMemo(() => {
+    const map = new Map<string, ReturnType<typeof shades>>()
+    for (const c of [pieceColor, ...pieces.map((p) => colorOf(p, pieceColor))]) {
+      if (!map.has(c)) map.set(c, shades(c))
+    }
+    return map
+  }, [pieceColor, pieces])
+  // One spec per style, so parts of the same style share a spec — and with it a
+  // mesh — however the run is styled.
+  const specs = useMemo(
+    () => tubeSpecs(innerDiameter, wallThickness),
+    [innerDiameter, wallThickness],
   )
+  // Bore and wall are the run's, so everything that is not a part's own solid —
+  // the marble, the joints, the ground — takes the run's spec.
+  const spec = specs[variant]
   const asm = useMemo(() => buildAssembly(pieces), [pieces])
   const [goal, setGoal] = useState<ViewGoal>({
     token: 0,
@@ -636,12 +756,12 @@ export default function Scene3D() {
         {asm.placed.filter((p) => !p.piece.hidden).map((p) => (
           <PieceMesh
             key={p.piece.id}
-            spec={spec}
+            spec={specs[variantOf(p.piece, variant)]}
             piece={p.piece}
             position={p.start}
             quaternion={p.quaternion}
             selected={p.piece.id === selectedId}
-            tint={tint}
+            tint={tints.get(colorOf(p.piece, pieceColor))!}
             xray={xray}
             onClick={() => select(p.piece.id === selectedId ? null : p.piece.id)}
           />
@@ -670,6 +790,7 @@ export default function Scene3D() {
       </Canvas>
 
       <Hud spec={spec} asm={asm} />
+      <Scrubber asm={asm} shifted={docked} />
       <ActiveParts />
       <div className={docked ? 'view-tools shifted' : 'view-tools'}>
         <button
