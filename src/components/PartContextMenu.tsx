@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { EyeOffIcon, PencilIcon, PickIcon, TrashIcon } from './icons'
-import { useRun, pieceLabel, pieceTypeLabel } from '../store'
+import { EyeOffIcon, MoveIcon, PencilIcon, PickIcon, RotateIcon, TrashIcon } from './icons'
+import { useRun, pieceLabel, pieceTypeLabel, type Tool } from '../store'
 
 /** Kept this far off the stage edges, so a menu opened in a corner still fits. */
 const EDGE_PAD = 8
@@ -30,7 +30,8 @@ export default function PartContextMenu({
   target: MenuTarget
   onClose: () => void
 }) {
-  const { pieces, selectedId, select, togglePieceHidden, renamePiece, removePiece } = useRun()
+  const { pieces, selectedId, select, tool, setTool, togglePieceHidden, renamePiece, removePiece } =
+    useRun()
   const ref = useRef<HTMLDivElement>(null)
   const [renaming, setRenaming] = useState(false)
   const [draft, setDraft] = useState('')
@@ -112,6 +113,23 @@ export default function PartContextMenu({
     onClose()
   }
 
+  /**
+   * Takes up a handle tool on this part, which is the pair of steps the toolbar
+   * leaves to you: the part has to be picked before its handles are on stage, and
+   * the part under the cursor is the one you meant. Pressing the tool already in
+   * hand puts it back down, the way the toolbar buttons do — so the menu is also
+   * the way back to plain picking, without a Select-tool item of its own.
+   */
+  const hold = (next: Tool) =>
+    run(() => {
+      if (picked && tool === next) {
+        setTool('select')
+        return
+      }
+      select(piece.id)
+      setTool(next)
+    })
+
   return (
     <div
       ref={ref}
@@ -156,6 +174,29 @@ export default function PartContextMenu({
             <PickIcon />
             {picked ? 'Deselect' : 'Select'}
           </button>
+          <button
+            className={picked && tool === 'move' ? 'on' : ''}
+            role="menuitemcheckbox"
+            aria-checked={picked && tool === 'move'}
+            title="Pick this part and take up the arrows that move its run"
+            onClick={hold('move')}
+          >
+            <MoveIcon size={14} />
+            Move
+          </button>
+          <button
+            className={picked && tool === 'rotate' ? 'on' : ''}
+            role="menuitemcheckbox"
+            aria-checked={picked && tool === 'rotate'}
+            title="Pick this part and take up the ring that turns its run about the upright"
+            onClick={hold('rotate')}
+          >
+            <RotateIcon size={14} />
+            Rotate
+          </button>
+
+          <div className="part-menu-sep" role="separator" />
+
           <button role="menuitem" onClick={run(() => togglePieceHidden(piece.id))}>
             <EyeOffIcon />
             Hide

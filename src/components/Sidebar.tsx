@@ -1,6 +1,7 @@
 import NumberField from './NumberField'
 import ColorField from './ColorField'
 import CollapsiblePanel from './CollapsiblePanel'
+import HoverHint from './HoverHint'
 import { pieceAxisLength } from '../lib/centerline'
 import {
   useRun,
@@ -86,30 +87,27 @@ export default function Sidebar() {
 
   return (
     <aside className="sidebar">
+      {/* Measurements, tube and colour are all a part's own; with nothing picked
+          the same fields set what the run — and every part following it — is
+          made to. That is worth saying, but only once it is asked for: the
+          heading carries it as a hover hint rather than standing text, so the
+          fields themselves start at the top of the column. */}
       <header className="scope-head">
-        <h2>
-          Selected Part Details
-          <span className={selected ? 'scope-name' : 'scope-name none'}>
-            {selected ? pieceLabel(selected, selectedIndex) : 'none'}
-          </span>
-        </h2>
-        {/* Measurements, tube and colour are all a part's own; with nothing
-            picked the same fields set what the run — and every part following
-            it — is made to. */}
-        <p className="scope-note">
-          {selected ? (
-            <>
-              Its measurements, tube size, style and color belong to this part alone. Apply to All
-              Parts puts any of them on the whole run.
-            </>
-          ) : (
-            <>
-              Pick a part in Active Parts or the list below to edit its measurements, tube size,
-              style and color. With nothing picked, these set the run — every part that has none of
-              its own follows it.
-            </>
-          )}
-        </p>
+        <HoverHint
+          label="Part Parameters"
+          hint={
+            selected
+              ? 'Measurements, tube size, style and color belong to this part alone. Apply to All Parts puts any of them on the whole run.'
+              : 'Pick a part in Active Parts or the list below to edit its measurements, tube size, style and color. With nothing picked, these set the run — every part that has none of its own follows it.'
+          }
+        >
+          <h2>
+            Part Parameters
+            <span className={selected ? 'scope-name' : 'scope-name none'}>
+              {selected ? pieceLabel(selected, selectedIndex) : 'none'}
+            </span>
+          </h2>
+        </HoverHint>
       </header>
 
       <CollapsiblePanel title="Tube Diameter">

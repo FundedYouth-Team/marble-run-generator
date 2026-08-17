@@ -1436,21 +1436,28 @@ button.danger {
   margin: -4px 0 -2px;
 }
 
+/* The heading is what the hover hint hangs off, so its slot has to cover the
+   whole line rather than shrink to the words. */
+.scope-head .tool-slot {
+  display: block;
+}
+
 .scope-head h2 {
   margin: 0;
   display: flex;
   align-items: baseline;
   flex-wrap: wrap;
-  gap: 6px;
-  font-size: 13px;
-  font-weight: 600;
+  gap: 7px;
+  font-size: 17px;
+  font-weight: 650;
   letter-spacing: 0.01em;
   color: var(--ink);
+  cursor: default;
 }
 
 /* Name of the part in play — kept subordinate to the fixed heading. */
 .scope-name {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 500;
   color: var(--accent-text);
 }
@@ -1463,18 +1470,6 @@ button.danger {
 .scope-name.none {
   color: var(--ink-faint);
   font-style: italic;
-}
-
-.scope-note {
-  margin: 0;
-  font-size: 11px;
-  line-height: 1.45;
-  color: var(--ink-faint);
-}
-
-.scope-note b {
-  color: var(--ink-dim);
-  font-weight: 600;
 }
 
 .note {
@@ -2686,6 +2681,26 @@ button.danger {
 
 .part-menu button:hover:not(:disabled) > svg {
   color: var(--accent-text);
+}
+
+/* A handle tool already in hand on this part, marked the way the toolbar marks
+   the tool it holds — so the item reads as a state, not just another action. */
+.part-menu button.on,
+.part-menu button.on:hover:not(:disabled) {
+  background: var(--accent-soft);
+  color: var(--accent-text);
+  font-weight: 600;
+}
+
+.part-menu button.on > svg {
+  color: var(--accent-text);
+}
+
+/* Between taking up a tool and the items that change the part itself. */
+.part-menu-sep {
+  height: 1px;
+  margin: 4px 7px;
+  background: var(--line-soft);
 }
 
 /* Taking a part out of the run is the one item that undoes work, so it is the
