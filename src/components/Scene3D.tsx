@@ -9,7 +9,7 @@ import UndoRedo from './UndoRedo'
 import ActiveParts from './ActiveParts'
 import PartContextMenu, { type MenuTarget } from './PartContextMenu'
 import { FitIcon, HomeIcon } from './icons'
-import { buildPieceGeometry } from '../lib/geometry'
+import { buildEndBandGeometry, buildPieceGeometry } from '../lib/geometry'
 import { centerlineFor, shapeKey } from '../lib/centerline'
 import { buildAssembly, type Assembly } from '../lib/layout'
 import { createMarble, resetMarble, seekMarble, stepMarble } from '../lib/sim'
@@ -170,17 +170,110 @@ function PieceMesh({
 }
 
 /**
- * The joints of the run, drawn as sockets you can build from: every part's
- * outlet, plus the inlet the run starts at. Click one to arm it and the next
- * part out of the Part Library is joined on there rather than at the tail, so a
- * run grows from either end or from anywhere in the middle.
+ * How much of the tube's end is picked out in the joint colour, mm. Scaled off
+ * the wall so a fat tube gets a cuff rather than a pinstripe, and clamped so a
+ * thin one does not end up coloured along most of its length.
+ */
+const bandDepth = (spec: TubeSpec) => Math.max(2.5, Math.min(6, spec.outerR * 0.7))
+
+/**
+ * One joint, drawn as the end of the tube itself in the joint colour: the same
+ * section on the same centreline, no shape of its own. It sits exactly on the
+ * piece's wall and wins the depth test by a polygon offset, so it reads as that
+ * stretch of tube being coloured in.
+ */
+function PortMark({
+  spec,
+  piece,
+  end,
+  position,
+  quaternion,
+  color,
+  glow,
+  live,
+  onArm,
+  onEnter,
+  onLeave,
+}: {
+  spec: TubeSpec
+  piece: Piece
+  end: 'in' | 'out'
+  position: THREE.Vector3
+  quaternion: THREE.Quaternion
+  color: string
+  glow: number
+  live: boolean
+  onArm: () => void
+  onEnter: () => void
+  onLeave: () => void
+}) {
+  // Keyed on the shape, like the piece's own solid: the band only changes when
+  // the end it covers does.
+  const shape = shapeKey(piece, spec.variant)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const geom = useMemo(
+    () => buildEndBandGeometry(spec, centerlineFor(piece), end, bandDepth(spec)),
+    [spec, shape, end],
+  )
+  useEffect(() => () => geom.dispose(), [geom])
+
+  return (
+    <mesh
+      geometry={geom}
+      position={position}
+      quaternion={quaternion}
+      onClick={(e) => {
+        e.stopPropagation()
+        onArm()
+      }}
+      onPointerOver={(e) => {
+        e.stopPropagation()
+        onEnter()
+      }}
+      onPointerOut={onLeave}
+    >
+      <meshStandardMaterial
+        color={color}
+        emissive={color}
+        emissiveIntensity={glow}
+        metalness={0.2}
+        roughness={live ? 0.28 : 0.42}
+        side={THREE.DoubleSide}
+        // Coincident with the wall it colours, so it has to win the tie.
+        polygonOffset
+        polygonOffsetFactor={-2}
+        polygonOffsetUnits={-2}
+      />
+    </mesh>
+  )
+}
+
+/**
+ * The joints of the run, the ends you can build from: every part's outlet, plus
+ * the inlet the run starts at. Click one to arm it and the next part out of the
+ * Part Library is joined on there rather than at the tail, so a run grows from
+ * either end or from anywhere in the middle.
+ *
+ * Nothing is added to the run to mark them — the ends are simply coloured. On a
+ * stage whose whole subject is a rolling sphere, a marker with a shape of its own
+ * reads as another marble or another part; colour on the tube itself says "this
+ * end" and nothing else.
  */
 function Ports({ asm, spec }: { asm: Assembly; spec: TubeSpec }) {
   const { armedPort, armPort } = useRun()
   const [hovered, setHovered] = useState<string | null>(null)
 
   const ports = useMemo(() => {
-    const list: { key: string; port: Port; point: THREE.Vector3 }[] = []
+    const list: {
+      key: string
+      port: Port
+      piece: Piece
+      end: 'in' | 'out'
+      // The band is built in the piece's own frame, so it is placed the way the
+      // piece is — at its start, on its entry frame.
+      position: THREE.Vector3
+      quaternion: THREE.Quaternion
+    }[] = []
     // A switched-off part is not on the stage to be built onto, so its joints
     // go with it rather than hanging in the air on their own.
     const first = asm.placed.find((p) => !p.piece.hidden)
@@ -188,7 +281,10 @@ function Ports({ asm, spec }: { asm: Assembly; spec: TubeSpec }) {
       list.push({
         key: `${first.piece.id}:in`,
         port: { pieceId: first.piece.id, end: 'in' },
-        point: first.start,
+        piece: first.piece,
+        end: 'in',
+        position: first.start,
+        quaternion: first.quaternion,
       })
     }
     for (const p of asm.placed) {
@@ -197,14 +293,15 @@ function Ports({ asm, spec }: { asm: Assembly; spec: TubeSpec }) {
       list.push({
         key: `${p.piece.id}:out`,
         port: { pieceId: p.piece.id, end: 'out' },
-        point: p.end,
+        piece: p.piece,
+        end: 'out',
+        position: p.start,
+        quaternion: p.quaternion,
       })
     }
     return list
   }, [asm])
 
-  // Big enough to hit at arm's length, but never wider than the tube it sits on.
-  const r = Math.max(2.4, spec.outerR * 0.5)
   // Nothing armed still builds at the tail, so the tail is shown as the default.
   const fallback = armedPort ? null : ports[ports.length - 1]?.key
 
@@ -212,39 +309,31 @@ function Ports({ asm, spec }: { asm: Assembly; spec: TubeSpec }) {
 
   return (
     <group>
-      {ports.map(({ key, port, point }) => {
+      {ports.map(({ key, port, piece, end, position, quaternion }) => {
         const armed = armedPort?.pieceId === port.pieceId && armedPort.end === port.end
         const live = armed || key === hovered
         return (
-          <mesh
+          <PortMark
             key={key}
-            position={point}
-            onClick={(e) => {
-              e.stopPropagation()
-              // Clicking the armed port again hands building back to the tail.
-              armPort(armed ? null : port)
-            }}
-            onPointerOver={(e) => {
-              e.stopPropagation()
+            spec={spec}
+            piece={piece}
+            end={end}
+            position={position}
+            quaternion={quaternion}
+            color={armed ? PORT_ARMED : key === fallback ? PORT_DEFAULT : PORT_IDLE}
+            glow={live ? 0.85 : key === fallback ? 0.45 : 0.2}
+            live={live}
+            // Clicking the armed port again hands building back to the tail.
+            onArm={() => armPort(armed ? null : port)}
+            onEnter={() => {
               setHovered(key)
               document.body.style.cursor = 'pointer'
             }}
-            onPointerOut={() => {
+            onLeave={() => {
               setHovered((h) => (h === key ? null : h))
               document.body.style.cursor = ''
             }}
-          >
-            <sphereGeometry args={[live ? r * 1.25 : r, 18, 14]} />
-            <meshStandardMaterial
-              color={armed ? PORT_ARMED : key === fallback ? PORT_DEFAULT : PORT_IDLE}
-              emissive={armed ? PORT_ARMED : key === fallback ? PORT_DEFAULT : PORT_IDLE}
-              emissiveIntensity={live ? 0.9 : key === fallback ? 0.5 : 0.25}
-              roughness={0.4}
-              transparent
-              opacity={live ? 1 : 0.75}
-              depthTest={false}
-            />
-          </mesh>
+          />
         )
       })}
     </group>

@@ -29,6 +29,7 @@ import {
   entrySwingLimitsFor,
   VARIANT_LABEL,
   type Piece,
+  type DraftView,
 } from '../store'
 
 /* ------------------------------------------------------------------ */
@@ -1090,24 +1091,41 @@ function AssemblyDraft({ shifted }: { shifted: boolean }) {
   // Sub-pixel-per-mm slack, so the button stays lit through rounding.
   const atActualSize = Math.abs(view.scale - screenPxPerMm) < 0.005
 
+  /** One view button, so both groups draw theirs the same way. */
+  const viewButton = (v: DraftView) => (
+    <button
+      key={v}
+      className={draftView === v ? 'on' : ''}
+      onClick={() => setDraftView(v)}
+      title={VIEWS[v].title}
+      aria-pressed={draftView === v}
+    >
+      {VIEWS[v].label}
+    </button>
+  )
+
   return (
     <div className="draft-wrap">
       <div className="draft-toolbar">
         {/* The six ortho views are named for the side of the model they are
             taken from, the same as the faces of the 3D view cube. Developed is
-            the one that is not a direction — it flattens the turns out. */}
-        <div className="segmented small views" role="group" aria-label="Draft view">
-          {VIEW_ORDER.map((v) => (
-            <button
-              key={v}
-              className={draftView === v ? 'on' : ''}
-              onClick={() => setDraftView(v)}
-              title={VIEWS[v].title}
-              aria-pressed={draftView === v}
-            >
-              {VIEWS[v].label}
-            </button>
-          ))}
+            the one that is not a direction — it flattens the turns out — so it
+            sits in its own group, set apart from the places to stand. */}
+        <div className="view-groups">
+          <div
+            className="segmented small views"
+            role="group"
+            aria-label="Draft view, flattened"
+          >
+            {VIEW_ORDER.filter((v) => VIEWS[v].developed).map(viewButton)}
+          </div>
+          <div
+            className="segmented small views"
+            role="group"
+            aria-label="Draft view, from a side"
+          >
+            {VIEW_ORDER.filter((v) => !VIEWS[v].developed).map(viewButton)}
+          </div>
         </div>
         {/* The joints are dragged on this canvas, so the rule that holds them
             together belongs beside the views rather than buried in a panel. */}

@@ -292,7 +292,40 @@ function bandTriangles(profile: Profile): [number, number, number][] {
  * up, so the opening of a half / 3-4 tube faces +Y.
  */
 export function buildPieceGeometry(spec: TubeSpec, line: Centerline): THREE.BufferGeometry {
-  const profile = subdivide(profilePolygon(spec, line.length), line)
+  return sweepProfile(spec, line, subdivide(profilePolygon(spec, line.length), line))
+}
+
+/**
+ * The last `depth` mm of the piece at one end, as its own surface: the same
+ * section, on the same centreline, over the same radii. Drawn in the joint
+ * colour it picks the end of the tube out rather than adding a shape to it, so
+ * the marker cannot be mistaken for a part or for the marble.
+ *
+ * It is coincident with the piece's own wall by design — the material it is
+ * drawn with wins the depth test with a polygon offset, which is what keeps the
+ * two from fighting over the pixels.
+ */
+export function buildEndBandGeometry(
+  spec: TubeSpec,
+  line: Centerline,
+  end: 'in' | 'out',
+  depth: number,
+): THREE.BufferGeometry {
+  const span = Math.min(depth, line.length)
+  const zA = end === 'in' ? 0 : line.length - span
+  const zB = end === 'in' ? span : line.length
+  // Out along the wall, back along the bore — the ordering the sweep expects.
+  const points: ProfilePoint[] = [
+    { z: zA, r: spec.outerR },
+    { z: zB, r: spec.outerR },
+    { z: zB, r: spec.innerR },
+    { z: zA, r: spec.innerR },
+  ]
+  return sweepProfile(spec, line, subdivide({ points, split: 2 }, line))
+}
+
+/** Sweeps one closed (z, r) profile about `line` into a solid. */
+function sweepProfile(spec: TubeSpec, line: Centerline, profile: Profile): THREE.BufferGeometry {
   const poly = profile.points
   const frames = chordFrames(line)
   const rings = poly.map((p) => ringAt(line, frames, p.z))

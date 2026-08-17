@@ -10,6 +10,11 @@ interface Props {
   hint?: string
   /** Plain-English captions for the two ends of the slider, e.g. ['Slow', 'Fast']. */
   ends?: [string, string]
+  /**
+   * A number the part works out for itself — shown so it can be read off, but
+   * not a handle on anything, because nothing here is free to set it.
+   */
+  readOnly?: boolean
 }
 
 export default function NumberField({
@@ -23,11 +28,12 @@ export default function NumberField({
   slider = true,
   hint,
   ends,
+  readOnly = false,
 }: Props) {
   const clamp = (v: number) => Math.min(max, Math.max(min, v))
 
   return (
-    <label className="field">
+    <label className={readOnly ? 'field read-only' : 'field'}>
       <span className="field-label">
         {label}
         {hint && <em>{hint}</em>}
@@ -40,7 +46,8 @@ export default function NumberField({
               min={min}
               max={max}
               step={step}
-              value={value}
+              value={clamp(value)}
+              disabled={readOnly}
               onChange={(e) => onChange(clamp(Number(e.target.value)))}
             />
             {ends && (
@@ -58,6 +65,8 @@ export default function NumberField({
             max={max}
             step={step}
             value={Number(value.toFixed(3))}
+            readOnly={readOnly}
+            tabIndex={readOnly ? -1 : undefined}
             onChange={(e) => {
               const n = Number(e.target.value)
               if (!Number.isNaN(n)) onChange(clamp(n))

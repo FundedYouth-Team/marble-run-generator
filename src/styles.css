@@ -869,6 +869,19 @@ body {
   gap: 4px;
 }
 
+/* A number the part works out for itself — readable, but nothing to grab. */
+.field.read-only {
+  opacity: 0.72;
+}
+
+.field.read-only .numbox {
+  background: var(--chip-bg);
+}
+
+.field.read-only input {
+  cursor: default;
+}
+
 .field-label {
   font-size: 11px;
   color: var(--ink-dim);
@@ -1757,6 +1770,19 @@ button.danger {
   border-bottom: 1px solid var(--line-soft);
   /* Seven view buttons and the tools beside them drop to a second row rather
      than squeezing each other down to unreadable stubs on a narrow window. */
+  flex-wrap: wrap;
+  row-gap: 6px;
+}
+
+/* Developed and the six ortho views are two groups, not one run of seven: the
+   gap between them says the flattened section is a different kind of drawing to
+   a place to stand, while staying tighter than the toolbar's own gap so the two
+   still read as the same family of views. */
+.view-groups {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  /* The two groups drop to separate rows before either squeezes its buttons. */
   flex-wrap: wrap;
   row-gap: 6px;
 }

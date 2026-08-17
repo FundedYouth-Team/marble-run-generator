@@ -12,6 +12,7 @@ import {
   angleSpec,
   cornerSpec,
   bendLimitsFor,
+  slopeLimitsFor,
   degLabel,
   exitSlope,
   exitTurn,
@@ -57,6 +58,18 @@ export default function Sidebar() {
   const joint = jointSpec(spec, selectedLength)
   const angle = selected && selected.type === 'angle' ? angleSpec(selected) : null
   const corner = selected && selected.type === 'corner' ? cornerSpec(selected) : null
+  // What the part before hands this one. With Keep connected off the two can
+  // drift apart, and the joint between them is what opens up.
+  const upstream = selected && selectedIndex > 0 ? s.pieces[selectedIndex - 1] : null
+  const handedOn = upstream ? exitSlope(upstream) : 0
+  const kink = selected && upstream ? selected.slope - handedOn : 0
+  const open = Math.abs(kink) > 0.05
+  // The angle a connector leaves at is its two legs added up, so it can be set
+  // from either end: type the exit angle and the break takes up the difference.
+  const bendLimits = selected ? bendLimitsFor(selected) : PIECE_LIMITS.bend
+  const exitLimits = selected
+    ? { min: selected.slope + bendLimits.min, max: selected.slope + bendLimits.max, step: bendLimits.step }
+    : PIECE_LIMITS.slope
 
   return (
     <aside className="sidebar">
@@ -350,6 +363,162 @@ export default function Sidebar() {
           Every piece is generated with a female socket at its inlet and a barbed male spigot at
           its outlet, so pieces clip together and the bore stays continuous across the joint.
         </p>
+      </CollapsiblePanel>
+
+      {/* Every angle the draft sets by dragging a joint, typed in exactly —
+          read along the run: the angle it starts at, what it does in the
+          middle, and the angle it hands on. */}
+      <CollapsiblePanel title="Angles and Joints">
+        {selected ? (
+          <>
+            <span className="field-label">
+              {pieceLabel(selected, selectedIndex)}
+              <em>
+                {angle
+                  ? 'start, break, end'
+                  : corner
+                    ? 'start, break, end'
+                    : 'a tube leaves at the angle it enters'}
+              </em>
+            </span>
+
+            <NumberField
+              label="Start angle"
+              hint={
+                angle || corner
+                  ? 'the fall the entry leg arrives at'
+                  : 'the fall it runs at — negative climbs'
+              }
+              unit="°"
+              value={selected.slope}
+              onChange={(v) => s.updatePiece(selected.id, { slope: v })}
+              {...slopeLimitsFor(selected)}
+            />
+
+            {/* Only a connector has a break in it to set. */}
+            {angle && (
+              <NumberField
+                label="Middle angle"
+                hint="the break — positive tips the exit leg further down"
+                unit="°"
+                value={angle.bend}
+                onChange={(v) => s.updatePiece(selected.id, { bend: v })}
+                {...bendLimits}
+              />
+            )}
+            {corner && (
+              <NumberField
+                label="Middle angle"
+                hint="the break — positive swings the run right"
+                unit="°"
+                value={corner.sweep}
+                onChange={(v) => s.updatePiece(selected.id, { sweep: v })}
+                {...PIECE_LIMITS.sweep}
+              />
+            )}
+
+            {/* An angle connector leaves at start + middle, so it can be set
+                from either end: type the end angle and the break makes it up.
+                The other two parts have no say in what they leave at. */}
+            {angle ? (
+              <NumberField
+                label="End angle"
+                hint="the fall it leaves at — the break takes up the difference"
+                unit="°"
+                value={exitSlope(selected)}
+                onChange={(v) =>
+                  s.updatePiece(selected.id, { bend: Math.round((v - selected.slope) * 1e3) / 1e3 })
+                }
+                {...exitLimits}
+              />
+            ) : (
+              <NumberField
+                label="End angle"
+                hint={
+                  corner
+                    ? 'worked out — turning across the fall flattens it'
+                    : 'a straight part leaves at the angle it enters'
+                }
+                unit="°"
+                readOnly
+                value={exitSlope(selected)}
+                onChange={() => {}}
+                {...PIECE_LIMITS.slope}
+              />
+            )}
+
+            <NumberField
+              label="Turn"
+              hint="heading at the inlet, off the part before it"
+              unit="°"
+              value={selected.turn}
+              onChange={(v) => s.updatePiece(selected.id, { turn: v })}
+              {...PIECE_LIMITS.turn}
+            />
+
+            <div className="readout">
+              <div>
+                <b>{degLabel(selected.slope)}°</b>
+                <span>Start</span>
+              </div>
+              {(angle || corner) && (
+                <div>
+                  <b>{degLabel(angle ? angle.bend : corner!.sweep)}°</b>
+                  <span>Middle</span>
+                </div>
+              )}
+              <div>
+                <b>{degLabel(exitSlope(selected))}°</b>
+                <span>End</span>
+              </div>
+            </div>
+
+            {/* The joint behind this part: two angles that should agree, and
+                one button for when they do not. */}
+            <span className="field-label">
+              Inlet joint
+              <em>{upstream ? pieceLabel(upstream, selectedIndex - 1) : 'start of the run'}</em>
+            </span>
+            <p className="note">
+              {!upstream ? (
+                <>This is the first part — its start angle is the one the whole run sets off at.</>
+              ) : open ? (
+                <>
+                  {pieceLabel(upstream, selectedIndex - 1)} hands on {degLabel(handedOn)}° and this
+                  part starts at {degLabel(selected.slope)}° — the joint is open by{' '}
+                  {degLabel(Math.abs(kink))}°.
+                </>
+              ) : (
+                <>
+                  Sits flush on {pieceLabel(upstream, selectedIndex - 1)} — both sides of the joint
+                  are at {degLabel(handedOn)}°.
+                </>
+              )}
+            </p>
+            <button
+              onClick={() => {
+                const L = slopeLimitsFor(selected)
+                s.updatePiece(selected.id, {
+                  slope: Math.min(L.max, Math.max(L.min, handedOn)),
+                })
+              }}
+              disabled={!open}
+              title={
+                open
+                  ? 'Set the start angle to whatever the part before hands on'
+                  : 'The joint is already closed'
+              }
+            >
+              Match the Part Before
+            </button>
+          </>
+        ) : (
+          <p className="note">
+            {s.pieces.length
+              ? 'No part selected — pick one in Active Parts to set its angles.'
+              : 'No parts yet — pick one from Add Part in the top bar.'}
+          </p>
+        )}
       </CollapsiblePanel>
 
       <CollapsiblePanel title="Duplicate Part">

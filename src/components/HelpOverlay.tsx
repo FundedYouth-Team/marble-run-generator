@@ -199,6 +199,11 @@ const HELP: Record<HelpTab, Group[]> = {
         { keys: ['Click a piece'], action: 'Select it and open its settings in the sidebar' },
         { keys: ['Click empty space'], action: 'Clear the selection' },
         {
+          keys: ['Angles and Joints'],
+          action: 'Type any angle in exactly, instead of dragging for it',
+          note: 'in the sidebar: start, middle and end angle for the selected part, and whether the joint behind it is closed',
+        },
+        {
           keys: ['Drag a joint'],
           action: 'Set slope or turn',
           note: 'a side view sets slope, a top or bottom view sets turn; the part swings about the joint behind it',
@@ -238,7 +243,7 @@ const HOWTO: Partial<Record<HelpTab, HowTo[]>> = {
       question: 'How do I join one part to another?',
       lead: 'They already are. The run is a chain: every part is joined to the one before it, in the order they appear in Active Parts. Parts cannot be dragged around the stage on their own — you change the run by changing the chain.',
       steps: [
-        'The joints are the small balls on the run — one at each end of every part, plus the one the run starts at.',
+        'The joints are the coloured ends on the run — one at each end of every part, plus the one the run starts at.',
         'Blue is where the next part lands if you do nothing: the end of the run.',
         'Click any other joint to build there instead — it turns orange. Click it again to hand building back to the end.',
       ],
@@ -246,7 +251,7 @@ const HOWTO: Partial<Record<HelpTab, HowTo[]>> = {
     {
       question: 'How do I add a part at the start of the run instead of the end?',
       steps: [
-        'Click the joint at the very start of the run — the free ball on the first part’s inlet. It turns orange.',
+        'Click the joint at the very start of the run — the coloured inlet on the first part. It turns orange.',
         'Open ＋ Add Part and pick the part you want.',
         'It is put in ahead of the old first part, entering at whatever angle leaves the rest of the run exactly as it was.',
       ],

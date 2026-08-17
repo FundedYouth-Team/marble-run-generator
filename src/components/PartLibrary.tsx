@@ -284,7 +284,7 @@ export default function PartLibrary() {
                     .
                   </>
                 ) : (
-                  <>Click a joint socket in the 3D view to build from somewhere else.</>
+                  <>Click a coloured joint end in the 3D view to build from somewhere else.</>
                 )}{' '}
                 The part is selected once it lands, so its measurements are ready to edit in the
                 sidebar.
