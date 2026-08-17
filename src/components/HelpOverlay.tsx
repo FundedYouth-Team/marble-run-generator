@@ -154,8 +154,21 @@ const HELP: Record<HelpTab, Group[]> = {
     {
       title: 'Draft view',
       rows: [
-        { keys: ['Elevation'], action: 'Side-on view — edit slope' },
-        { keys: ['Plan'], action: 'Top-down view — edit turn' },
+        {
+          keys: ['Developed'],
+          action: 'Side-on, with every turn flattened out — edit slope',
+          note: 'each part shows its true slope whichever way it heads; the view the draft opens on',
+        },
+        {
+          keys: ['Front', 'Back', 'Left', 'Right'],
+          action: 'True side views — edit slope',
+          note: 'named for the side they are taken from, as on the 3D view cube; Left stands at -X, so the run reads left to right',
+        },
+        {
+          keys: ['Top', 'Bottom'],
+          action: 'From above and below — edit turn and corner sweep',
+          note: 'a handle on a leg the view takes end-on is faded: there is no angle in the drawing to drag, so switch views',
+        },
         { keys: ['Scroll'], action: 'Zoom about the pointer' },
         {
           keys: ['Right-drag', 'Middle-drag'],
@@ -183,7 +196,7 @@ const HELP: Record<HelpTab, Group[]> = {
         {
           keys: ['Drag a joint'],
           action: 'Set slope or turn',
-          note: 'which one depends on the view; the part swings about the joint behind it',
+          note: 'a side view sets slope, a top or bottom view sets turn; the part swings about the joint behind it',
         },
         {
           keys: ['Drag a ring'],
@@ -192,8 +205,8 @@ const HELP: Record<HelpTab, Group[]> = {
         },
         {
           keys: ['Drag the break'],
-          action: 'On an angle connector, swing one leg at a time',
-          note: 'in elevation: the break sets the entry slope, the outlet sets the bend',
+          action: 'On a connector, swing one leg at a time',
+          note: 'an angle in a side view: the break sets the entry slope, the outlet sets the bend — a corner in Top or Bottom: the break sets the turn, the outlet sets the sweep',
         },
         { keys: ['Shift', 'Drag'], action: 'Snap the angle to 5°' },
         { keys: ['Alt', 'Drag'], action: 'Stretch that leg as well' },

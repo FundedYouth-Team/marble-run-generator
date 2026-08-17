@@ -1731,6 +1731,17 @@ button.danger {
   gap: 8px;
   padding: 6px 10px;
   border-bottom: 1px solid var(--line-soft);
+  /* Seven view buttons and the tools beside them drop to a second row rather
+     than squeezing each other down to unreadable stubs on a narrow window. */
+  flex-wrap: wrap;
+  row-gap: 6px;
+}
+
+/* Each view is as wide as its own name — the group is a list of places to
+   stand, not a set of equal shares. */
+.draft-toolbar .segmented.views button {
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 
 .draft-toolbar .spacer {
@@ -1821,6 +1832,18 @@ button.danger {
   cursor: grabbing;
 }
 
+/* A leg this view takes end-on draws as a stub, and there is no angle in it to
+   drag. The handle stays where it is, faded and inert, so the drawing still
+   says where the joint is and it is plain that the view is what has to change. */
+.draft-canvas .joint-handle.flat {
+  cursor: default;
+  opacity: 0.3;
+}
+
+.draft-canvas .joint-handle.flat .joint {
+  stroke-dasharray: 2 2.4;
+}
+
 .draft-canvas .joint-handle.live .joint {
   fill: var(--accent-2);
   stroke-width: 2.4;
@@ -1838,6 +1861,10 @@ button.danger {
   stroke: var(--accent);
   stroke-width: 1.1;
   stroke-dasharray: 2 2;
+  /* The stem runs back to the joint the part before it ends at — where that
+     part's own handle sits. It is a line drawn to say what the ring grabs, so
+     it must not take the press that belongs to the handle underneath it. */
+  pointer-events: none;
 }
 
 .draft-canvas .joint-handle.head:hover .stem,

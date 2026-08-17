@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import { centerlineFor, type Centerline } from './centerline'
-import type { Piece } from '../store'
+import { exitTurn, type Piece } from '../store'
 
 /**
  * One straight chord of the run. A plain tube is a single chord; a bent part
@@ -147,6 +147,11 @@ export function buildAssembly(pieces: Piece[]): Assembly {
     })
     segments.push(...own)
     cursor.copy(end)
+    // A corner hands the run on at a new heading, so the next part is measured
+    // from there rather than from the heading this one came in on. Pitch needs
+    // no such carry: every part holds the slope it was given, and the store is
+    // what keeps that slope level with the part before it.
+    yaw += THREE.MathUtils.degToRad(exitTurn(piece))
   })
 
   const bounds = new THREE.Box3()

@@ -3,9 +3,18 @@ import type { ExportFormat } from './lib/exporters'
 
 /** All dimensions in this app are millimetres. */
 export type TubeVariant = 'half' | 'threequarter' | 'closed'
-export type PieceType = 'straight' | 'angle'
+export type PieceType = 'straight' | 'angle' | 'corner'
 export type Mode = '2d' | '3d'
-export type DraftView = 'elevation' | 'plan'
+/**
+ * Which way the 2D draft looks at the run. The six ortho views are named for
+ * the side of the model they are taken from, the same way the 3D view cube
+ * names its faces — Left is the view from -X, Front the view from +Z.
+ *
+ * `developed` is the odd one out and the reason it is kept: it is not a
+ * direction at all but a side-on section with every turn flattened out of it,
+ * so a run that wanders still reads as one continuous fall.
+ */
+export type DraftView = 'developed' | 'front' | 'back' | 'left' | 'right' | 'top' | 'bottom'
 export type Theme = 'light' | 'dark'
 /** How the 3D pieces are shaded — see-through mode exposes the bore and the marble. */
 export type Shading = 'solid' | 'transparent'
@@ -102,8 +111,8 @@ export interface Piece {
   /** Optional label from the parts list; blank falls back to the part name. */
   name?: string
   /**
-   * Nominal run length along the tube axis, mm (excludes the snap spigot). On
-   * an angle connector this is the rigid entry leg, up to the break.
+   * Nominal run length along the tube axis, mm (excludes the snap spigot). On a
+   * connector this is the rigid entry leg, up to the break.
    */
   length: number
   /** Downhill pitch of this piece, degrees. Positive = falling. */
@@ -115,10 +124,16 @@ export interface Piece {
    * steepens the descent, negative lifts the outgoing leg back up.
    */
   bend?: number
-  /** Angle connector: length of the leg after the break, mm. */
+  /**
+   * Corner connector: how far the run swings at the break, degrees. Positive
+   * turns right, negative left. The same idea as `bend`, laid on its side: the
+   * break is about the tube's own up axis rather than across it.
+   */
+  sweep?: number
+  /** Connectors: length of the leg after the break, mm. */
   exitLength?: number
   /**
-   * Angle connector: radius the break is rounded off with, mm. Zero is a sharp
+   * Connectors: radius the break is rounded off with, mm. Zero is a sharp
    * corner; anything more is an arc tangent to both legs, so the marble carries
    * its speed through the change rather than slapping into a kink.
    */
@@ -147,6 +162,7 @@ export const PIECE_LIMITS = {
   slope: { min: -90, max: 90, step: 0.5 },
   turn: { min: -90, max: 90, step: 1 },
   bend: { min: -90, max: 90, step: 1 },
+  sweep: { min: -90, max: 90, step: 1 },
   exitLength: { min: 10, max: 600, step: 1 },
   fillet: { min: 0, max: 120, step: 1 },
 } as const
@@ -175,12 +191,83 @@ export function angleSpec(piece: Piece) {
 }
 
 /**
- * The pitch a part hands on to whatever follows it. Only the angle connector
- * leaves at a different angle from the one it arrived at — that is the whole
- * point of it.
+ * What a corner connector is when it lands on the stage. The same short legs
+ * and rounded break as the angle connector — it is the same part turned on its
+ * side — opening at a quarter of a quarter-turn, which is a change you can see
+ * without being so tight the marble scrubs off all its speed.
+ */
+export const CORNER_DEFAULTS = {
+  length: 40,
+  sweep: 45,
+  exitLength: 40,
+  fillet: 18,
+} as const
+
+/** The corner connector's own numbers, with anything unset filled in. */
+export function cornerSpec(piece: Piece) {
+  return {
+    entry: piece.length,
+    sweep: piece.sweep ?? CORNER_DEFAULTS.sweep,
+    exit: piece.exitLength ?? CORNER_DEFAULTS.exitLength,
+    fillet: piece.fillet ?? CORNER_DEFAULTS.fillet,
+  }
+}
+
+const RAD = Math.PI / 180
+
+/**
+ * The pitch a part hands on to whatever follows it. A plain tube leaves at the
+ * angle it arrived at; the two connectors are the parts that do not.
+ *
+ * A corner turns in its own plane, and that plane is tipped over by the slope
+ * the corner enters at, so the further it swings the shallower the run leaves:
+ * a quarter turn puts the exit leg dead across the fall, and it comes out
+ * level. That is what a flat elbow really does when you tilt it downhill.
  */
 export function exitSlope(piece: Piece): number {
-  return piece.type === 'angle' ? piece.slope + angleSpec(piece).bend : piece.slope
+  if (piece.type === 'angle') return piece.slope + angleSpec(piece).bend
+  if (piece.type === 'corner') {
+    const drop = Math.sin(piece.slope * RAD) * Math.cos(cornerSpec(piece).sweep * RAD)
+    return tidy(Math.asin(clamp(drop, -1, 1)) / RAD)
+  }
+  return piece.slope
+}
+
+/**
+ * How far a part swings the run's heading between its inlet and its outlet,
+ * degrees — the plan-view companion to {@link exitSlope}. Only a corner does,
+ * and on a falling run it turns a little further than its own sweep: the swing
+ * happens in the tipped plane, and heading is measured about the vertical.
+ */
+export function exitTurn(piece: Piece): number {
+  if (piece.type !== 'corner') return 0
+  const sweep = cornerSpec(piece).sweep * RAD
+  return tidy(
+    Math.atan2(Math.sin(sweep), Math.cos(sweep) * Math.cos(piece.slope * RAD)) / RAD,
+  )
+}
+
+/**
+ * The sweep a corner needs to swing the run's heading by `turn` when it enters
+ * at `slope` — {@link exitTurn} read backwards, for the drags that are given a
+ * heading and have to find the sweep that lands on it.
+ */
+export function sweepForTurn(turn: number, slope: number): number {
+  const t = turn * RAD
+  return tidy(Math.atan2(Math.sin(t) * Math.cos(slope * RAD), Math.cos(t)) / RAD)
+}
+
+/**
+ * The heading a part enters at, degrees: every turn ahead of it in the run,
+ * plus every corner those parts swung through.
+ */
+export function headingAt(pieces: Piece[], index: number): number {
+  let yaw = 0
+  for (let i = 0; i <= index && i < pieces.length; i++) {
+    if (i > 0) yaw += exitTurn(pieces[i - 1])
+    yaw += pieces[i].turn
+  }
+  return tidy(yaw)
 }
 
 /**
@@ -218,12 +305,35 @@ export function entrySwingLimitsFor(piece: Piece) {
 /** Kills the float dust a chain of additions leaves on an angle. */
 const tidy = (deg: number) => Math.round(deg * 1e6) / 1e6
 
+/**
+ * An angle as it is shown. A corner hands on angles that are no longer round
+ * numbers — a run welded to one lands on 4.238756° and means it — but a tenth
+ * of a degree is as fine as a drawing reads, so that is what is drawn.
+ */
+export const degLabel = (deg: number) => String(Math.round(deg * 10) / 10)
+
 /** How much of `swing` a value can take before it runs into its own limits. */
 const roomFor = (value: number, swing: number, lim: { min: number; max: number }) =>
   clamp(value + swing, lim.min, lim.max) - value
 
 /** Holds a swing down to the least any one part it moves can give it. */
 const narrow = (swing: number, room: number) => (Math.abs(room) < Math.abs(swing) ? room : swing)
+
+/**
+ * The slope a fresh part has to enter at to leave at `exit` — what a part put
+ * in at the head of the run needs so the part it now feeds is handed exactly
+ * the angle it already had. A corner flattens whatever it hands on, so past a
+ * point no entry slope is steep enough; there it enters as steeply as it can.
+ */
+function entrySlopeFor(type: PieceType, exit: number): number {
+  if (type === 'angle') return exit - ANGLE_DEFAULTS.bend
+  if (type === 'corner') {
+    const cos = Math.cos(CORNER_DEFAULTS.sweep * RAD)
+    if (Math.abs(cos) < 1e-6) return exit
+    return tidy(Math.asin(clamp(Math.sin(exit * RAD) / cos, -1, 1)) / RAD)
+  }
+  return exit
+}
 
 /**
  * A place another part can be joined on: the inlet a part is fed through, or
@@ -249,26 +359,55 @@ export function insertIndexAt(pieces: Piece[], port: Port | null): number {
 }
 
 /**
- * The parts are bonded together, so a joint that holds has to keep holding.
- * When an edit swings what one part leaves at, everything downstream swings
- * with it by the same amount: a joint that was flush stays flush, and a kink
- * the user built on purpose is carried along rather than quietly closed up.
+ * The angle each joint stands at: what a part enters at, less what the part
+ * before it leaves at. Zero is a joint pulled shut; anything else is a kink,
+ * and a kink the user built on purpose is theirs to keep.
+ */
+function kinksOf(pieces: Piece[]): number[] {
+  return pieces.map((p, i) => (i === 0 ? 0 : tidy(p.slope - exitSlope(pieces[i - 1]))))
+}
+
+/**
+ * Walks a stretch of the run and puts each part back on the angle its own joint
+ * had: the exit of the part before it, plus whatever kink was already there.
  *
- * The swing is the same for all of them: if one part would be taken past its
- * slope limit, the whole tail swings only as far as that part can, so the limit
- * shows up as the run refusing to go further rather than as a joint pulling
- * apart somewhere down the line.
+ * A tube hands on exactly what it was swung by, so on a run of tubes this is
+ * the same uniform swing it has always been. A corner does not — it turns
+ * across the fall, so it hands on less than it takes — and this walk is what
+ * keeps the joint after one shut. A part taken past vertical stops there; the
+ * run runs out of travel at that part rather than everywhere at once.
+ */
+function relink(pieces: Piece[], kinks: number[], from: number, to: number): Piece[] {
+  const S = PIECE_LIMITS.slope
+  const next = pieces.slice()
+  let changed = false
+  for (let i = Math.max(1, from); i <= Math.min(to, next.length - 1); i++) {
+    // Each part is relinked to the one already relinked before it, so a single
+    // pass carries a correction all the way down the run.
+    const slope = tidy(clamp(exitSlope(next[i - 1]) + kinks[i], S.min, S.max))
+    if (slope === next[i].slope) continue
+    next[i] = { ...next[i], slope }
+    changed = true
+  }
+  return changed ? next : pieces
+}
+
+/**
+ * The parts are bonded together, so a joint that holds has to keep holding.
+ * When an edit swings what one part leaves at, the run downstream is walked
+ * back into line behind it: a joint that was flush stays flush, and a kink the
+ * user built on purpose is carried along rather than quietly closed up.
+ *
+ * `delta` is how far the part at `from` has just moved what it hands on, which
+ * is what the joint right behind it has to be measured off — that part has
+ * already been edited by the time this is called.
  */
 function carrySlope(pieces: Piece[], from: number, delta: number, connected: boolean): Piece[] {
   if (!connected || !delta || from + 1 >= pieces.length) return pieces
-  const S = PIECE_LIMITS.slope
-  let swing = delta
-  for (let i = from + 1; i < pieces.length; i++) {
-    const room = clamp(pieces[i].slope + delta, S.min, S.max) - pieces[i].slope
-    if (Math.abs(room) < Math.abs(swing)) swing = room
-  }
-  if (!tidy(swing)) return pieces
-  return pieces.map((p, i) => (i > from ? { ...p, slope: tidy(p.slope + swing) } : p))
+  const kinks = kinksOf(pieces)
+  // The joint just past the edit was standing where the part used to leave it.
+  kinks[from + 1] = tidy(kinks[from + 1] + delta)
+  return relink(pieces, kinks, from + 1, pieces.length - 1)
 }
 
 /**
@@ -277,18 +416,7 @@ function carrySlope(pieces: Piece[], from: number, delta: number, connected: boo
  * with its joints free.
  */
 function weldJoints(pieces: Piece[]): Piece[] {
-  const S = PIECE_LIMITS.slope
-  const next = pieces.slice()
-  let changed = false
-  for (let i = 1; i < next.length; i++) {
-    // Each part is welded to the one already welded before it, so a single pass
-    // carries a correction all the way down the run.
-    const slope = tidy(clamp(exitSlope(next[i - 1]), S.min, S.max))
-    if (slope === next[i].slope) continue
-    next[i] = { ...next[i], slope }
-    changed = true
-  }
-  return changed ? next : pieces
+  return relink(pieces, pieces.map(() => 0), 1, pieces.length - 1)
 }
 
 /** Editing limits for the tube every part is cut from, shared by the sidebar and file loading. */
@@ -360,7 +488,11 @@ export function exportBasename(s: { projectName: string; exportName: string }): 
 }
 
 /** What each part type is called wherever a piece is listed. */
-export const PART_LABEL: Record<PieceType, string> = { straight: 'Tube', angle: 'Angle' }
+export const PART_LABEL: Record<PieceType, string> = {
+  straight: 'Tube',
+  angle: 'Angle',
+  corner: 'Corner',
+}
 
 /** What the part is, by type and position — "Tube 2" and friends. */
 export function pieceTypeLabel(piece: Piece, index: number): string {
@@ -385,6 +517,14 @@ const TYPE_DEFAULTS: Record<PieceType, Omit<Piece, 'id' | 'type'>> = {
     bend: ANGLE_DEFAULTS.bend,
     exitLength: ANGLE_DEFAULTS.exitLength,
     fillet: ANGLE_DEFAULTS.fillet,
+  },
+  corner: {
+    length: CORNER_DEFAULTS.length,
+    slope: 6,
+    turn: 0,
+    sweep: CORNER_DEFAULTS.sweep,
+    exitLength: CORNER_DEFAULTS.exitLength,
+    fillet: CORNER_DEFAULTS.fillet,
   },
 }
 
@@ -450,6 +590,7 @@ const FIELD_LABEL: Record<string, string> = {
   slope: 'slope',
   turn: 'turn',
   bend: 'bend',
+  sweep: 'sweep',
   exitLength: 'exit leg',
   fillet: 'corner radius',
 }
@@ -458,6 +599,7 @@ const FIELD_UNIT: Record<string, string> = {
   slope: '°',
   turn: '°',
   bend: '°',
+  sweep: '°',
   exitLength: ' mm',
   fillet: ' mm',
 }
@@ -606,15 +748,16 @@ interface RunState {
   updatePiece: (id: string, patch: Partial<Piece>) => void
   /**
    * Swings a part from its head. It turns through `delta` degrees about the far
-   * end of the leg being dragged — the break on an angle connector, the outlet
-   * on a plain tube — and on a connected run every part ahead of it turns by
+   * end of the leg being dragged — the break on a connector, the outlet on a
+   * plain tube — and on a connected run every part ahead of it turns by
    * the same amount, so the joints behind it hold. Nothing past the pivot moves
    * at all: this is the mirror of dragging a part's outlet, which holds the run
    * ahead still and swings everything after it.
    *
-   * `holdExit` pins a connector's outgoing leg where it is by giving the bend
-   * back whatever the entry leg takes, so only the entry swings and the pivot
-   * really is the one point that does not move. `patch` carries whatever the
+   * `holdExit` pins a connector's outgoing leg where it is by giving the break
+   * back whatever the entry leg takes — the bend in elevation, the sweep in
+   * plan — so only the entry swings and the pivot really is the one point that
+   * does not move. `patch` carries whatever the
    * same gesture stretches, so an Alt-drag is still one step in the timeline.
    */
   swingHead: (
@@ -705,7 +848,7 @@ export const useRun = create<RunState>((set, get) => {
 
     // 3D is where a run is built; the 2D draft is for working a single part.
     mode: '3d',
-    draftView: 'elevation',
+    draftView: 'developed',
     theme: initialTheme(),
 
     // Sized for a standard glass marble out of the box.
@@ -952,12 +1095,11 @@ export const useRun = create<RunState>((set, get) => {
       const at = insertIndexAt(s.pieces, s.armedPort)
       const before = s.pieces[at - 1]
       const after = s.pieces[at]
-      const bend = type === 'angle' ? ANGLE_DEFAULTS.bend : 0
       // Entering: carry on at the angle the run is already travelling at. Put in
       // at the head of the run there is nothing to carry on from, so the part
       // instead enters at whatever angle lets it hand the old first part the
       // angle it already had — the run gets longer without changing shape.
-      const slope = before ? exitSlope(before) : after ? after.slope - bend : null
+      const slope = before ? exitSlope(before) : after ? entrySlopeFor(type, after.slope) : null
       const piece = makePiece({
         type,
         ...(slope === null ? {} : { slope: clamp(tidy(slope), S.min, S.max) }),
@@ -966,6 +1108,13 @@ export const useRun = create<RunState>((set, get) => {
         // next tube should be.
         ...(before?.type === 'straight' && type === 'straight' ? { length: before.length } : {}),
       })
+      // Heading is the same story: a corner put in at the head would swing the
+      // whole run round behind it, so it enters turned back by as much as it
+      // turns and the run keeps the heading it already had.
+      if (!before && after && piece.type === 'corner') {
+        const T = PIECE_LIMITS.turn
+        piece.turn = clamp(tidy(-exitTurn(piece)), T.min, T.max)
+      }
       // What the part now sitting downstream used to be handed. A tube changes
       // nothing; dropping a connector in tips everything after it by its bend.
       const handedOn = before ? exitSlope(before) : after ? after.slope : exitSlope(piece)
@@ -1071,7 +1220,8 @@ export const useRun = create<RunState>((set, get) => {
           const S = PIECE_LIMITS.slope
           const T = PIECE_LIMITS.turn
           const B = PIECE_LIMITS.bend
-          const pieces = cur.pieces.slice()
+          const W = PIECE_LIMITS.sweep
+          let pieces = cur.pieces.slice()
           let swing = tidy(delta)
 
           if (axis === 'turn') {
@@ -1079,12 +1229,37 @@ export const useRun = create<RunState>((set, get) => {
             // run takes the whole swing at its first part and the part past the
             // pivot gives it straight back. What is left is the head of the run
             // turned about the pivot, with everything after it untouched.
-            const after = pieces[at + 1]
+            //
+            // On a corner held by its outgoing leg the giveback is the sweep
+            // instead: the break is the pivot, so what the entry leg takes the
+            // sweep hands back and the leg past it never moves.
+            const after = holdExit ? null : pieces[at + 1]
             swing = narrow(swing, roomFor(pieces[0].turn, swing, T))
             if (after) swing = narrow(swing, -roomFor(after.turn, -swing, T))
+            // The giveback is measured in heading, not in sweep: on a falling
+            // run a corner swings the heading further than its own sweep, so
+            // the sweep that hands exactly this much back is solved for. Held
+            // at its stop it gives back less, and the swing shrinks to match.
+            let held = pieces[at].sweep ?? CORNER_DEFAULTS.sweep
+            if (holdExit) {
+              const was = exitTurn(pieces[at])
+              held = clamp(sweepForTurn(was - swing, pieces[at].slope), W.min, W.max)
+              swing = tidy(was - exitTurn({ ...pieces[at], sweep: held }))
+            }
             if (tidy(swing)) {
               pieces[0] = { ...pieces[0], turn: tidy(pieces[0].turn + swing) }
               if (after) pieces[at + 1] = { ...after, turn: tidy(after.turn - swing) }
+              if (holdExit) {
+                pieces[at] = { ...pieces[at], sweep: held }
+                // Swinging the sweep tips how much of the fall the corner turns
+                // across, so what it hands the run behind it moves as well.
+                pieces = carrySlope(
+                  pieces,
+                  at,
+                  tidy(exitSlope(pieces[at]) - exitSlope(cur.pieces[at])),
+                  cur.keepConnected,
+                )
+              }
             }
           } else {
             // Elevation: the slope is the angle itself, so every part that comes
@@ -1105,12 +1280,21 @@ export const useRun = create<RunState>((set, get) => {
               swing = narrow(swing, -roomFor(bend, -swing, B))
             }
             if (tidy(swing)) {
+              // What the connector at the far end hands on, before any of this
+              // — a held outgoing leg has to come back to exactly that.
+              const wasExit = exitSlope(pieces[at])
+              const kinks = kinksOf(pieces)
               for (let i = from; i <= at; i++) {
                 pieces[i] = { ...pieces[i], slope: tidy(pieces[i].slope + swing) }
               }
+              // A corner among the parts being carried hands on less than it
+              // was swung by, so the stretch is walked back into line behind
+              // it: the swing is shared out rather than tearing a joint open
+              // halfway along the run being dragged.
+              pieces = relink(pieces, kinks, from + 1, at)
               if (holdExit) {
-                const bend = pieces[at].bend ?? ANGLE_DEFAULTS.bend
-                pieces[at] = { ...pieces[at], bend: tidy(bend - swing) }
+                const bend = clamp(tidy(wasExit - pieces[at].slope), B.min, B.max)
+                pieces[at] = { ...pieces[at], bend }
               }
             }
           }

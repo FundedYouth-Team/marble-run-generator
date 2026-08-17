@@ -8,9 +8,13 @@ import {
   PIECE_LIMITS,
   TUBE_LIMITS,
   ANGLE_DEFAULTS,
+  CORNER_DEFAULTS,
   angleSpec,
+  cornerSpec,
   bendLimitsFor,
+  degLabel,
   exitSlope,
+  exitTurn,
   tubeSpec,
   colorOf,
   variantOf,
@@ -52,6 +56,7 @@ export default function Sidebar() {
   const selectedLength = selected ? pieceAxisLength(selected) : 100
   const joint = jointSpec(spec, selectedLength)
   const angle = selected && selected.type === 'angle' ? angleSpec(selected) : null
+  const corner = selected && selected.type === 'corner' ? cornerSpec(selected) : null
 
   return (
     <aside className="sidebar">
@@ -237,8 +242,70 @@ export default function Sidebar() {
                       {...PIECE_LIMITS.fillet}
                     />
                     <p className="note">
-                      Enters at {selected.slope}° and leaves at {exitSlope(selected)}°. A big radius
-                      on short legs is trimmed back to what the legs can give it.
+                      Enters at {degLabel(selected.slope)}° and leaves at{' '}
+                      {degLabel(exitSlope(selected))}°. A big radius on short legs is trimmed back
+                      to what the legs can give it.
+                    </p>
+                  </>
+                ) : corner ? (
+                  <>
+                    <NumberField
+                      label="Entry leg"
+                      hint="rigid — carries on from the part before"
+                      value={corner.entry}
+                      onChange={(v) => s.updatePiece(selected.id, { length: v })}
+                      {...PIECE_LIMITS.length}
+                    />
+                    <NumberField
+                      label="Sweep"
+                      hint="right or left at the break"
+                      unit="°"
+                      value={corner.sweep}
+                      onChange={(v) => s.updatePiece(selected.id, { sweep: v })}
+                      {...PIECE_LIMITS.sweep}
+                    />
+                    <NumberField
+                      label="Exit leg"
+                      hint="after the break"
+                      value={corner.exit}
+                      onChange={(v) => s.updatePiece(selected.id, { exitLength: v })}
+                      {...PIECE_LIMITS.exitLength}
+                    />
+                    <span className="field-label">
+                      Corner
+                      <em>rounded carries the marble's speed through</em>
+                    </span>
+                    <div className="segmented small">
+                      <button
+                        className={corner.fillet > 0 ? 'on' : ''}
+                        onClick={() =>
+                          s.updatePiece(selected.id, { fillet: CORNER_DEFAULTS.fillet })
+                        }
+                        title="Round the break off with an arc tangent to both legs"
+                      >
+                        Rounded
+                      </button>
+                      <button
+                        className={corner.fillet > 0 ? '' : 'on'}
+                        onClick={() => s.updatePiece(selected.id, { fillet: 0 })}
+                        title="Meet the two legs at a mitred corner"
+                      >
+                        Sharp
+                      </button>
+                    </div>
+                    <NumberField
+                      label="Corner radius"
+                      hint="0 is a sharp break"
+                      value={corner.fillet}
+                      onChange={(v) => s.updatePiece(selected.id, { fillet: v })}
+                      {...PIECE_LIMITS.fillet}
+                    />
+                    <p className="note">
+                      Swings the run {degLabel(Math.abs(exitTurn(selected)))}° to the{' '}
+                      {corner.sweep < 0 ? 'left' : 'right'} and, turning across the fall, leaves at{' '}
+                      {degLabel(exitSlope(selected))}° where it entered at{' '}
+                      {degLabel(selected.slope)}°. A big radius on short legs is trimmed back to
+                      what the legs can give it.
                     </p>
                   </>
                 ) : (

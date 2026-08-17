@@ -1,5 +1,6 @@
 import {
   ANGLE_DEFAULTS,
+  CORNER_DEFAULTS,
   PART_LABEL,
   PIECE_LIMITS,
   TUBE_LIMITS,
@@ -31,8 +32,10 @@ export const PROJECT_FORMAT = 'marble-run-generator'
  * Per-part colour rides along inside v3 without a bump: an older reader ignores
  * it and draws the run in one colour, which is only how it always looked and
  * never touches the parts themselves.
+ * v4 added the corner connector, which a v3 reader would turn into a straight
+ * tube — the run would come back with its turns missing.
  */
-export const PROJECT_VERSION = 3
+export const PROJECT_VERSION = 4
 
 /** Double-barrelled so a saved run reads as a project, not as loose data. */
 export const PROJECT_EXT = '.mrun.json'
@@ -121,24 +124,31 @@ function readPiece(raw: unknown): Piece {
       o.length,
       PIECE_LIMITS.length.min,
       PIECE_LIMITS.length.max,
-      type === 'angle' ? ANGLE_DEFAULTS.length : 120,
+      type === 'angle' ? ANGLE_DEFAULTS.length : type === 'corner' ? CORNER_DEFAULTS.length : 120,
     ),
     slope: num(o.slope, PIECE_LIMITS.slope.min, PIECE_LIMITS.slope.max, 6),
     turn: num(o.turn, PIECE_LIMITS.turn.min, PIECE_LIMITS.turn.max, 0),
+    // Both connectors are two legs meeting at a break; only which way the break
+    // goes — bend for the angle, sweep for the corner — tells them apart.
     ...(type === 'angle'
+      ? { bend: num(o.bend, PIECE_LIMITS.bend.min, PIECE_LIMITS.bend.max, ANGLE_DEFAULTS.bend) }
+      : {}),
+    ...(type === 'corner'
+      ? { sweep: num(o.sweep, PIECE_LIMITS.sweep.min, PIECE_LIMITS.sweep.max, CORNER_DEFAULTS.sweep) }
+      : {}),
+    ...(type === 'angle' || type === 'corner'
       ? {
-          bend: num(o.bend, PIECE_LIMITS.bend.min, PIECE_LIMITS.bend.max, ANGLE_DEFAULTS.bend),
           exitLength: num(
             o.exitLength,
             PIECE_LIMITS.exitLength.min,
             PIECE_LIMITS.exitLength.max,
-            ANGLE_DEFAULTS.exitLength,
+            type === 'angle' ? ANGLE_DEFAULTS.exitLength : CORNER_DEFAULTS.exitLength,
           ),
           fillet: num(
             o.fillet,
             PIECE_LIMITS.fillet.min,
             PIECE_LIMITS.fillet.max,
-            ANGLE_DEFAULTS.fillet,
+            type === 'angle' ? ANGLE_DEFAULTS.fillet : CORNER_DEFAULTS.fillet,
           ),
         }
       : {}),

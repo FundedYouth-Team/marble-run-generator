@@ -7,9 +7,21 @@ import { FitIcon } from './icons'
 import { crossSectionPath } from '../lib/geometry'
 import { buildAssembly } from '../lib/layout'
 import {
+  VIEWS,
+  VIEW_ORDER,
+  EDGE_ON,
+  dot3,
+  headingOf,
+  legReach,
+  showsRun as showsRunFor,
+} from '../lib/draftViews'
+import {
   useRun,
   tubeSpec,
   angleSpec,
+  cornerSpec,
+  headingAt,
+  degLabel,
   variantOf,
   PIECE_LIMITS,
   slopeLimitsFor,
@@ -319,6 +331,7 @@ interface Pt {
   y: number
 }
 
+
 /**
  * A part as drawn: its axis, in whichever coordinates the current view uses,
  * and the dimension called out beside it. A straight part is two points; a bent
@@ -358,21 +371,33 @@ interface Grip {
   ox: number
   oy: number
   /** What the drag angle sets. */
-  angleField: 'slope' | 'bend' | 'turn'
+  angleField: 'slope' | 'bend' | 'turn' | 'sweep'
   /** How far that angle may go — narrowed to what the rest of the run can take. */
   angleLimits: { min: number; max: number; step: number }
   /** What an Alt-drag stretches, if there is anything sensible to stretch. */
   lengthField: 'length' | 'exitLength' | null
   /** Pitch of the leg being stretched — a plan drag only shows its horizontal run. */
   pitch: number
+  /**
+   * How much of this leg's horizontal run the view shows: 1 square-on, 0
+   * end-on, negative when the view has the run going the other way. An
+   * elevation drag divides it back out, so a leg heading across the view still
+   * reads its true slope for as long as the view shows any of it.
+   */
+  showsRun: number
+  /** The view takes this leg end-on: there is no angle in the drawing to drag. */
+  edgeOn: boolean
   /** Heading in radians before this part's own turn is applied. */
   yawPrev: number
-  /** Slope the bend is measured off, degrees. */
+  /**
+   * The angle a connector's break is measured off: the entry slope for a bend
+   * in elevation, the entry heading for a sweep in plan. Degrees either way.
+   */
   base: number
   /**
    * Head handles only: hold the connector's outgoing leg where it is, so the
-   * bend gives back whatever the entry leg takes and the break is the one point
-   * in the drawing that does not move.
+   * break gives back whatever the entry leg takes and it is the one point in
+   * the drawing that does not move.
    */
   holdExit: boolean
   title: string
@@ -483,6 +508,7 @@ function AssemblyDraft({ shifted }: { shifted: boolean }) {
     setKeepConnected,
   } = useRun()
   const spec = tubeSpec(innerDiameter, wallThickness, variant)
+  const proj = VIEWS[draftView]
   const { ref, size } = useSize<HTMLDivElement>()
   const [view, setView] = useState({ scale: 1, tx: 0, ty: 0 })
   const drag = useRef<{ x: number; y: number; tx: number; ty: number; panning: boolean } | null>(null)
@@ -500,36 +526,40 @@ function AssemblyDraft({ shifted }: { shifted: boolean }) {
 
   const { parts, chain, grips } = useMemo(() => {
     const asm = buildAssembly(pieces)
-    const elevation = draftView === 'elevation'
+    const flat = proj.developed === true
     const parts: DraftPart[] = []
     const grips: Grip[] = []
     // Developed elevation: x is horizontal run, so every turn is flattened out
-    // of the drawing and the run reads as one continuous side-on section.
+    // of the drawing and the run reads as one continuous side-on section. Every
+    // other view lays the world down on the page along its own two axes.
     let developed = 0
-    const run = (a: { x: number; z: number }, b: { x: number; z: number }) =>
+    const at = (w: { x: number; y: number; z: number }, run: number): Pt => ({
+      x: flat ? run : dot3(w, proj.right),
+      y: dot3(w, proj.down),
+    })
+    const horizontal = (a: { x: number; z: number }, b: { x: number; z: number }) =>
       Math.hypot(b.x - a.x, b.z - a.z)
 
     for (const p of asm.placed) {
       const piece = p.piece
       const angle = piece.type === 'angle'
+      const corner = piece.type === 'corner'
       // A hidden part is still laid out — it holds the run's shape either side
       // of it — it is simply not drawn, and has no handles to grab.
       const shown = !piece.hidden
       const a = angleSpec(piece)
-      const startX = elevation ? developed : p.start.x
-      const startY = elevation ? -p.start.y : p.start.z
+      const c = cornerSpec(piece)
 
       const points: Pt[] = []
       for (const [i, seg] of p.segments.entries()) {
-        if (i === 0) points.push({ x: startX, y: startY })
-        if (elevation) developed += seg.length * Math.cos(seg.pitch)
-        points.push({
-          x: elevation ? developed : seg.end.x,
-          y: elevation ? -seg.end.y : seg.end.z,
-        })
+        if (i === 0) points.push(at(seg.start, developed))
+        developed += seg.length * Math.cos(seg.pitch)
+        points.push(at(seg.end, developed))
       }
       if (points.length < 2) continue
 
+      const startX = points[0].x
+      const startY = points[0].y
       const last = points[points.length - 1]
       // Each part picks up on the joint the one before it ended at, so the run
       // is one polyline and the parts are windows onto it.
@@ -541,22 +571,98 @@ function AssemblyDraft({ shifted }: { shifted: boolean }) {
         from: previous ? previous.from + previous.points.length - 1 : 0,
         shown,
         label: angle
-          ? `${a.entry}+${a.exit} mm  ∠${piece.slope}°  ⌐${a.bend}°${a.fillet ? `  r${a.fillet}` : '  sharp'}`
-          : `${piece.length} mm  ∠${piece.slope}°${piece.turn ? `  ↻${piece.turn}°` : ''}`,
+          ? `${a.entry}+${a.exit} mm  ∠${degLabel(piece.slope)}°  ⌐${degLabel(a.bend)}°${a.fillet ? `  r${a.fillet}` : '  sharp'}`
+          : corner
+            ? `${c.entry}+${c.exit} mm  ∠${degLabel(piece.slope)}°  ↻${degLabel(c.sweep)}°${c.fillet ? `  r${c.fillet}` : '  sharp'}`
+            : `${piece.length} mm  ∠${degLabel(piece.slope)}°${piece.turn ? `  ↻${degLabel(piece.turn)}°` : ''}`,
       })
 
       const yawPrev = p.yaw - (piece.turn * Math.PI) / 180
+      // How much of this part's horizontal run the view shows. A developed
+      // elevation shows all of it by construction; a view taking the part
+      // across itself shows a fraction, and one taking it end-on shows none.
+      const showsRun = showsRunFor(proj, p.yaw)
+      /** Whether a leg at `pitch` has an angle in this drawing worth dragging. */
+      const edgeOnAt = (pitch: number) =>
+        proj.plan ? Math.abs(Math.cos(pitch)) < EDGE_ON : Math.abs(showsRun) < EDGE_ON
       const common = {
         id: piece.id,
         pitch: p.pitch,
         yawPrev,
-        base: piece.slope,
+        // A sweep is measured off the heading the corner entered at, the way a
+        // bend is measured off the slope it entered at.
+        base: corner ? p.yaw * DEG : piece.slope,
         holdExit: false,
+        showsRun,
+        edgeOn: edgeOnAt(p.pitch),
       }
+      // The break, wherever the view has put it.
+      const breakAt = p.corner
+        ? flat
+          ? { x: startX + horizontal(p.start, p.corner), y: dot3(p.corner, proj.down) }
+          : at(p.corner, 0)
+        : null
 
       if (!shown) continue
 
-      if (!elevation) {
+      if (proj.plan) {
+        if (corner && breakAt) {
+          const cornerX = breakAt.x
+          const cornerY = breakAt.y
+          // The pitch the outgoing leg actually leaves at — a corner turning
+          // across the fall comes out shallower than it went in, and the plan
+          // shows any leg foreshortened by its own pitch.
+          const exitPitch = p.segments[p.segments.length - 1]?.pitch ?? p.pitch
+          // The start: the break holds still and the entry leg swings about it,
+          // so the sweep takes back whatever the entry gives and the outgoing
+          // leg — with the whole run past it — never moves.
+          grips.push({
+            ...common,
+            key: `${piece.id}:head`,
+            grab: 'head',
+            x: startX,
+            y: startY,
+            ox: cornerX,
+            oy: cornerY,
+            angleField: 'turn',
+            angleLimits: PIECE_LIMITS.turn,
+            lengthField: 'length',
+            holdExit: true,
+            title: `Drag the start to swing the entry leg about the break (turning ${degLabel(piece.turn)}° in)`,
+          })
+          // The entry leg: rigid against the part before it, so swinging it is
+          // the same edit as swinging a plain tube.
+          grips.push({
+            ...common,
+            key: `${piece.id}:break`,
+            grab: 'tail',
+            x: cornerX,
+            y: cornerY,
+            ox: startX,
+            oy: startY,
+            angleField: 'turn',
+            angleLimits: PIECE_LIMITS.turn,
+            lengthField: 'length',
+            title: `Drag to set turn (${degLabel(piece.turn)}°)`,
+          })
+          // The outlet: only the leg past the break moves, which is the sweep.
+          grips.push({
+            ...common,
+            key: piece.id,
+            grab: 'tail',
+            x: last.x,
+            y: last.y,
+            ox: cornerX,
+            oy: cornerY,
+            pitch: exitPitch,
+            edgeOn: edgeOnAt(exitPitch),
+            angleField: 'sweep',
+            angleLimits: PIECE_LIMITS.sweep,
+            lengthField: 'exitLength',
+            title: `Drag to set sweep (${degLabel(c.sweep)}°, turning ${c.sweep < 0 ? 'left' : 'right'})`,
+          })
+          continue
+        }
         // Plan shows only the heading, so one handle per end swings the lot.
         grips.push({
           ...common,
@@ -571,7 +677,7 @@ function AssemblyDraft({ shifted }: { shifted: boolean }) {
           // A connector has two legs stacked along the same plan line — there is
           // no telling from up here which one a stretch was meant for.
           lengthField: angle ? null : 'length',
-          title: `Drag to set turn (${piece.turn}°)`,
+          title: `Drag to set turn (${degLabel(piece.turn)}°)`,
         })
         grips.push({
           ...common,
@@ -589,9 +695,9 @@ function AssemblyDraft({ shifted }: { shifted: boolean }) {
         continue
       }
 
-      if (angle && p.corner) {
-        const cornerX = startX + run(p.start, p.corner)
-        const cornerY = -p.corner.y
+      if (angle && breakAt) {
+        const cornerX = breakAt.x
+        const cornerY = breakAt.y
         // The start: the break holds still and the entry leg swings about it,
         // so the bend takes back whatever the entry gives and the outgoing leg
         // — with the whole run past it — never moves.
@@ -607,7 +713,7 @@ function AssemblyDraft({ shifted }: { shifted: boolean }) {
           angleLimits: entrySwingLimitsFor(piece),
           lengthField: 'length',
           holdExit: true,
-          title: `Drag the start to swing the entry leg about the break (entering at ${piece.slope}°)`,
+          title: `Drag the start to swing the entry leg about the break (entering at ${degLabel(piece.slope)}°)`,
         })
         // The entry leg: rigid against the part before it, so swinging it is
         // the same edit as swinging a plain tube.
@@ -622,7 +728,7 @@ function AssemblyDraft({ shifted }: { shifted: boolean }) {
           angleField: 'slope',
           angleLimits: slopeLimitsFor(piece),
           lengthField: 'length',
-          title: `Drag to set the entry slope (${piece.slope}°)`,
+          title: `Drag to set the entry slope (${degLabel(piece.slope)}°)`,
         })
         // The outlet: only the leg past the break moves, which is the bend.
         grips.push({
@@ -636,7 +742,7 @@ function AssemblyDraft({ shifted }: { shifted: boolean }) {
           angleField: 'bend',
           angleLimits: bendLimitsFor(piece),
           lengthField: 'exitLength',
-          title: `Drag to set bend (${a.bend}°, leaving at ${piece.slope + a.bend}°)`,
+          title: `Drag to set bend (${degLabel(a.bend)}°, leaving at ${degLabel(piece.slope + a.bend)}°)`,
         })
       } else {
         grips.push({
@@ -652,18 +758,25 @@ function AssemblyDraft({ shifted }: { shifted: boolean }) {
           lengthField: 'length',
           title: 'Drag the start to swing this part about its end — the run ahead comes with it',
         })
+        // A corner is rigid in elevation — its sweep is a plan edit — so the
+        // slope handle sits on the break, where the leg it actually sets ends.
+        // Past the break the run has turned, and a leg that has turned no
+        // longer draws its own slope in this drawing.
+        const tail = corner && breakAt ? breakAt : last
         grips.push({
           ...common,
           key: piece.id,
           grab: 'tail',
-          x: last.x,
-          y: last.y,
+          x: tail.x,
+          y: tail.y,
           ox: startX,
           oy: startY,
           angleField: 'slope',
           angleLimits: slopeLimitsFor(piece),
           lengthField: 'length',
-          title: `Drag to set slope (${piece.slope}°)`,
+          title: corner
+            ? `Drag to set the entry slope (${degLabel(piece.slope)}°)`
+            : `Drag to set slope (${degLabel(piece.slope)}°)`,
         })
       }
     }
@@ -760,6 +873,9 @@ function AssemblyDraft({ shifted }: { shifted: boolean }) {
   const onHandleDown = (e: React.PointerEvent, grip: Grip) => {
     if (e.button !== 0) return
     e.stopPropagation()
+    // A leg the view takes end-on has no angle in the drawing to grab, so the
+    // handle only picks the part — it is the view that has to change.
+    if (grip.edgeOn) return select(grip.id)
     ref.current?.setPointerCapture(e.pointerId)
     handle.current = grip
     // A head drag pins its pivot where it is on the glass; a tail drag leaves
@@ -794,20 +910,27 @@ function AssemblyDraft({ shifted }: { shifted: boolean }) {
     const step = e.shiftKey ? 5 : A.step
     let delta: number
     if (h.angleField === 'turn') {
-      // Plan: the headings of every part up to this one add up to where it points.
-      const yaw = pieces.slice(0, at + 1).reduce((sum, p) => sum + p.turn, 0)
-      delta = wrapDeg(snapTo(Math.atan2(dx, dy) * DEG, step) - yaw)
+      // Plan: every turn up to this part — and every corner swung through on
+      // the way — add up to where it points.
+      delta = wrapDeg(snapTo(headingOf(proj, dx, dy), step) - headingAt(pieces, at))
     } else {
-      delta = clamp(snapTo(Math.atan2(dy, Math.max(dx, 1e-6)) * DEG, step), A.min, A.max) - pieces[at].slope
+      const { forward, drop } = legReach(h.showsRun, dx, dy)
+      delta = clamp(snapTo(Math.atan2(drop, forward) * DEG, step), A.min, A.max) - pieces[at].slope
     }
 
     let patch: Partial<Piece> | undefined
     if (e.altKey && h.lengthField) {
       const L = PIECE_LIMITS[h.lengthField]
       const mm = dist / view.scale
-      // The plan only shows the horizontal run, so divide the pitch back out.
-      const cos = Math.cos(h.pitch)
-      const reach = h.angleField === 'turn' && cos > 1e-3 ? mm / cos : mm
+      let reach = mm
+      if (h.angleField === 'turn') {
+        // The plan only shows the horizontal run, so divide the pitch back out.
+        const cos = Math.cos(h.pitch)
+        if (cos > 1e-3) reach = mm / cos
+      } else {
+        const { forward, drop } = legReach(h.showsRun, dx / view.scale, dy / view.scale)
+        reach = Math.hypot(forward, drop)
+      }
       patch = { [h.lengthField]: clamp(snapTo(reach, L.step), L.min, L.max) }
     }
 
@@ -830,23 +953,27 @@ function AssemblyDraft({ shifted }: { shifted: boolean }) {
     /** How far along the leg the pointer is, in mm of piece length. */
     let reach = dist
 
-    if (h.angleField === 'turn') {
-      // Plan: +X is right, +Z is down, so the heading is measured from +Z.
-      const T = PIECE_LIMITS.turn
-      patch.turn = clamp(
-        snapTo(wrapDeg(Math.atan2(dx, dy) * DEG - h.yawPrev * DEG), e.shiftKey ? 5 : T.step),
-        T.min,
-        T.max,
-      )
+    if (h.angleField === 'turn' || h.angleField === 'sweep') {
+      // Taken from above or below, the drawing is the horizontal plane itself,
+      // so the pointer gives a heading directly. A turn is measured off the
+      // heading the part was handed; a sweep off the one its corner entered at.
+      const A = h.angleLimits
+      const deg = headingOf(proj, dx, dy)
+      const off = h.angleField === 'sweep' ? h.base : h.yawPrev * DEG
+      const set = clamp(snapTo(wrapDeg(deg - off), e.shiftKey ? 5 : A.step), A.min, A.max)
+      if (h.angleField === 'sweep') patch.sweep = set
+      else patch.turn = set
       // The plan only shows the horizontal run, so divide the pitch back out.
       const cos = Math.cos(h.pitch)
       reach = cos > 1e-3 ? dist / cos : dist
     } else {
-      // Developed elevation: the run is length·cos(pitch) and the drop length·sin(pitch),
-      // so the pointer offset maps straight onto pitch and length.
+      // Elevation: the run is length·cos(pitch) and the drop length·sin(pitch),
+      // so the pointer offset maps straight onto pitch and length once the
+      // view's own share of the run is divided back out.
       // A leg is drawn by its horizontal run, which only ever goes forward, so
       // the pointer reads straight down as vertical and no further.
-      const deg = Math.atan2(dy, Math.max(dx, 1e-6)) * DEG
+      const { forward, drop } = legReach(h.showsRun, dx, dy)
+      const deg = Math.atan2(drop, forward) * DEG
       const A = h.angleLimits
       if (h.angleField === 'bend') {
         // The bend is what the outgoing leg does relative to the entry leg, so
@@ -855,6 +982,7 @@ function AssemblyDraft({ shifted }: { shifted: boolean }) {
       } else {
         patch.slope = clamp(snapTo(deg, e.shiftKey ? 5 : A.step), A.min, A.max)
       }
+      reach = Math.hypot(forward, drop)
     }
 
     if (e.altKey && h.lengthField) {
@@ -954,7 +1082,7 @@ function AssemblyDraft({ shifted }: { shifted: boolean }) {
   }, [grabbed, restoreDrag])
 
   const mouse = useMemo(
-    () => draftMouse(draftView === 'elevation' ? 'slope / bend' : 'turn'),
+    () => draftMouse(VIEWS[draftView].plan ? 'turn / sweep' : 'slope / bend'),
     [draftView],
   )
 
@@ -965,13 +1093,21 @@ function AssemblyDraft({ shifted }: { shifted: boolean }) {
   return (
     <div className="draft-wrap">
       <div className="draft-toolbar">
-        <div className="segmented small">
-          <button className={draftView === 'elevation' ? 'on' : ''} onClick={() => setDraftView('elevation')}>
-            Elevation
-          </button>
-          <button className={draftView === 'plan' ? 'on' : ''} onClick={() => setDraftView('plan')}>
-            Plan
-          </button>
+        {/* The six ortho views are named for the side of the model they are
+            taken from, the same as the faces of the 3D view cube. Developed is
+            the one that is not a direction — it flattens the turns out. */}
+        <div className="segmented small views" role="group" aria-label="Draft view">
+          {VIEW_ORDER.map((v) => (
+            <button
+              key={v}
+              className={draftView === v ? 'on' : ''}
+              onClick={() => setDraftView(v)}
+              title={VIEWS[v].title}
+              aria-pressed={draftView === v}
+            >
+              {VIEWS[v].label}
+            </button>
+          ))}
         </div>
         {/* The joints are dragged on this canvas, so the rule that holds them
             together belongs beside the views rather than buried in a panel. */}
@@ -1187,15 +1323,16 @@ function AssemblyDraft({ shifted }: { shifted: boolean }) {
             return (
               <g
                 key={g.key}
-                className={`joint-handle ${head ? 'head ' : ''}${on ? 'on' : ''} ${live ? 'live' : ''}`}
+                className={`joint-handle ${head ? 'head ' : ''}${g.edgeOn ? 'flat ' : ''}${on ? 'on' : ''} ${live ? 'live' : ''}`}
                 onPointerDown={(e) => onHandleDown(e, g)}
               >
                 {head && <line className="stem" x1={px(g.x)} y1={py(g.y)} x2={cx} y2={cy} />}
                 <circle className="hit" cx={cx} cy={cy} r={11} />
                 <circle className="joint" cx={cx} cy={cy} r={live ? 5.5 : 4} />
                 <title>
-                  {g.title}
-                  {` · Shift = 5°${stretch} · Esc = cancel`}
+                  {g.edgeOn
+                    ? `End-on in the ${proj.label} view — nothing to drag here. Switch views to set it.`
+                    : `${g.title} · Shift = 5°${stretch} · Esc = cancel`}
                 </title>
               </g>
             )
@@ -1215,9 +1352,10 @@ function AssemblyDraft({ shifted }: { shifted: boolean }) {
             what it switches off there, so both views show the one set of parts. */}
         <ActiveParts />
 
-        {/* Names the drawing plane, parked beside the legend as it is in 3D. */}
+        {/* Names the drawing plane, parked beside the legend as it is in 3D —
+            and in 2D the plane is whichever view is on, so it says which. */}
         <div className={shifted ? 'workplane-tag shifted' : 'workplane-tag'} aria-hidden="true">
-          Workplane
+          {proj.developed ? 'Developed elevation' : `${proj.label} view`}
         </div>
 
         {/* Bottom-right of the canvas, opposite the scale bar. */}

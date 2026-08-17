@@ -2,6 +2,9 @@ import { useState } from 'react'
 import {
   useRun,
   angleSpec,
+  cornerSpec,
+  degLabel,
+  exitSlope,
   pieceLabel,
   pieceTypeLabel,
   variantOf,
@@ -13,11 +16,21 @@ import {
 /** What the part is, in one line, for the row's tooltip. */
 function summarise(p: Piece, style: TubeVariant): string {
   const tube = VARIANT_LABEL[style]
-  if (p.type !== 'angle') return `${p.length} mm · ${p.slope}° slope · ${p.turn}° turn · ${tube}`
-  const a = angleSpec(p)
-  return `${a.entry}+${a.exit} mm · ${p.slope}° in, ${p.slope + a.bend}° out · ${
-    a.fillet > 0 ? `r${a.fillet} corner` : 'sharp corner'
-  } · ${tube}`
+  if (p.type === 'angle') {
+    const a = angleSpec(p)
+    return `${a.entry}+${a.exit} mm · ${degLabel(p.slope)}° in, ${degLabel(exitSlope(p))}° out · ${
+      a.fillet > 0 ? `r${a.fillet} corner` : 'sharp corner'
+    } · ${tube}`
+  }
+  if (p.type === 'corner') {
+    const c = cornerSpec(p)
+    return `${c.entry}+${c.exit} mm · ${degLabel(c.sweep)}° ${
+      c.sweep < 0 ? 'left' : 'right'
+    } · ${degLabel(p.slope)}° in, ${degLabel(exitSlope(p))}° out · ${
+      c.fillet > 0 ? `r${c.fillet} corner` : 'sharp corner'
+    } · ${tube}`
+  }
+  return `${p.length} mm · ${degLabel(p.slope)}° slope · ${degLabel(p.turn)}° turn · ${tube}`
 }
 
 /** Points down when the list is open, right when it is rolled up. */

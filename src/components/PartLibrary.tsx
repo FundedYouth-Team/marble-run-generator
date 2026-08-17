@@ -36,6 +36,16 @@ function AngleConnectorPreview() {
   )
 }
 
+/** The same two legs seen from above, turning across the page rather than up it. */
+function CornerConnectorPreview() {
+  return (
+    <svg width="78" height="50" viewBox="0 0 46 30" aria-hidden="true">
+      <path className="pp-arc" d="M20 21 A 11 11 0 0 0 29 12" />
+      <path className="pp-line" d="M4 26h13a9 9 0 0 0 9-9V4" />
+    </svg>
+  )
+}
+
 function CurvePreview() {
   return (
     <svg width="78" height="50" viewBox="0 0 46 30" aria-hidden="true">
@@ -89,6 +99,15 @@ const PARTS: Part[] = [
       'Short two-leg connector that breaks the run to a new angle. The inlet stays rigid; the leg past the break tips up or down. Rounded at the corner by default, so the marble rolls through the change.',
     preview: AngleConnectorPreview,
     add: () => useRun.getState().addPiece('angle'),
+  },
+  {
+    id: 'corner',
+    name: 'Corner Connector',
+    category: 'track',
+    blurb:
+      'Short two-leg connector that breaks the run to a new heading. The inlet stays rigid; the leg past the break swings right or left. Rounded at the corner by default, so the marble carries its speed round the turn.',
+    preview: CornerConnectorPreview,
+    add: () => useRun.getState().addPiece('corner'),
   },
   {
     id: 'curve',
