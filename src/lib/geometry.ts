@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import type { Centerline } from './centerline'
 import { jointSpec, type TubeSpec } from '../store'
 
 /**
@@ -108,35 +109,159 @@ function signedArea(poly: ProfilePoint[]) {
   return a / 2
 }
 
+/* ------------------------------------------------------------------ */
+/* Sweeping the profile along a centreline                             */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Where one ring of the swept section sits: the point on the centreline, and
+ * the two axes the section is drawn on there.
+ */
+interface Ring {
+  o: THREE.Vector3
+  x: THREE.Vector3
+  y: THREE.Vector3
+  /**
+   * Set only at a corner of the centreline. The two chords meeting there want
+   * different rings, which would leave a wedge of daylight between them, so the
+   * ring is instead mitred onto the plane that bisects the corner — one shared
+   * loop both chords land on, exactly as a mitred pipe joint is cut.
+   */
+  miter: { normal: THREE.Vector3; along: THREE.Vector3 } | null
+}
+
+/**
+ * Section axes carried along the centreline. Each chord inherits the previous
+ * chord's axes turned by the same rotation the direction took, so the section
+ * follows the bend without spiralling round the tube as it goes.
+ */
+function chordFrames(line: Centerline) {
+  const xs = [new THREE.Vector3(1, 0, 0)]
+  const ys = [new THREE.Vector3(0, 1, 0)]
+  for (let i = 1; i < line.dirs.length; i++) {
+    const q = new THREE.Quaternion().setFromUnitVectors(line.dirs[i - 1], line.dirs[i])
+    xs.push(xs[i - 1].clone().applyQuaternion(q))
+    ys.push(ys[i - 1].clone().applyQuaternion(q))
+  }
+  return { xs, ys }
+}
+
+/**
+ * The ring at axial position `z`. Positions outside the centreline — the socket
+ * before it and the spigot past its end — run on along the first and last
+ * chords, which is where those features belong anyway.
+ */
+function ringAt(line: Centerline, frames: ReturnType<typeof chordFrames>, z: number): Ring {
+  const { points, dirs, distances } = line
+
+  for (let j = 1; j < points.length - 1; j++) {
+    if (Math.abs(distances[j] - z) < 1e-6) {
+      return {
+        o: points[j].clone(),
+        x: frames.xs[j - 1],
+        y: frames.ys[j - 1],
+        miter: {
+          normal: dirs[j - 1].clone().add(dirs[j]).normalize(),
+          along: dirs[j - 1],
+        },
+      }
+    }
+  }
+
+  let i = 0
+  while (i < dirs.length - 1 && distances[i + 1] <= z) i++
+  return {
+    o: points[i].clone().addScaledVector(dirs[i], z - distances[i]),
+    x: frames.xs[i],
+    y: frames.ys[i],
+    miter: null,
+  }
+}
+
+/** Scratch for {@link surfacePoint} — the sweep runs to thousands of vertices. */
+const pt = [0, 0, 0]
+
+/** One point on the swept surface: `r` out from the centreline at angle (ca, sa). */
+function surfacePoint(ring: Ring, r: number, ca: number, sa: number) {
+  const ux = ring.x.x * ca * r + ring.y.x * sa * r
+  const uy = ring.x.y * ca * r + ring.y.y * sa * r
+  const uz = ring.x.z * ca * r + ring.y.z * sa * r
+
+  let t = 0
+  const m = ring.miter
+  if (m) {
+    // Slide along the incoming chord until the offset meets the bisecting plane.
+    const denom = m.along.dot(m.normal)
+    if (Math.abs(denom) > 1e-6) {
+      t = -(ux * m.normal.x + uy * m.normal.y + uz * m.normal.z) / denom
+    }
+  }
+
+  pt[0] = ring.o.x + ux + (m ? m.along.x * t : 0)
+  pt[1] = ring.o.y + uy + (m ? m.along.y * t : 0)
+  pt[2] = ring.o.z + uz + (m ? m.along.z * t : 0)
+  return pt
+}
+
+/**
+ * Splits the profile at every corner of the centreline, so no strip of the
+ * sweep straddles a bend. Without this the body would be one long strip drawn
+ * straight between its two ends, cutting the corner off entirely.
+ */
+function subdivide(poly: ProfilePoint[], line: Centerline): ProfilePoint[] {
+  const breaks = line.distances.slice(1, -1)
+  if (!breaks.length) return poly
+
+  const out: ProfilePoint[] = []
+  for (let i = 0; i < poly.length; i++) {
+    const a = poly[i]
+    const b = poly[(i + 1) % poly.length]
+    out.push(a)
+    if (near(a.z, b.z)) continue
+    const lo = Math.min(a.z, b.z)
+    const hi = Math.max(a.z, b.z)
+    const inside = breaks.filter((z) => z > lo + 1e-6 && z < hi - 1e-6)
+    // Along the edge, not along the axis — half the loop runs back down the bore.
+    inside.sort((p, q) => (b.z > a.z ? p - q : q - p))
+    for (const z of inside) out.push({ z, r: a.r + ((b.r - a.r) * (z - a.z)) / (b.z - a.z) })
+  }
+  return out
+}
+
 /**
  * Builds one piece as a watertight solid by sweeping {@link profilePolygon}
- * about the axis. Local frame: +Z is the tube axis (downstream), +Y is up, so
- * the opening of a half / 3-4 tube faces +Y.
+ * along `line`. Local frame: +Z is the tube axis where the part starts, +Y is
+ * up, so the opening of a half / 3-4 tube faces +Y.
  */
-export function buildPieceGeometry(spec: TubeSpec, length: number): THREE.BufferGeometry {
-  const poly = profilePolygon(spec, length)
+export function buildPieceGeometry(spec: TubeSpec, line: Centerline): THREE.BufferGeometry {
+  const poly = subdivide(profilePolygon(spec, line.length), line)
+  const frames = chordFrames(line)
+  const rings = poly.map((p) => ringAt(line, frames, p.z))
+
   const div = radialDivisions(spec)
   // A closed tube wraps, so the last angular sample *is* the first one.
   const samples = spec.closed ? div : div + 1
-  const angles = Array.from(
-    { length: samples },
-    (_, i) => spec.startAngle + (spec.sweep * i) / div,
-  )
+  const cos: number[] = []
+  const sin: number[] = []
+  for (let i = 0; i < samples; i++) {
+    const a = spec.startAngle + (spec.sweep * i) / div
+    cos.push(Math.cos(a))
+    sin.push(Math.sin(a))
+  }
 
   const positions: number[] = []
   const indices: number[] = []
-  // Sweeping is right-handed about +Z, so a clockwise profile (negative area,
-  // which is what out-along-the-wall / back-along-the-bore produces) would
-  // turn the surface inside out.
+  // Sweeping is right-handed about the axis, so a clockwise profile (negative
+  // area, which is what out-along-the-wall / back-along-the-bore produces)
+  // would turn the surface inside out.
   const flip = signedArea(poly) < 0
 
   // Lateral surface: one strip per profile edge.
   for (let e = 0; e < poly.length; e++) {
-    const a = poly[e]
-    const b = poly[(e + 1) % poly.length]
+    const f = (e + 1) % poly.length
     const base = positions.length / 3
-    for (const ang of angles) positions.push(Math.cos(ang) * a.r, Math.sin(ang) * a.r, a.z)
-    for (const ang of angles) positions.push(Math.cos(ang) * b.r, Math.sin(ang) * b.r, b.z)
+    for (let i = 0; i < samples; i++) positions.push(...surfacePoint(rings[e], poly[e].r, cos[i], sin[i]))
+    for (let i = 0; i < samples; i++) positions.push(...surfacePoint(rings[f], poly[f].r, cos[i], sin[i]))
 
     for (let j = 0; j < div; j++) {
       const j2 = (j + 1) % samples
@@ -149,27 +274,40 @@ export function buildPieceGeometry(spec: TubeSpec, length: number): THREE.Buffer
     }
   }
 
-  // Radial faces closing the cut ends of an open tube.
+  // Radial faces closing the cut edges of an open tube.
   if (!spec.closed) {
     const contour = poly.map((p) => new THREE.Vector2(p.z, p.r))
     const faces = THREE.ShapeUtils.triangulateShape(contour, [])
 
-    for (const [ang, outward] of [
-      [angles[0], -1],
-      [angles[angles.length - 1], 1],
+    for (const [i, outward] of [
+      [0, -1],
+      [samples - 1, 1],
     ] as const) {
+      const ca = cos[i]
+      const sa = sin[i]
       const base = positions.length / 3
-      const c = Math.cos(ang)
-      const s = Math.sin(ang)
-      for (const p of poly) positions.push(c * p.r, s * p.r, p.z)
+      for (let k = 0; k < poly.length; k++) positions.push(...surfacePoint(rings[k], poly[k].r, ca, sa))
 
-      // The face must look away from the material, i.e. along ±(-sin, cos, 0).
-      const [i0, i1, i2] = faces[0]
-      const v = (i: number) => new THREE.Vector3(c * poly[i].r, s * poly[i].r, poly[i].z)
+      // The face has to look away from the material, i.e. across the cut. Take
+      // the sign off the fattest triangle — the split can leave slivers whose
+      // own normal is too small to trust.
+      const v = (k: number) => new THREE.Vector3().fromArray(positions, (base + k) * 3)
       const n = new THREE.Vector3()
-        .subVectors(v(i1), v(i0))
-        .cross(new THREE.Vector3().subVectors(v(i2), v(i0)))
-      const reverse = n.dot(new THREE.Vector3(-s, c, 0)) * outward < 0
+      let best = -1
+      let bestFace = faces[0]
+      for (const f of faces) {
+        const c = new THREE.Vector3()
+          .subVectors(v(f[1]), v(f[0]))
+          .cross(new THREE.Vector3().subVectors(v(f[2]), v(f[0])))
+        if (c.lengthSq() > best) {
+          best = c.lengthSq()
+          bestFace = f
+          n.copy(c)
+        }
+      }
+      const ref = rings[bestFace[0]]
+      const away = new THREE.Vector3().addScaledVector(ref.x, -sa).addScaledVector(ref.y, ca)
+      const reverse = n.dot(away) * outward < 0
 
       for (const [x, y, z] of faces) {
         if (reverse) indices.push(base + x, base + z, base + y)

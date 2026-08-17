@@ -2,9 +2,10 @@ import * as THREE from 'three'
 import { STLExporter } from 'three/examples/jsm/exporters/STLExporter.js'
 import { OBJExporter } from 'three/examples/jsm/exporters/OBJExporter.js'
 import { buildPieceGeometry } from './geometry'
+import { centerlineFor, shapeKey } from './centerline'
 import { buildThreeMF } from './threemf'
 import type { PlacedPiece } from './layout'
-import type { TubeSpec } from '../store'
+import { angleSpec, type Piece, type TubeSpec } from '../store'
 
 /**
  * All three formats are written at 1 unit = 1 mm, which is already this app's
@@ -51,6 +52,18 @@ const LAY_FLAT = new THREE.Matrix4()
   .makeRotationX(Math.PI / 2)
   .multiply(new THREE.Matrix4().makeRotationY(Math.PI / 2))
 
+/**
+ * How a part is laid on the print plate: opening upward, which needs no support
+ * for the half and 3/4 variants. A bent part still arches — its opening has to
+ * follow the bend — so it is tipped back by half its bend first, which sits
+ * both legs the same height off the plate instead of standing one of them up.
+ */
+function layFlat(piece: Piece): THREE.Matrix4 {
+  if (piece.type !== 'angle') return LAY_FLAT
+  const half = THREE.MathUtils.degToRad(angleSpec(piece).bend) / 2
+  return LAY_FLAT.clone().multiply(new THREE.Matrix4().makeRotationX(-half))
+}
+
 /** Gap between parts on the print plate, mm. */
 const PLATE_GAP = 5
 
@@ -63,14 +76,19 @@ export interface ExportResult {
   instanced?: number
 }
 
+/**
+ * One mesh per distinct shape. 3MF instancing keys off geometry identity, so
+ * sharing here is also what lets a plate of identical parts store them once.
+ */
 function geometryCache(spec: TubeSpec) {
-  const cache = new Map<number, THREE.BufferGeometry>()
+  const cache = new Map<string, THREE.BufferGeometry>()
   return {
-    get(length: number) {
-      let g = cache.get(length)
+    get(piece: Piece) {
+      const key = shapeKey(piece)
+      let g = cache.get(key)
       if (!g) {
-        g = buildPieceGeometry(spec, length)
-        cache.set(length, g)
+        g = buildPieceGeometry(spec, centerlineFor(piece))
+        cache.set(key, g)
       }
       return g
     },
@@ -158,7 +176,7 @@ export function exportAssembly(
   const inner = new THREE.Group()
 
   for (const p of placed) {
-    const mesh = new THREE.Mesh(cache.get(p.piece.length))
+    const mesh = new THREE.Mesh(cache.get(p.piece))
     mesh.position.copy(p.start)
     mesh.quaternion.copy(p.quaternion)
     inner.add(mesh)
@@ -189,16 +207,16 @@ export function exportPrintPlate(
   const pitch = spec.outerR * 2 + PLATE_GAP
 
   // Longest first, so the plate reads tidily.
-  const lengths = placed.map((p) => p.piece.length).sort((a, b) => b - a)
-  lengths.forEach((length, i) => {
-    const mesh = new THREE.Mesh(cache.get(length))
-    mesh.applyMatrix4(LAY_FLAT)
+  const parts = placed.slice().sort((a, b) => b.length - a.length)
+  parts.forEach((p, i) => {
+    const mesh = new THREE.Mesh(cache.get(p.piece))
+    mesh.applyMatrix4(layFlat(p.piece))
     mesh.position.set(0, i * pitch, 0)
     group.add(mesh)
   })
 
   seatOnPlate(group)
-  const result = write(group, `${name}-plate-${lengths.length}pc`, format)
+  const result = write(group, `${name}-plate-${parts.length}pc`, format)
   cache.dispose()
   return result
 }
@@ -206,20 +224,21 @@ export function exportPrintPlate(
 /** A single piece, laid flat at the origin. */
 export function exportPiece(
   spec: TubeSpec,
-  length: number,
+  piece: Piece,
   index: number,
   format: ExportFormat,
   name: string,
 ): ExportResult {
-  const geom = buildPieceGeometry(spec, length)
+  const line = centerlineFor(piece)
+  const geom = buildPieceGeometry(spec, line)
   const mesh = new THREE.Mesh(geom)
-  mesh.applyMatrix4(LAY_FLAT)
+  mesh.applyMatrix4(layFlat(piece))
 
   const group = new THREE.Group()
   group.add(mesh)
   seatOnPlate(group)
 
-  const basename = `${name}-piece${String(index + 1).padStart(2, '0')}-${length}mm`
+  const basename = `${name}-piece${String(index + 1).padStart(2, '0')}-${Math.round(line.length)}mm`
   const result = write(group, basename, format)
   geom.dispose()
   return result

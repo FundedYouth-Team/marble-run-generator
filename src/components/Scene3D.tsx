@@ -9,14 +9,28 @@ import UndoRedo from './UndoRedo'
 import ActiveParts from './ActiveParts'
 import { FitIcon, HomeIcon } from './icons'
 import { buildPieceGeometry } from '../lib/geometry'
+import { centerlineFor, shapeKey } from '../lib/centerline'
 import { buildAssembly, type Assembly } from '../lib/layout'
 import { createMarble, resetMarble, stepMarble } from '../lib/sim'
 import { exportPrintPlate } from '../lib/exporters'
-import { useRun, tubeSpec, exportBasename, type TubeSpec, type Theme } from '../store'
+import {
+  useRun,
+  tubeSpec,
+  exportBasename,
+  type Piece,
+  type Port,
+  type TubeSpec,
+  type Theme,
+} from '../store'
 
 /** See-through opacity for the tube wall; the selected piece stays a touch more solid. */
 const XRAY_OPACITY = 0.3
 const XRAY_OPACITY_SELECTED = 0.55
+
+/** Joint sockets: armed reads hot, the tail reads as the standing default. */
+const PORT_ARMED = '#ff7a45'
+const PORT_DEFAULT = '#4d9cf5'
+const PORT_IDLE = '#8aa0b4'
 
 /** Live telemetry, read by the HUD outside the render loop. */
 const telemetry = { speed: 0, distance: 0, airborne: false }
@@ -80,7 +94,7 @@ const PALETTE: Record<Theme, ScenePalette> = {
 
 function PieceMesh({
   spec,
-  length,
+  piece,
   position,
   quaternion,
   selected,
@@ -89,7 +103,7 @@ function PieceMesh({
   onClick,
 }: {
   spec: TubeSpec
-  length: number
+  piece: Piece
   position: THREE.Vector3
   quaternion: THREE.Quaternion
   selected: boolean
@@ -97,7 +111,11 @@ function PieceMesh({
   xray: boolean
   onClick: () => void
 }) {
-  const geom = useMemo(() => buildPieceGeometry(spec, length), [spec, length])
+  // Keyed on the shape rather than the piece, so nudging a part it sits behind
+  // in the run — or renaming it — never rebuilds the solid.
+  const shape = shapeKey(piece)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const geom = useMemo(() => buildPieceGeometry(spec, centerlineFor(piece)), [spec, shape])
   useEffect(() => () => geom.dispose(), [geom])
 
   return (
@@ -131,6 +149,88 @@ function PieceMesh({
   )
 }
 
+/**
+ * The joints of the run, drawn as sockets you can build from: every part's
+ * outlet, plus the inlet the run starts at. Click one to arm it and the next
+ * part out of the Part Library is joined on there rather than at the tail, so a
+ * run grows from either end or from anywhere in the middle.
+ */
+function Ports({ asm, spec }: { asm: Assembly; spec: TubeSpec }) {
+  const { armedPort, armPort } = useRun()
+  const [hovered, setHovered] = useState<string | null>(null)
+
+  const ports = useMemo(() => {
+    const list: { key: string; port: Port; point: THREE.Vector3 }[] = []
+    // A switched-off part is not on the stage to be built onto, so its joints
+    // go with it rather than hanging in the air on their own.
+    const first = asm.placed.find((p) => !p.piece.hidden)
+    if (first) {
+      list.push({
+        key: `${first.piece.id}:in`,
+        port: { pieceId: first.piece.id, end: 'in' },
+        point: first.start,
+      })
+    }
+    for (const p of asm.placed) {
+      if (p.piece.hidden) continue
+      // The joint between two parts is the earlier one's outlet, named once.
+      list.push({
+        key: `${p.piece.id}:out`,
+        port: { pieceId: p.piece.id, end: 'out' },
+        point: p.end,
+      })
+    }
+    return list
+  }, [asm])
+
+  // Big enough to hit at arm's length, but never wider than the tube it sits on.
+  const r = Math.max(2.4, spec.outerR * 0.5)
+  // Nothing armed still builds at the tail, so the tail is shown as the default.
+  const fallback = armedPort ? null : ports[ports.length - 1]?.key
+
+  useEffect(() => () => void (document.body.style.cursor = ''), [])
+
+  return (
+    <group>
+      {ports.map(({ key, port, point }) => {
+        const armed = armedPort?.pieceId === port.pieceId && armedPort.end === port.end
+        const live = armed || key === hovered
+        return (
+          <mesh
+            key={key}
+            position={point}
+            onClick={(e) => {
+              e.stopPropagation()
+              // Clicking the armed port again hands building back to the tail.
+              armPort(armed ? null : port)
+            }}
+            onPointerOver={(e) => {
+              e.stopPropagation()
+              setHovered(key)
+              document.body.style.cursor = 'pointer'
+            }}
+            onPointerOut={() => {
+              setHovered((h) => (h === key ? null : h))
+              document.body.style.cursor = ''
+            }}
+          >
+            <sphereGeometry args={[live ? r * 1.25 : r, 18, 14]} />
+            <meshStandardMaterial
+              color={armed ? PORT_ARMED : key === fallback ? PORT_DEFAULT : PORT_IDLE}
+              emissive={armed ? PORT_ARMED : key === fallback ? PORT_DEFAULT : PORT_IDLE}
+              emissiveIntensity={live ? 0.9 : key === fallback ? 0.5 : 0.25}
+              roughness={0.4}
+              transparent
+              opacity={live ? 1 : 0.75}
+              depthTest={false}
+            />
+          </mesh>
+        )
+      })}
+    </group>
+  )
+}
+
 function Marble({ asm, spec }: { asm: Assembly; spec: TubeSpec }) {
   const { marbleDiameter, marbleColor, running, loop, timeScale, friction, resetToken } = useRun()
   const tint = useMemo(() => shades(marbleColor), [marbleColor])
@@ -143,6 +243,16 @@ function Marble({ asm, spec }: { asm: Assembly; spec: TubeSpec }) {
     resetMarble(state.current, asm, restOffset)
     mesh.current?.position.copy(state.current.position)
   }, [asm, restOffset, resetToken])
+
+  // Off stage means no readout to give — leave the HUD at zero, not at the last run's numbers.
+  useEffect(
+    () => () => {
+      telemetry.speed = 0
+      telemetry.distance = 0
+      telemetry.airborne = false
+    },
+    [],
+  )
 
   useFrame((_, delta) => {
     const m = state.current
@@ -414,7 +524,7 @@ function Hud({ spec, asm }: { spec: TubeSpec; asm: Assembly }) {
 const SETTINGS_WIDTH = 312
 
 export default function Scene3D() {
-  const { pieces, innerDiameter, wallThickness, variant, selectedId, select, theme, pieceColor, shading, rightPanel } =
+  const { pieces, innerDiameter, wallThickness, variant, selectedId, select, theme, pieceColor, shading, rightPanel, simStarted } =
     useRun()
   // Either slide-out takes the same gutter, so the corner controls step aside for both.
   const docked = rightPanel !== null
@@ -438,7 +548,9 @@ export default function Scene3D() {
   const selectionBox = () => {
     const p = asm.placed.find((x) => x.piece.id === selectedId)
     if (!p) return null
-    return new THREE.Box3().setFromPoints([p.start, p.end]).expandByScalar(spec.outerR)
+    // Every chord, so a bent part frames on what it really occupies.
+    const points = [p.start, p.end, ...p.segments.map((seg) => seg.end)]
+    return new THREE.Box3().setFromPoints(points).expandByScalar(spec.outerR)
   }
 
   // Home stands back at the fixed angle and takes in the whole workplane.
@@ -525,7 +637,7 @@ export default function Scene3D() {
           <PieceMesh
             key={p.piece.id}
             spec={spec}
-            length={p.piece.length}
+            piece={p.piece}
             position={p.start}
             quaternion={p.quaternion}
             selected={p.piece.id === selectedId}
@@ -535,7 +647,9 @@ export default function Scene3D() {
           />
         ))}
 
-        {asm.placed.length > 0 && <Marble asm={asm} spec={spec} />}
+        {/* No marble until the Simulator button has asked for one. */}
+        {simStarted && asm.placed.length > 0 && <Marble asm={asm} spec={spec} />}
+        <Ports asm={asm} spec={spec} />
 
         <OrbitControls
           makeDefault

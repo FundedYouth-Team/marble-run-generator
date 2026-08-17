@@ -58,7 +58,7 @@ export function stepMarble(
   restOffset: number,
   radius: number,
 ): StepResult {
-  if (!asm.placed.length) return { lost: false }
+  if (!asm.segments.length) return { lost: false }
 
   if (m.airborne) {
     m.velocity.y -= G * dt
@@ -69,18 +69,20 @@ export function stepMarble(
   }
 
   const { index } = sampleAssembly(asm, m.s)
-  const p = asm.placed[index]
+  const p = asm.segments[index]
   const drive = ROLL * G * Math.sin(p.pitch)
   const drag = friction * G * Math.cos(p.pitch) * Math.sign(m.v)
   m.v = Math.max(0, m.v + (drive - drag) * dt)
 
   let next = m.s + m.v * dt
-  const segEnd = p.startS + p.piece.length
+  const segEnd = p.startS + p.length
 
   if (next >= segEnd) {
-    const following = asm.placed[index + 1]
+    const following = asm.segments[index + 1]
     if (following) {
-      // Kink loss at the joint: only the tangential component survives.
+      // Kink loss at the joint: only the tangential component survives. A
+      // rounded corner is chopped fine enough that this costs it almost
+      // nothing; a sharp one is meant to bleed speed.
       const cos = THREE.MathUtils.clamp(p.dir.dot(following.dir), 0, 1)
       m.v *= cos
     } else {

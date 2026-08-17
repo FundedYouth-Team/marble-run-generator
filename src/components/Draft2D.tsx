@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import MouseLegend, { type MouseConfig } from './MouseLegend'
 import RightDock from './RightDock'
+import ActiveParts from './ActiveParts'
 import UndoRedo from './UndoRedo'
 import { FitIcon } from './icons'
 import { crossSectionPath } from '../lib/geometry'
 import { buildAssembly } from '../lib/layout'
-import { useRun, tubeSpec, PIECE_LIMITS, VARIANT_LABEL, type Piece } from '../store'
+import { useRun, tubeSpec, angleSpec, PIECE_LIMITS, VARIANT_LABEL, type Piece } from '../store'
 
 /* ------------------------------------------------------------------ */
 /* Shared drafting primitives                                          */
@@ -298,31 +299,55 @@ function CrossSection() {
 /* Assembly draft                                                      */
 /* ------------------------------------------------------------------ */
 
-interface Seg {
-  id: string
-  index: number
-  ax: number
-  ay: number
-  bx: number
-  by: number
-  length: number
-  slope: number
-  turn: number
-  /** Pitch in radians, needed to map a plan-view drag back to a run length. */
-  pitch: number
-  /** Heading in radians before this piece's own turn is applied. */
-  yawPrev: number
+interface Pt {
+  x: number
+  y: number
 }
 
-/** Grab state for a joint handle: the piece it edits and that piece's fixed start. */
-interface Handle {
+/**
+ * A part as drawn: its axis, in whichever coordinates the current view uses,
+ * and the dimension called out beside it. A straight part is two points; a bent
+ * one carries a point per chord of its bend.
+ */
+interface DraftPart {
   id: string
+  index: number
+  points: Pt[]
+  /** Where this part's first point sits in the run's own polyline. */
+  from: number
+  /** False when the part's eye is off in the parts list — it holds its place but is not drawn. */
+  shown: boolean
+  label: string
+}
+
+/**
+ * A draggable joint. Which piece field the drag writes depends on where the
+ * joint sits: a part's outlet swings the whole part, while the break in an
+ * angle connector swings only the leg after it — the entry leg is what makes
+ * the connector rigid against the part before it.
+ */
+interface Grip {
+  key: string
+  id: string
+  /** Where the handle is drawn. */
+  x: number
+  y: number
+  /** The fixed point the drag angle is measured from. */
   ox: number
   oy: number
+  /** What the drag angle sets. */
+  angleField: 'slope' | 'bend' | 'turn'
+  /** What an Alt-drag stretches, if there is anything sensible to stretch. */
+  lengthField: 'length' | 'exitLength' | null
+  /** Pitch of the leg being stretched — a plan drag only shows its horizontal run. */
   pitch: number
+  /** Heading in radians before this part's own turn is applied. */
   yawPrev: number
+  /** Slope the bend is measured off, degrees. */
+  base: number
+  title: string
   /** Values to restore if the drag is cancelled with Escape. */
-  original: Pick<Piece, 'length' | 'slope' | 'turn'>
+  original: Partial<Piece>
 }
 
 const DEG = 180 / Math.PI
@@ -330,6 +355,38 @@ const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v
 const snapTo = (v: number, step: number) => Math.round(v / step) * step
 /** Fold an angle in degrees into (-180, 180]. */
 const wrapDeg = (d: number) => d - 360 * Math.round(d / 360)
+
+/** How far a mitre may run out at a sharp corner before it is cut off square. */
+const MITRE_LIMIT = 4
+
+/**
+ * A path parallel to `pts`, offset sideways by `r` model mm — negative goes the
+ * other way. Corners are mitred, so a bent part draws as one continuous wall
+ * rather than a stack of overlapping rectangles.
+ */
+function offsetPath(pts: Pt[], r: number): Pt[] {
+  const normals: Pt[] = []
+  for (let i = 1; i < pts.length; i++) {
+    const dx = pts[i].x - pts[i - 1].x
+    const dy = pts[i].y - pts[i - 1].y
+    const len = Math.hypot(dx, dy) || 1
+    normals.push({ x: -dy / len, y: dx / len })
+  }
+
+  return pts.map((p, i) => {
+    const a = normals[i - 1]
+    const b = normals[i]
+    const n = a && b ? { x: a.x + b.x, y: a.y + b.y } : (a ?? b)
+    const len = Math.hypot(n.x, n.y)
+    if (len < 1e-9) return { x: p.x + (a ?? b).x * r, y: p.y + (a ?? b).y * r }
+    const ux = n.x / len
+    const uy = n.y / len
+    // The mitre runs out as 1/cos of the half-angle between the two edges.
+    const cos = a && b ? ux * a.x + uy * a.y : 1
+    const reach = r / Math.max(Math.abs(cos), 1 / MITRE_LIMIT)
+    return { x: p.x + ux * reach, y: p.y + uy * reach }
+  })
+}
 
 /**
  * Mouse bindings for the drafting canvas. Flat paper has nothing to orbit, so
@@ -383,65 +440,184 @@ function AssemblyDraft({ shifted }: { shifted: boolean }) {
     updatePiece,
     screenPxPerMm,
     screenCalibrated,
+    keepConnected,
+    setKeepConnected,
   } = useRun()
   const spec = tubeSpec(innerDiameter, wallThickness, variant)
   const { ref, size } = useSize<HTMLDivElement>()
   const [view, setView] = useState({ scale: 1, tx: 0, ty: 0 })
   const drag = useRef<{ x: number; y: number; tx: number; ty: number; panning: boolean } | null>(null)
-  const handle = useRef<Handle | null>(null)
+  const handle = useRef<Grip | null>(null)
   const [grabbed, setGrabbed] = useState<string | null>(null)
 
-  const segs = useMemo<Seg[]>(() => {
+  const { parts, chain, grips } = useMemo(() => {
     const asm = buildAssembly(pieces)
+    const elevation = draftView === 'elevation'
+    const parts: DraftPart[] = []
+    const grips: Grip[] = []
+    // Developed elevation: x is horizontal run, so every turn is flattened out
+    // of the drawing and the run reads as one continuous side-on section.
     let developed = 0
-    return asm.placed.map((p) => {
-      let ax: number, ay: number, bx: number, by: number
-      if (draftView === 'elevation') {
-        const run = p.piece.length * Math.cos(p.pitch)
-        ax = developed
-        ay = -p.start.y
-        bx = developed + run
-        by = -p.end.y
-        developed += run
-      } else {
-        ax = p.start.x
-        ay = p.start.z
-        bx = p.end.x
-        by = p.end.z
+    const run = (a: { x: number; z: number }, b: { x: number; z: number }) =>
+      Math.hypot(b.x - a.x, b.z - a.z)
+
+    for (const p of asm.placed) {
+      const piece = p.piece
+      const angle = piece.type === 'angle'
+      // A hidden part is still laid out — it holds the run's shape either side
+      // of it — it is simply not drawn, and has no handles to grab.
+      const shown = !piece.hidden
+      const a = angleSpec(piece)
+      const startX = elevation ? developed : p.start.x
+      const startY = elevation ? -p.start.y : p.start.z
+
+      const points: Pt[] = []
+      for (const [i, seg] of p.segments.entries()) {
+        if (i === 0) points.push({ x: startX, y: startY })
+        if (elevation) developed += seg.length * Math.cos(seg.pitch)
+        points.push({
+          x: elevation ? developed : seg.end.x,
+          y: elevation ? -seg.end.y : seg.end.z,
+        })
       }
-      return {
-        id: p.piece.id,
+      if (points.length < 2) continue
+
+      const last = points[points.length - 1]
+      // Each part picks up on the joint the one before it ended at, so the run
+      // is one polyline and the parts are windows onto it.
+      const previous = parts[parts.length - 1]
+      parts.push({
+        id: piece.id,
         index: p.index,
-        ax,
-        ay,
-        bx,
-        by,
-        length: p.piece.length,
-        slope: p.piece.slope,
-        turn: p.piece.turn,
-        pitch: p.pitch,
-        yawPrev: p.yaw - (p.piece.turn * Math.PI) / 180,
+        points,
+        from: previous ? previous.from + previous.points.length - 1 : 0,
+        shown,
+        label: angle
+          ? `${a.entry}+${a.exit} mm  ∠${piece.slope}°  ⌐${a.bend}°${a.fillet ? `  r${a.fillet}` : '  sharp'}`
+          : `${piece.length} mm  ∠${piece.slope}°${piece.turn ? `  ↻${piece.turn}°` : ''}`,
+      })
+
+      const yawPrev = p.yaw - (piece.turn * Math.PI) / 180
+      const original: Partial<Piece> = {
+        length: piece.length,
+        slope: piece.slope,
+        turn: piece.turn,
+        ...(angle ? { bend: a.bend, exitLength: a.exit } : {}),
       }
-    })
+
+      if (!shown) continue
+
+      if (!elevation) {
+        // Plan shows only the heading, so one handle per part swings the lot.
+        grips.push({
+          key: piece.id,
+          id: piece.id,
+          x: last.x,
+          y: last.y,
+          ox: startX,
+          oy: startY,
+          angleField: 'turn',
+          // A connector has two legs stacked along the same plan line — there is
+          // no telling from up here which one a stretch was meant for.
+          lengthField: angle ? null : 'length',
+          pitch: p.pitch,
+          yawPrev,
+          base: piece.slope,
+          title: `Drag to set turn (${piece.turn}°)`,
+          original,
+        })
+        continue
+      }
+
+      if (angle && p.corner) {
+        const cornerX = startX + run(p.start, p.corner)
+        const cornerY = -p.corner.y
+        // The entry leg: rigid against the part before it, so swinging it is
+        // the same edit as swinging a plain tube.
+        grips.push({
+          key: `${piece.id}:break`,
+          id: piece.id,
+          x: cornerX,
+          y: cornerY,
+          ox: startX,
+          oy: startY,
+          angleField: 'slope',
+          lengthField: 'length',
+          pitch: p.pitch,
+          yawPrev,
+          base: piece.slope,
+          title: `Drag to set the entry slope (${piece.slope}°)`,
+          original,
+        })
+        // The outlet: only the leg past the break moves, which is the bend.
+        grips.push({
+          key: piece.id,
+          id: piece.id,
+          x: last.x,
+          y: last.y,
+          ox: cornerX,
+          oy: cornerY,
+          angleField: 'bend',
+          lengthField: 'exitLength',
+          pitch: p.pitch,
+          yawPrev,
+          base: piece.slope,
+          title: `Drag to set bend (${a.bend}°, leaving at ${piece.slope + a.bend}°)`,
+          original,
+        })
+      } else {
+        grips.push({
+          key: piece.id,
+          id: piece.id,
+          x: last.x,
+          y: last.y,
+          ox: startX,
+          oy: startY,
+          angleField: 'slope',
+          lengthField: 'length',
+          pitch: p.pitch,
+          yawPrev,
+          base: piece.slope,
+          title: `Drag to set slope (${piece.slope}°)`,
+          original,
+        })
+      }
+    }
+
+    // The joint between two parts is one point, not two — walls offset from this
+    // mitre at every joint alike, so nothing gaps or overlaps where parts meet.
+    const chain = parts.flatMap((part, i) => (i === 0 ? part.points : part.points.slice(1)))
+
+    return { parts, chain, grips }
   }, [pieces, draftView])
 
-  /** One handle per joint; joint 0 is the fixed origin, joint i+1 ends segment i. */
-  const joints = useMemo(
+  /**
+   * The run's walls and bores, offset once along the whole chain. Each part is
+   * then drawn from its own stretch of them, so a part is still its own pickable
+   * shape while the joints it shares are drawn exactly once.
+   */
+  const walls = useMemo(
     () =>
-      segs.flatMap((s, i) => [
-        ...(i === 0 ? [{ key: 'origin', x: s.ax, y: s.ay, seg: null as Seg | null }] : []),
-        { key: s.id, x: s.bx, y: s.by, seg: s as Seg | null },
-      ]),
-    [segs],
+      chain.length < 2
+        ? null
+        : {
+            outer: [offsetPath(chain, spec.outerR), offsetPath(chain, -spec.outerR)],
+            bore: [offsetPath(chain, spec.innerR), offsetPath(chain, -spec.innerR)],
+          },
+    [chain, spec.outerR, spec.innerR],
   )
 
+  /** Only the parts whose eye is on — what the drawing is actually about. */
+  const visible = useMemo(() => parts.filter((p) => p.shown), [parts])
+
   const fit = useCallback(() => {
-    if (!segs.length) {
+    const pts = visible.flatMap((p) => p.points)
+    if (!pts.length) {
       setView({ scale: 1, tx: size.w / 2, ty: size.h / 2 })
       return
     }
-    const xs = segs.flatMap((s) => [s.ax, s.bx])
-    const ys = segs.flatMap((s) => [s.ay, s.by])
+    const xs = pts.map((p) => p.x)
+    const ys = pts.map((p) => p.y)
     const m = spec.outerR + 26
     const minX = Math.min(...xs) - m
     const maxX = Math.max(...xs) + m
@@ -453,9 +629,11 @@ function AssemblyDraft({ shifted }: { shifted: boolean }) {
       tx: size.w / 2 - ((minX + maxX) / 2) * scale,
       ty: size.h / 2 - ((minY + maxY) / 2) * scale,
     })
-  }, [segs, size.w, size.h, spec.outerR])
+  }, [visible, size.w, size.h, spec.outerR])
 
-  useEffect(fit, [size.w, size.h, draftView, pieces.length])
+  // Re-framed when the drawn set changes, so switching parts off zooms in on
+  // whatever is left rather than leaving it adrift in the old frame.
+  useEffect(fit, [size.w, size.h, draftView, pieces.length, visible.length])
 
   /**
    * True physical size: one model mm becomes one real mm on the glass. Zooms
@@ -493,44 +671,28 @@ function AssemblyDraft({ shifted }: { shifted: boolean }) {
     }
   }
 
-  const onHandleDown = (e: React.PointerEvent, seg: Seg) => {
+  const onHandleDown = (e: React.PointerEvent, grip: Grip) => {
     if (e.button !== 0) return
     e.stopPropagation()
     ref.current?.setPointerCapture(e.pointerId)
-    handle.current = {
-      id: seg.id,
-      ox: seg.ax,
-      oy: seg.ay,
-      pitch: seg.pitch,
-      yawPrev: seg.yawPrev,
-      original: { length: seg.length, slope: seg.slope, turn: seg.turn },
-    }
-    setGrabbed(seg.id)
-    select(seg.id)
+    handle.current = grip
+    setGrabbed(grip.key)
+    select(grip.id)
   }
 
-  /** Drag a joint: the angle follows the pointer, Alt also stretches the piece. */
-  const dragHandle = (h: Handle, e: React.PointerEvent) => {
+  /** Drag a joint: the angle follows the pointer, Alt also stretches the leg. */
+  const dragHandle = (h: Grip, e: React.PointerEvent) => {
     const m = toModel(e.clientX, e.clientY)
     if (!m) return
     const dx = m.x - h.ox
     const dy = m.y - h.oy
     const dist = Math.hypot(dx, dy)
     if (dist < 1e-3) return
-    const L = PIECE_LIMITS.length
     const patch: Partial<Piece> = {}
+    /** How far along the leg the pointer is, in mm of piece length. */
+    let reach = dist
 
-    if (draftView === 'elevation') {
-      // Developed elevation: the run is length·cos(pitch) and the drop length·sin(pitch),
-      // so the pointer offset maps straight onto pitch and length.
-      const S = PIECE_LIMITS.slope
-      patch.slope = clamp(
-        snapTo(Math.atan2(dy, Math.max(dx, 1e-6)) * DEG, e.shiftKey ? 5 : S.step),
-        S.min,
-        S.max,
-      )
-      if (e.altKey) patch.length = clamp(snapTo(dist, L.step), L.min, L.max)
-    } else {
+    if (h.angleField === 'turn') {
       // Plan: +X is right, +Z is down, so the heading is measured from +Z.
       const T = PIECE_LIMITS.turn
       patch.turn = clamp(
@@ -540,7 +702,25 @@ function AssemblyDraft({ shifted }: { shifted: boolean }) {
       )
       // The plan only shows the horizontal run, so divide the pitch back out.
       const cos = Math.cos(h.pitch)
-      if (e.altKey && cos > 1e-3) patch.length = clamp(snapTo(dist / cos, L.step), L.min, L.max)
+      reach = cos > 1e-3 ? dist / cos : dist
+    } else {
+      // Developed elevation: the run is length·cos(pitch) and the drop length·sin(pitch),
+      // so the pointer offset maps straight onto pitch and length.
+      const deg = Math.atan2(dy, Math.max(dx, 1e-6)) * DEG
+      if (h.angleField === 'bend') {
+        // The bend is what the outgoing leg does relative to the entry leg, so
+        // the entry slope comes back out of the angle the pointer is at.
+        const B = PIECE_LIMITS.bend
+        patch.bend = clamp(snapTo(deg - h.base, e.shiftKey ? 5 : B.step), B.min, B.max)
+      } else {
+        const S = PIECE_LIMITS.slope
+        patch.slope = clamp(snapTo(deg, e.shiftKey ? 5 : S.step), S.min, S.max)
+      }
+    }
+
+    if (e.altKey && h.lengthField) {
+      const L = PIECE_LIMITS[h.lengthField]
+      patch[h.lengthField] = clamp(snapTo(reach, L.step), L.min, L.max)
     }
     updatePiece(h.id, patch)
   }
@@ -609,7 +789,10 @@ function AssemblyDraft({ shifted }: { shifted: boolean }) {
     return () => window.removeEventListener('keydown', onKey)
   }, [grabbed, updatePiece])
 
-  const mouse = useMemo(() => draftMouse(draftView === 'elevation' ? 'slope' : 'turn'), [draftView])
+  const mouse = useMemo(
+    () => draftMouse(draftView === 'elevation' ? 'slope / bend' : 'turn'),
+    [draftView],
+  )
 
   const gridStep = 10 * view.scale
   // Sub-pixel-per-mm slack, so the button stays lit through rounding.
@@ -626,6 +809,21 @@ function AssemblyDraft({ shifted }: { shifted: boolean }) {
             Plan
           </button>
         </div>
+        {/* The joints are dragged on this canvas, so the rule that holds them
+            together belongs beside the views rather than buried in a panel. */}
+        <button
+          className={keepConnected ? 'view-tool wide on' : 'view-tool wide'}
+          onClick={() => setKeepConnected(!keepConnected)}
+          title={
+            keepConnected
+              ? 'Keep connected — the run is one assembly: swinging a joint swings every part after it'
+              : 'Keep connected — off: each part holds its own angle and joints are free to open up'
+          }
+          aria-label="Keep parts connected"
+          aria-pressed={keepConnected}
+        >
+          Keep connected
+        </button>
         <span className="spacer" />
         <UndoRedo />
         {/* Reads "on" only once the zoom actually is life-size, so it doubles as
@@ -695,55 +893,42 @@ function AssemblyDraft({ shifted }: { shifted: boolean }) {
           </defs>
           <rect width={size.w} height={size.h} fill="url(#grid-coarse)" />
 
-          {segs.map((s) => {
-            const dx = s.bx - s.ax
-            const dy = s.by - s.ay
-            const len = Math.hypot(dx, dy) || 1
-            const nx = -dy / len
-            const ny = dx / len
-            const off = (r: number, sign: number) => ({
-              x1: px(s.ax + nx * r * sign),
-              y1: py(s.ay + ny * r * sign),
-              x2: px(s.bx + nx * r * sign),
-              y2: py(s.by + ny * r * sign),
-            })
-            const o1 = off(spec.outerR, 1)
-            const o2 = off(spec.outerR, -1)
-            const i1 = off(spec.innerR, 1)
-            const i2 = off(spec.innerR, -1)
-            const d = off(spec.outerR + 16, 1)
-            const on = s.id === selectedId
+          {walls && visible.map((part) => {
+            const on = part.id === selectedId
+            /** Model-space path → an SVG point list in screen space. */
+            const screen = (pts: Pt[]) => pts.map((p) => `${px(p.x)},${py(p.y)}`).join(' ')
+            /** This part's stretch of a path drawn along the whole run. */
+            const span = (path: Pt[]) => path.slice(part.from, part.from + part.points.length)
+            // Out along one wall and back along the other closes the part.
+            const wall = [...span(walls.outer[0]), ...span(walls.outer[1]).reverse()]
+            const bores = walls.bore.map(span)
+            // The dimension spans the whole part, however many chords it bends through.
+            const head = part.points[0]
+            const tail = part.points[part.points.length - 1]
+            const d = offsetPath([head, tail], spec.outerR + 16)
 
             return (
               <g
-                key={s.id}
+                key={part.id}
                 className={`seg ${on ? 'on' : ''}`}
                 onPointerUp={(e) => {
                   // Picking is a left-button gesture; releasing a pan here selects nothing.
                   if (e.button !== 0) return
-                  select(on ? null : s.id)
+                  select(on ? null : part.id)
                 }}
               >
-                <polygon
-                  className="wall"
-                  points={`${o1.x1},${o1.y1} ${o1.x2},${o1.y2} ${o2.x2},${o2.y2} ${o2.x1},${o2.y1}`}
-                />
-                <line className="bore" x1={i1.x1} y1={i1.y1} x2={i1.x2} y2={i1.y2} />
-                <line className="bore" x1={i2.x1} y1={i2.y1} x2={i2.x2} y2={i2.y2} />
-                <line
-                  className="axis"
-                  x1={px(s.ax)}
-                  y1={py(s.ay)}
-                  x2={px(s.bx)}
-                  y2={py(s.by)}
-                />
+                <polygon className="wall" points={screen(wall)} />
+                {bores.map((bore, i) => (
+                  <polyline key={i} className="bore" fill="none" points={screen(bore)} />
+                ))}
+                <polyline className="axis" fill="none" points={screen(part.points)} />
                 <Dim
                   markerId="asm"
-                  x1={d.x1}
-                  y1={d.y1}
-                  x2={d.x2}
-                  y2={d.y2}
-                  label={`${s.length} mm  ∠${s.slope}°${s.turn ? `  ↻${s.turn}°` : ''}`}
+                  x1={px(d[0].x)}
+                  y1={py(d[0].y)}
+                  x2={px(d[1].x)}
+                  y2={py(d[1].y)}
+                  label={part.label}
                 />
               </g>
             )
@@ -751,41 +936,48 @@ function AssemblyDraft({ shifted }: { shifted: boolean }) {
 
           {/* Travel direction: chevrons down every axis, plus START/END caps.
               Drawn over the walls but under the handles, and deaf to the mouse. */}
-          {segs.length > 0 && (
+          {visible.length > 0 && (
             <g className="flow-layer">
-              {segs.map((s) => (
-                <FlowArrows
-                  key={s.id}
-                  x1={px(s.ax)}
-                  y1={py(s.ay)}
-                  x2={px(s.bx)}
-                  y2={py(s.by)}
-                />
-              ))}
+              {visible.flatMap((part) =>
+                part.points.slice(1).map((b, i) => {
+                  const a = part.points[i]
+                  return (
+                    <FlowArrows
+                      key={`${part.id}:${i}`}
+                      x1={px(a.x)}
+                      y1={py(a.y)}
+                      x2={px(b.x)}
+                      y2={py(b.y)}
+                    />
+                  )
+                }),
+              )}
               {(() => {
-                const first = segs[0]
-                const last = segs[segs.length - 1]
-                const dir = (s: Seg) => {
-                  const dx = s.bx - s.ax
-                  const dy = s.by - s.ay
+                // The caps mark where the drawn run starts and ends, so with
+                // parts switched off they move in to whatever is still shown.
+                const head = visible[0].points
+                const tail = visible[visible.length - 1].points
+                const dir = (a: Pt, b: Pt) => {
+                  const dx = b.x - a.x
+                  const dy = b.y - a.y
                   const len = Math.hypot(dx, dy) || 1
                   return { ux: dx / len, uy: dy / len }
                 }
-                const a = dir(first)
-                const b = dir(last)
+                const a = dir(head[0], head[1])
+                const b = dir(tail[tail.length - 2], tail[tail.length - 1])
                 return (
                   <>
                     <FlowCap
-                      x={px(first.ax)}
-                      y={py(first.ay)}
+                      x={px(head[0].x)}
+                      y={py(head[0].y)}
                       ux={a.ux}
                       uy={a.uy}
                       kind="in"
                       markerId="asm"
                     />
                     <FlowCap
-                      x={px(last.bx)}
-                      y={py(last.by)}
+                      x={px(tail[tail.length - 1].x)}
+                      y={py(tail[tail.length - 1].y)}
                       ux={b.ux}
                       uy={b.uy}
                       kind="out"
@@ -797,43 +989,53 @@ function AssemblyDraft({ shifted }: { shifted: boolean }) {
             </g>
           )}
 
+          {/* The run starts where it starts — that joint is the one fixed point.
+              With the first part switched off there is nothing to anchor. */}
+          {parts.length > 0 && parts[0].shown && (
+            <circle
+              className="joint anchor"
+              cx={px(parts[0].points[0].x)}
+              cy={py(parts[0].points[0].y)}
+              r={4}
+            >
+              <title>Origin — fixed</title>
+            </circle>
+          )}
+
           {/* Joint handles sit above the segments so they stay grabbable. */}
-          {joints.map((j) => {
-            const seg = j.seg
-            if (!seg) {
-              return (
-                <circle key={j.key} className="joint anchor" cx={px(j.x)} cy={py(j.y)} r={4}>
-                  <title>Origin — fixed</title>
-                </circle>
-              )
-            }
-            const on = seg.id === selectedId
-            const live = grabbed === seg.id
+          {grips.map((g) => {
+            const on = g.id === selectedId
+            const live = grabbed === g.key
+            const stretch = g.lengthField === 'exitLength' ? ' · Alt = exit leg' : g.lengthField ? ' · Alt = length' : ''
             return (
               <g
-                key={j.key}
+                key={g.key}
                 className={`joint-handle ${on ? 'on' : ''} ${live ? 'live' : ''}`}
-                onPointerDown={(e) => onHandleDown(e, seg)}
+                onPointerDown={(e) => onHandleDown(e, g)}
               >
-                <circle className="hit" cx={px(j.x)} cy={py(j.y)} r={11} />
-                <circle className="joint" cx={px(j.x)} cy={py(j.y)} r={live ? 5.5 : 4} />
+                <circle className="hit" cx={px(g.x)} cy={py(g.y)} r={11} />
+                <circle className="joint" cx={px(g.x)} cy={py(g.y)} r={live ? 5.5 : 4} />
                 <title>
-                  {draftView === 'elevation'
-                    ? `Drag to set slope (${seg.slope}°)`
-                    : `Drag to set turn (${seg.turn}°)`}
-                  {' · Shift = 5° · Alt = length · Esc = cancel'}
+                  {g.title}
+                  {` · Shift = 5°${stretch} · Esc = cancel`}
                 </title>
               </g>
             )
           })}
 
-          {!segs.length && (
+          {!visible.length && (
             <text className="empty" x={size.w / 2} y={size.h / 2} textAnchor="middle">
-              Add a straight piece to begin drafting
+              {parts.length
+                ? 'Every part is switched off — turn one back on in Active Parts'
+                : 'Add a part to begin drafting'}
             </text>
           )}
 
         </svg>
+
+        {/* The same model tree as the 3D stage: what it switches off here is
+            what it switches off there, so both views show the one set of parts. */}
+        <ActiveParts />
 
         {/* Names the drawing plane, parked beside the legend as it is in 3D. */}
         <div className={shifted ? 'workplane-tag shifted' : 'workplane-tag'} aria-hidden="true">
@@ -872,7 +1074,7 @@ export default function Draft2D() {
       <div className={docked ? 'pane grow shifted' : 'pane grow'}>
         <header className="pane-head">
           <h3>Assembly draft</h3>
-          <span>straight line objects</span>
+          <span>parts in the run</span>
         </header>
         <div className="pane-body">
           <AssemblyDraft shifted={docked} />

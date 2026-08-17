@@ -1,11 +1,15 @@
 import NumberField from './NumberField'
 import ColorField from './ColorField'
 import CollapsiblePanel from './CollapsiblePanel'
+import { pieceAxisLength } from '../lib/centerline'
 import {
   useRun,
   VARIANT_LABEL,
   PIECE_LIMITS,
   TUBE_LIMITS,
+  ANGLE_DEFAULTS,
+  angleSpec,
+  exitSlope,
   tubeSpec,
   jointSpec,
   pieceLabel,
@@ -31,8 +35,11 @@ export default function Sidebar() {
   const spec = tubeSpec(s.innerDiameter, s.wallThickness, s.variant)
   const selectedIndex = s.pieces.findIndex((p) => p.id === s.selectedId)
   const selected = selectedIndex >= 0 ? s.pieces[selectedIndex] : null
-  const totalLength = s.pieces.reduce((a, p) => a + p.length, 0)
-  const joint = jointSpec(spec, selected?.length ?? 100)
+  // Centreline length, so a bent part counts what it actually carries.
+  const totalLength = s.pieces.reduce((a, p) => a + pieceAxisLength(p), 0)
+  const selectedLength = selected ? pieceAxisLength(selected) : 100
+  const joint = jointSpec(spec, selectedLength)
+  const angle = selected && selected.type === 'angle' ? angleSpec(selected) : null
 
   return (
     <aside className="sidebar">
@@ -47,13 +54,13 @@ export default function Sidebar() {
         <p className="scope-note">
           {selected ? (
             <>
-              Length belongs to this part alone. Tube diameter, style, and color apply to every
-              part in the run.
+              Its measurements belong to this part alone. Tube diameter, style, and color apply to
+              every part in the run.
             </>
           ) : (
             <>
-              Pick a part in Active Parts or the list below to edit its length. Tube diameter,
-              style, and color apply to every part in the run.
+              Pick a part in Active Parts or the list below to edit its measurements. Tube
+              diameter, style, and color apply to every part in the run.
             </>
           )}
         </p>
@@ -128,15 +135,75 @@ export default function Sidebar() {
                 {pieceLabel(selected, selectedIndex) !== pieceTypeLabel(selected, selectedIndex) && (
                   <span className="piece-type">{PART_LABEL[selected.type]}</span>
                 )}
-                <span className="piece-dim">{selected.length} mm</span>
+                <span className="piece-dim">{Math.round(selectedLength)} mm</span>
               </div>
               <div className="piece-body">
-                <NumberField
-                  label="Length"
-                  value={selected.length}
-                  onChange={(v) => s.updatePiece(selected.id, { length: v })}
-                  {...PIECE_LIMITS.length}
-                />
+                {angle ? (
+                  <>
+                    <NumberField
+                      label="Entry leg"
+                      hint="rigid — carries on from the part before"
+                      value={angle.entry}
+                      onChange={(v) => s.updatePiece(selected.id, { length: v })}
+                      {...PIECE_LIMITS.length}
+                    />
+                    <NumberField
+                      label="Bend"
+                      hint="up or down at the break"
+                      unit="°"
+                      value={angle.bend}
+                      onChange={(v) => s.updatePiece(selected.id, { bend: v })}
+                      {...PIECE_LIMITS.bend}
+                    />
+                    <NumberField
+                      label="Exit leg"
+                      hint="after the break"
+                      value={angle.exit}
+                      onChange={(v) => s.updatePiece(selected.id, { exitLength: v })}
+                      {...PIECE_LIMITS.exitLength}
+                    />
+                    <span className="field-label">
+                      Corner
+                      <em>rounded carries the marble's speed through</em>
+                    </span>
+                    <div className="segmented small">
+                      <button
+                        className={angle.fillet > 0 ? 'on' : ''}
+                        onClick={() =>
+                          s.updatePiece(selected.id, { fillet: ANGLE_DEFAULTS.fillet })
+                        }
+                        title="Round the break off with an arc tangent to both legs"
+                      >
+                        Rounded
+                      </button>
+                      <button
+                        className={angle.fillet > 0 ? '' : 'on'}
+                        onClick={() => s.updatePiece(selected.id, { fillet: 0 })}
+                        title="Meet the two legs at a mitred corner"
+                      >
+                        Sharp
+                      </button>
+                    </div>
+                    <NumberField
+                      label="Corner radius"
+                      hint="0 is a sharp break"
+                      value={angle.fillet}
+                      onChange={(v) => s.updatePiece(selected.id, { fillet: v })}
+                      {...PIECE_LIMITS.fillet}
+                    />
+                    <p className="note">
+                      Enters at {selected.slope}° and leaves at {exitSlope(selected)}°. A big radius
+                      on short legs is trimmed back to what the legs can give it.
+                    </p>
+                  </>
+                ) : (
+                  <NumberField
+                    label="Length"
+                    value={selected.length}
+                    onChange={(v) => s.updatePiece(selected.id, { length: v })}
+                    {...PIECE_LIMITS.length}
+                  />
+                )}
                 <div className="row-btns">
                   <button className="danger" onClick={() => s.removePiece(selected.id)}>
                     Delete
@@ -159,7 +226,7 @@ export default function Sidebar() {
             <span>Pieces</span>
           </div>
           <div>
-            <b>{totalLength}</b>
+            <b>{Math.round(totalLength)}</b>
             <span>Run length mm</span>
           </div>
           <div>

@@ -735,6 +735,46 @@ body {
   white-space: nowrap;
 }
 
+/* Worked examples — prose and numbered steps, not key-cap rows. */
+.help-howto {
+  display: grid;
+  gap: 8px;
+}
+
+.help-howto article {
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--card-body-bg);
+}
+
+.help-howto h5 {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.help-howto p {
+  margin: 5px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--ink-dim);
+}
+
+.help-howto-note {
+  color: var(--ink-mute);
+}
+
+.help-howto ol {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 3px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--ink-dim);
+}
+
 @media (max-width: 620px) {
   .help-row {
     grid-template-columns: 1fr;
@@ -1119,7 +1159,16 @@ input[type='range'] {
   stroke-linecap: round;
 }
 
+/* Annotation over a preview — an angle callout, not the part itself. */
+.lib-card .pp-arc {
+  fill: none;
+  stroke: var(--ink-faint);
+  stroke-width: 1.4;
+  stroke-linecap: round;
+}
+
 .lib-card:hover:not(:disabled) .pp-body,
+.lib-card:hover:not(:disabled) .pp-arc,
 .lib-card:hover:not(:disabled) .pp-line {
   stroke: var(--accent);
 }
@@ -1957,6 +2006,14 @@ button.danger {
   border-bottom: 1px solid var(--line-soft);
   cursor: pointer;
   user-select: none;
+}
+
+/* The draft canvas carries no HUD above it, so the tree rides higher there and
+   uses the full height of the drawing area. */
+.draft-canvas .active-parts {
+  top: 10px;
+  left: 10px;
+  max-height: calc(100% - 56px);
 }
 
 /* Rolled up, the header is the whole panel — no seam left hanging under it. */

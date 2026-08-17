@@ -6,6 +6,7 @@ import ThemeToggle from './components/ThemeToggle'
 import HelpOverlay from './components/HelpOverlay'
 import PartLibrary from './components/PartLibrary'
 import ProjectBar from './components/ProjectBar'
+import { pieceAxisLength } from './lib/centerline'
 import { useRun, tubeSpec, VARIANT_LABEL } from './store'
 
 /** Fields own their own undo stack — the run's only takes over outside them. */
@@ -33,7 +34,8 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKey)
   }, [])
   const spec = tubeSpec(innerDiameter, wallThickness, variant)
-  const total = pieces.reduce((a, p) => a + p.length, 0)
+  // Centreline length, so a bent part counts what it actually carries.
+  const total = Math.round(pieces.reduce((a, p) => a + pieceAxisLength(p), 0))
 
   return (
     <div className="app">

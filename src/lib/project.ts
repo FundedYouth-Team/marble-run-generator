@@ -1,4 +1,6 @@
 import {
+  ANGLE_DEFAULTS,
+  PART_LABEL,
   PIECE_LIMITS,
   TUBE_LIMITS,
   UNTITLED_PROJECT,
@@ -7,6 +9,7 @@ import {
   projectSlug,
   type LoadedProject,
   type Piece,
+  type PieceType,
   type TubeVariant,
 } from '../store'
 
@@ -18,8 +21,12 @@ import {
 
 /** Stamped into every file so a stray JSON is told apart from one of ours. */
 export const PROJECT_FORMAT = 'marble-run-generator'
-/** Bumped only when the shape below changes in a way older readers can't take. */
-export const PROJECT_VERSION = 1
+/**
+ * Bumped only when the shape below changes in a way older readers can't take.
+ * v2 added part types: a v1 reader would silently turn every angle connector
+ * into a straight tube, so it is told to stay out rather than mangle the run.
+ */
+export const PROJECT_VERSION = 2
 
 /** Double-barrelled so a saved run reads as a project, not as loose data. */
 export const PROJECT_EXT = '.mrun.json'
@@ -86,19 +93,48 @@ function isVariant(v: unknown): v is TubeVariant {
   return typeof v === 'string' && v in VARIANT_LABEL
 }
 
+function isType(v: unknown): v is PieceType {
+  return typeof v === 'string' && v in PART_LABEL
+}
+
 /**
  * A saved part, made safe to load: anything missing or out of range falls back
- * to what a new part would have used, so a hand-edited file still opens.
+ * to what a new part would have used, so a hand-edited file still opens. A file
+ * from before part types had been added has no `type` at all, and every part in
+ * it was a straight tube.
  */
 function readPiece(raw: unknown): Piece {
   const o = (raw ?? {}) as Record<string, unknown>
   const name = typeof o.name === 'string' && o.name.trim() ? o.name.slice(0, 60) : undefined
+  const type: PieceType = isType(o.type) ? o.type : 'straight'
   return makePiece({
-    type: 'straight',
+    type,
     ...(name ? { name } : {}),
-    length: num(o.length, PIECE_LIMITS.length.min, PIECE_LIMITS.length.max, 120),
+    length: num(
+      o.length,
+      PIECE_LIMITS.length.min,
+      PIECE_LIMITS.length.max,
+      type === 'angle' ? ANGLE_DEFAULTS.length : 120,
+    ),
     slope: num(o.slope, PIECE_LIMITS.slope.min, PIECE_LIMITS.slope.max, 6),
     turn: num(o.turn, PIECE_LIMITS.turn.min, PIECE_LIMITS.turn.max, 0),
+    ...(type === 'angle'
+      ? {
+          bend: num(o.bend, PIECE_LIMITS.bend.min, PIECE_LIMITS.bend.max, ANGLE_DEFAULTS.bend),
+          exitLength: num(
+            o.exitLength,
+            PIECE_LIMITS.exitLength.min,
+            PIECE_LIMITS.exitLength.max,
+            ANGLE_DEFAULTS.exitLength,
+          ),
+          fillet: num(
+            o.fillet,
+            PIECE_LIMITS.fillet.min,
+            PIECE_LIMITS.fillet.max,
+            ANGLE_DEFAULTS.fillet,
+          ),
+        }
+      : {}),
     ...(o.hidden === true ? { hidden: true } : {}),
   })
 }

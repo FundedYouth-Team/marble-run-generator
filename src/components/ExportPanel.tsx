@@ -104,9 +104,7 @@ export default function ExportPanel() {
         <button
           disabled={selectedIndex < 0}
           onClick={() =>
-            run(() =>
-              exportPiece(spec, pieces[selectedIndex].length, selectedIndex, exportFormat, basename),
-            )
+            run(() => exportPiece(spec, pieces[selectedIndex], selectedIndex, exportFormat, basename))
           }
         >
           ⤓ Selected piece

@@ -1,5 +1,14 @@
 import { useState } from 'react'
-import { useRun, pieceLabel, pieceTypeLabel } from '../store'
+import { useRun, angleSpec, pieceLabel, pieceTypeLabel, type Piece } from '../store'
+
+/** What the part is, in one line, for the row's tooltip. */
+function summarise(p: Piece): string {
+  if (p.type !== 'angle') return `${p.length} mm · ${p.slope}° slope · ${p.turn}° turn`
+  const a = angleSpec(p)
+  return `${a.entry}+${a.exit} mm · ${p.slope}° in, ${p.slope + a.bend}° out · ${
+    a.fillet > 0 ? `r${a.fillet} corner` : 'sharp corner'
+  }`
+}
 
 /** Points down when the list is open, right when it is rolled up. */
 function ChevronIcon() {
@@ -40,9 +49,11 @@ function EyeOffIcon() {
 }
 
 /**
- * CAD-style model tree parked in the top-left of the 3D stage: every part in the
- * run, with an eye toggle that hides it in the viewport. Hiding is display only
- * — the part still shapes the run, so nothing downstream of it moves. The whole
+ * CAD-style model tree parked in the top-left of both stages: every part in the
+ * run, with an eye toggle that takes it out of the 3D viewport and the 2D draft
+ * alike — one switch per part, so the two views always show the same set.
+ * Switching a part off is display only — the part still shapes the run, so
+ * nothing downstream of it moves. The whole
  * tree rolls up to its header, for when the viewport matters more than the list.
  * Rows rename in place (double-click, or the pencil), and a renamed part keeps a
  * tag of what it actually is, so "Big Drop" is still visibly Tube 2.
@@ -112,7 +123,7 @@ export default function ActiveParts() {
             <div
               key={p.id}
               className={classes.join(' ')}
-              title={`${renamed ? `${label} — ` : ''}${typeLabel} · ${p.length} mm · ${p.slope}° slope · ${p.turn}° turn`}
+              title={`${renamed ? `${label} — ` : ''}${typeLabel} · ${summarise(p)}`}
               onClick={() => !editing && select(p.id === selectedId ? null : p.id)}
               onDoubleClick={() => startEdit(p.id, p.name)}
             >

@@ -1,11 +1,37 @@
 import { useEffect, useMemo, useState, type ReactElement } from 'react'
-import { useRun } from '../store'
+import { useRun, pieceLabel, type Piece, type Port } from '../store'
+
+/**
+ * Where the next part will be joined on, said in the parts' own names. The run
+ * grows at the tail unless a joint has been armed in the 3D view, so this is
+ * what tells you which it is before you pick anything.
+ */
+function describeTarget(pieces: Piece[], port: Port | null): string {
+  if (!pieces.length) return 'at the start of the run'
+  const label = (i: number) => pieceLabel(pieces[i], i)
+  const last = pieces.length - 1
+  const i = port ? pieces.findIndex((p) => p.id === port.pieceId) : -1
+  if (!port || i < 0 || (port.end === 'out' && i === last)) return `at the end, after ${label(last)}`
+  const at = port.end === 'in' ? i : i + 1
+  if (at === 0) return `at the start, before ${label(0)}`
+  return `between ${label(at - 1)} and ${label(at)}`
+}
 
 /** A plain length of pipe, drawn side-on as a simple outlined bar. */
 function StraightLinePreview() {
   return (
     <svg width="78" height="50" viewBox="0 0 46 30" aria-hidden="true">
       <rect className="pp-body" x="2" y="12" width="42" height="7" />
+    </svg>
+  )
+}
+
+/** Two legs meeting at a break, with the angle called out over the corner. */
+function AngleConnectorPreview() {
+  return (
+    <svg width="78" height="50" viewBox="0 0 46 30" aria-hidden="true">
+      <path className="pp-arc" d="M15 24 A 11 11 0 0 1 33.5 16" />
+      <path className="pp-line" d="M6 24h20l14-15" />
     </svg>
   )
 }
@@ -56,6 +82,15 @@ const PARTS: Part[] = [
     add: () => useRun.getState().addPiece(),
   },
   {
+    id: 'angle',
+    name: 'Angle Connector',
+    category: 'track',
+    blurb:
+      'Short two-leg connector that breaks the run to a new angle. The inlet stays rigid; the leg past the break tips up or down. Rounded at the corner by default, so the marble rolls through the change.',
+    preview: AngleConnectorPreview,
+    add: () => useRun.getState().addPiece('angle'),
+  },
+  {
     id: 'curve',
     name: 'Curve',
     category: 'track',
@@ -91,6 +126,7 @@ export default function PartLibrary() {
   const [open, setOpen] = useState(false)
   const [category, setCategory] = useState<Category | 'all'>('all')
   const [query, setQuery] = useState('')
+  const { pieces, armedPort, armPort } = useRun()
 
   useEffect(() => {
     if (!open) return
@@ -197,8 +233,20 @@ export default function PartLibrary() {
 
             <footer className="lib-foot">
               <p className="note">
-                Picking a part drops it on the stage at the end of the run, then selects it so you
-                can set its length, slope and turn in the sidebar.
+                <b>Joining {describeTarget(pieces, armedPort)}.</b>{' '}
+                {armedPort ? (
+                  <>
+                    Picked from the joint you armed in the 3D view.{' '}
+                    <button className="link-btn" onClick={() => armPort(null)}>
+                      build at the end instead
+                    </button>
+                    .
+                  </>
+                ) : (
+                  <>Click a joint socket in the 3D view to build from somewhere else.</>
+                )}{' '}
+                The part is selected once it lands, so its measurements are ready to edit in the
+                sidebar.
               </p>
             </footer>
           </div>

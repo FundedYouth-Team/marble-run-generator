@@ -3,7 +3,7 @@ import type { ExportFormat } from './lib/exporters'
 
 /** All dimensions in this app are millimetres. */
 export type TubeVariant = 'half' | 'threequarter' | 'closed'
-export type PieceType = 'straight'
+export type PieceType = 'straight' | 'angle'
 export type Mode = '2d' | '3d'
 export type DraftView = 'elevation' | 'plan'
 export type Theme = 'light' | 'dark'
@@ -17,6 +17,7 @@ const PIECE_COLOR_KEY = 'mrg.pieceColor'
 const MARBLE_COLOR_KEY = 'mrg.marbleColor'
 const SHADING_KEY = 'mrg.shading'
 const SCREEN_KEY = 'mrg.screenPxPerMm'
+const KEEP_CONNECTED_KEY = 'mrg.keepConnected'
 
 /**
  * CSS pins an inch to 96px no matter what the panel actually is, so this is
@@ -56,6 +57,8 @@ function applyTheme(theme: Theme) {
 export const DEFAULT_PIECE_COLOR = '#8497aa'
 export const DEFAULT_MARBLE_COLOR = '#ff7a45'
 
+const clamp = (v: number, min: number, max: number) => Math.min(max, Math.max(min, v))
+
 const HEX = /^#[0-9a-f]{6}$/i
 
 /** Falls back to the default unless a full 6-digit hex was stored. */
@@ -82,27 +85,153 @@ function initialShading(): Shading {
   return saved === 'transparent' ? 'transparent' : 'solid'
 }
 
+/** Connected is the default; the run is one assembly until you say otherwise. */
+function initialKeepConnected(): boolean {
+  const saved = typeof localStorage !== 'undefined' ? localStorage.getItem(KEEP_CONNECTED_KEY) : null
+  return saved !== 'off'
+}
+
 export interface Piece {
   id: string
   type: PieceType
   /** Optional label from the parts list; blank falls back to the part name. */
   name?: string
-  /** Nominal run length along the tube axis, mm (excludes the snap spigot). */
+  /**
+   * Nominal run length along the tube axis, mm (excludes the snap spigot). On
+   * an angle connector this is the rigid entry leg, up to the break.
+   */
   length: number
   /** Downhill pitch of this piece, degrees. Positive = falling. */
   slope: number
   /** Heading change applied at the start of this piece, degrees. */
   turn: number
+  /**
+   * Angle connector: how far the run tips at the break, degrees. Positive
+   * steepens the descent, negative lifts the outgoing leg back up.
+   */
+  bend?: number
+  /** Angle connector: length of the leg after the break, mm. */
+  exitLength?: number
+  /**
+   * Angle connector: radius the break is rounded off with, mm. Zero is a sharp
+   * corner; anything more is an arc tangent to both legs, so the marble carries
+   * its speed through the change rather than slapping into a kink.
+   */
+  fillet?: number
   /** Hidden from the 3D view. Display only — the piece still shapes the run. */
   hidden?: boolean
 }
 
-/** Editing limits for a straight piece, shared by the sidebar fields and the draft handles. */
+/** Editing limits for a piece, shared by the sidebar fields and the draft handles. */
 export const PIECE_LIMITS = {
   length: { min: 10, max: 600, step: 1 },
   slope: { min: -30, max: 60, step: 0.5 },
   turn: { min: -90, max: 90, step: 1 },
+  bend: { min: -60, max: 60, step: 1 },
+  exitLength: { min: 10, max: 600, step: 1 },
+  fillet: { min: 0, max: 120, step: 1 },
 } as const
+
+/**
+ * What an angle connector is when it lands on the stage. Both legs are short
+ * because the part exists to change the angle, not to carry the run, and the
+ * corner arrives rounded so the marble rolls through the break instead of
+ * hitting it.
+ */
+export const ANGLE_DEFAULTS = {
+  length: 40,
+  bend: 20,
+  exitLength: 40,
+  fillet: 18,
+} as const
+
+/** The angle connector's own numbers, with anything unset filled in. */
+export function angleSpec(piece: Piece) {
+  return {
+    entry: piece.length,
+    bend: piece.bend ?? ANGLE_DEFAULTS.bend,
+    exit: piece.exitLength ?? ANGLE_DEFAULTS.exitLength,
+    fillet: piece.fillet ?? ANGLE_DEFAULTS.fillet,
+  }
+}
+
+/**
+ * The pitch a part hands on to whatever follows it. Only the angle connector
+ * leaves at a different angle from the one it arrived at — that is the whole
+ * point of it.
+ */
+export function exitSlope(piece: Piece): number {
+  return piece.type === 'angle' ? piece.slope + angleSpec(piece).bend : piece.slope
+}
+
+/** Kills the float dust a chain of additions leaves on an angle. */
+const tidy = (deg: number) => Math.round(deg * 1e6) / 1e6
+
+/**
+ * A place another part can be joined on: the inlet a part is fed through, or
+ * the outlet it hands the marble out of. Naming the part rather than an index
+ * keeps a port pointing at the same joint while the run is edited around it.
+ */
+export interface Port {
+  pieceId: string
+  end: 'in' | 'out'
+}
+
+/**
+ * Where a part added at `port` lands in the run. The inlet of a part means
+ * "immediately before this one", its outlet "immediately after" — so any joint
+ * in the run is a place to build from, not just the far end. Nothing armed
+ * carries on at the tail, which is how the run has always grown.
+ */
+export function insertIndexAt(pieces: Piece[], port: Port | null): number {
+  if (!port) return pieces.length
+  const i = pieces.findIndex((p) => p.id === port.pieceId)
+  if (i < 0) return pieces.length
+  return port.end === 'in' ? i : i + 1
+}
+
+/**
+ * The parts are bonded together, so a joint that holds has to keep holding.
+ * When an edit swings what one part leaves at, everything downstream swings
+ * with it by the same amount: a joint that was flush stays flush, and a kink
+ * the user built on purpose is carried along rather than quietly closed up.
+ *
+ * The swing is the same for all of them: if one part would be taken past its
+ * slope limit, the whole tail swings only as far as that part can, so the limit
+ * shows up as the run refusing to go further rather than as a joint pulling
+ * apart somewhere down the line.
+ */
+function carrySlope(pieces: Piece[], from: number, delta: number, connected: boolean): Piece[] {
+  if (!connected || !delta || from + 1 >= pieces.length) return pieces
+  const S = PIECE_LIMITS.slope
+  let swing = delta
+  for (let i = from + 1; i < pieces.length; i++) {
+    const room = clamp(pieces[i].slope + delta, S.min, S.max) - pieces[i].slope
+    if (Math.abs(room) < Math.abs(swing)) swing = room
+  }
+  if (!tidy(swing)) return pieces
+  return pieces.map((p, i) => (i > from ? { ...p, slope: tidy(p.slope + swing) } : p))
+}
+
+/**
+ * Pulls every joint in the run shut: each part starts at the angle the one
+ * before it leaves at. This is what Keep connected does to a run that was drawn
+ * with its joints free.
+ */
+function weldJoints(pieces: Piece[]): Piece[] {
+  const S = PIECE_LIMITS.slope
+  const next = pieces.slice()
+  let changed = false
+  for (let i = 1; i < next.length; i++) {
+    // Each part is welded to the one already welded before it, so a single pass
+    // carries a correction all the way down the run.
+    const slope = tidy(clamp(exitSlope(next[i - 1]), S.min, S.max))
+    if (slope === next[i].slope) continue
+    next[i] = { ...next[i], slope }
+    changed = true
+  }
+  return changed ? next : pieces
+}
 
 /** Editing limits for the tube every part is cut from, shared by the sidebar and file loading. */
 export const TUBE_LIMITS = {
@@ -155,7 +284,7 @@ export function exportBasename(s: { projectName: string; exportName: string }): 
 }
 
 /** What each part type is called wherever a piece is listed. */
-export const PART_LABEL: Record<PieceType, string> = { straight: 'Tube' }
+export const PART_LABEL: Record<PieceType, string> = { straight: 'Tube', angle: 'Angle' }
 
 /** What the part is, by type and position — "Tube 2" and friends. */
 export function pieceTypeLabel(piece: Piece, index: number): string {
@@ -170,8 +299,22 @@ export function pieceLabel(piece: Piece, index: number): string {
 let seq = 0
 const nextId = () => `p${++seq}`
 
+/** What each part type starts life as. */
+const TYPE_DEFAULTS: Record<PieceType, Omit<Piece, 'id' | 'type'>> = {
+  straight: { length: 120, slope: 6, turn: 0 },
+  angle: {
+    length: ANGLE_DEFAULTS.length,
+    slope: 6,
+    turn: 0,
+    bend: ANGLE_DEFAULTS.bend,
+    exitLength: ANGLE_DEFAULTS.exitLength,
+    fillet: ANGLE_DEFAULTS.fillet,
+  },
+}
+
 export function makePiece(partial: Partial<Piece> = {}): Piece {
-  return { id: nextId(), type: 'straight', length: 120, slope: 6, turn: 0, ...partial }
+  const type = partial.type ?? 'straight'
+  return { id: nextId(), type, ...TYPE_DEFAULTS[type], ...partial }
 }
 
 /* ---------------- history ---------------- */
@@ -226,8 +369,22 @@ function snapshot(s: Snapshot): Snapshot {
 /** Trailing zeros read as noise in a step label — 140, not 140.0. */
 const num = (v: number) => String(Math.round(v * 100) / 100)
 
-const FIELD_LABEL: Record<string, string> = { length: 'length', slope: 'slope', turn: 'turn' }
-const FIELD_UNIT: Record<string, string> = { length: ' mm', slope: '°', turn: '°' }
+const FIELD_LABEL: Record<string, string> = {
+  length: 'length',
+  slope: 'slope',
+  turn: 'turn',
+  bend: 'bend',
+  exitLength: 'exit leg',
+  fillet: 'corner radius',
+}
+const FIELD_UNIT: Record<string, string> = {
+  length: ' mm',
+  slope: '°',
+  turn: '°',
+  bend: '°',
+  exitLength: ' mm',
+  fillet: ' mm',
+}
 
 /** What a part is called right now, for a step label. */
 function nameOf(s: { pieces: Piece[] }, id: string): string {
@@ -261,6 +418,18 @@ interface RunState {
   // Assembly
   pieces: Piece[]
   selectedId: string | null
+  /**
+   * The joint a part added from the Part Library is joined onto. Null builds at
+   * the tail of the run, which is how it grew before ports existed.
+   */
+  armedPort: Port | null
+  /**
+   * Whether the run is held together as one assembly: connected, a part starts
+   * where the one before it ends, and swinging a joint swings everything
+   * downstream with it. Off, each part holds the angle it was given and a joint
+   * is free to open up.
+   */
+  keepConnected: boolean
 
   // 3D appearance
   pieceColor: string
@@ -270,6 +439,12 @@ interface RunState {
   // Simulator
   marbleDiameter: number
   running: boolean
+  /**
+   * False until the Simulator button has been pressed for this run. The marble
+   * only exists on stage once it has been asked for, so an idle run is just the
+   * pieces; pausing keeps it where it stopped rather than making it vanish.
+   */
+  simStarted: boolean
   loop: boolean
   timeScale: number
   friction: number
@@ -311,6 +486,8 @@ interface RunState {
   setPieceColor: (v: string) => void
   setMarbleColor: (v: string) => void
   setShading: (v: Shading) => void
+  /** Turning it on pulls whatever joints have come open back together. */
+  setKeepConnected: (v: boolean) => void
   toggleShading: () => void
   setMarbleDiameter: (v: number) => void
   resetMarbleFit: () => void
@@ -323,7 +500,9 @@ interface RunState {
   setScreenPxPerMm: (v: number) => void
   resetScreenCalibration: () => void
 
-  addPiece: () => void
+  /** Arms the joint the next part is built onto; null goes back to the tail. */
+  armPort: (p: Port | null) => void
+  addPiece: (type?: PieceType) => void
   duplicatePiece: (id: string) => void
   renamePiece: (id: string, name: string) => void
   togglePieceHidden: (id: string) => void
@@ -415,13 +594,16 @@ export const useRun = create<RunState>((set, get) => {
 
     pieces: INITIAL_SNAPSHOT.pieces,
     selectedId: INITIAL_SNAPSHOT.selectedId,
+    armedPort: null,
 
     pieceColor: initialColor(PIECE_COLOR_KEY, DEFAULT_PIECE_COLOR),
     marbleColor: initialColor(MARBLE_COLOR_KEY, DEFAULT_MARBLE_COLOR),
     shading: initialShading(),
+    keepConnected: initialKeepConnected(),
 
     marbleDiameter: INITIAL_SNAPSHOT.marbleDiameter,
     running: false,
+    simStarted: false,
     loop: true,
     timeScale: 1,
     friction: 0.06,
@@ -456,7 +638,9 @@ export const useRun = create<RunState>((set, get) => {
           ...snap,
           projectName: UNTITLED_PROJECT,
           exportName: '',
+          armedPort: null,
           running: false,
+          simStarted: false,
           resetToken: s.resetToken + 1,
           history: [{ id: ++entrySeq, label: 'New project', at: Date.now(), snap }],
           historyIndex: 0,
@@ -476,7 +660,9 @@ export const useRun = create<RunState>((set, get) => {
           ...snap,
           projectName,
           exportName: '',
+          armedPort: null,
           running: false,
+          simStarted: false,
           resetToken: s.resetToken + 1,
           history: [{ id: ++entrySeq, label: `Opened ${projectName}`, at: Date.now(), snap }],
           historyIndex: 0,
@@ -531,6 +717,19 @@ export const useRun = create<RunState>((set, get) => {
       remember(SHADING_KEY, shading)
       set({ shading })
     },
+    setKeepConnected: (keepConnected) => {
+      if (get().keepConnected === keepConnected) return
+      remember(KEEP_CONNECTED_KEY, keepConnected ? 'on' : 'off')
+      set({ keepConnected })
+      // Reconnecting a run that was drawn with its joints free closes them up;
+      // that is a model change, so it lands in the timeline and can be undone.
+      if (keepConnected) {
+        commit('Reconnect parts', (s) => {
+          const pieces = weldJoints(s.pieces)
+          return pieces === s.pieces ? null : { pieces }
+        })
+      }
+    },
     toggleShading: () =>
       set((s) => {
         const shading: Shading = s.shading === 'solid' ? 'transparent' : 'solid'
@@ -552,7 +751,8 @@ export const useRun = create<RunState>((set, get) => {
       ),
     setTimeScale: (timeScale) => set({ timeScale }),
     setFriction: (friction) => set({ friction }),
-    toggleRunning: () => set((s) => ({ running: !s.running })),
+    // Starting is also what puts the marble on stage the first time.
+    toggleRunning: () => set((s) => ({ running: !s.running, simStarted: true })),
     setLoop: (loop) => set({ loop }),
     resetSim: () => set((s) => ({ resetToken: s.resetToken + 1 })),
     setExportFormat: (exportFormat) => set({ exportFormat }),
@@ -572,12 +772,40 @@ export const useRun = create<RunState>((set, get) => {
       set({ screenPxPerMm: NOMINAL_PX_PER_MM, screenCalibrated: false })
     },
 
-    addPiece: () => {
-      const prev = get().pieces.at(-1)
-      const piece = makePiece(prev ? { length: prev.length, slope: prev.slope } : {})
-      commit(`Add ${PART_LABEL[piece.type]}`, (s) => ({
-        pieces: [...s.pieces, piece],
+    armPort: (armedPort) => set({ armedPort }),
+
+    addPiece: (type = 'straight') => {
+      const s = get()
+      const S = PIECE_LIMITS.slope
+      const at = insertIndexAt(s.pieces, s.armedPort)
+      const before = s.pieces[at - 1]
+      const after = s.pieces[at]
+      const bend = type === 'angle' ? ANGLE_DEFAULTS.bend : 0
+      // Entering: carry on at the angle the run is already travelling at. Put in
+      // at the head of the run there is nothing to carry on from, so the part
+      // instead enters at whatever angle lets it hand the old first part the
+      // angle it already had — the run gets longer without changing shape.
+      const slope = before ? exitSlope(before) : after ? after.slope - bend : null
+      const piece = makePiece({
+        type,
+        ...(slope === null ? {} : { slope: clamp(tidy(slope), S.min, S.max) }),
+        // Length only carries over between plain tubes. A connector is meant to
+        // stay short, and its own short entry leg is no guide to how long the
+        // next tube should be.
+        ...(before?.type === 'straight' && type === 'straight' ? { length: before.length } : {}),
+      })
+      // What the part now sitting downstream used to be handed. A tube changes
+      // nothing; dropping a connector in tips everything after it by its bend.
+      const handedOn = before ? exitSlope(before) : after ? after.slope : exitSlope(piece)
+      const pieces = s.pieces.slice()
+      pieces.splice(at, 0, piece)
+
+      commit(`Add ${PART_LABEL[piece.type]}`, (cur) => ({
+        pieces: carrySlope(pieces, at, tidy(exitSlope(piece) - handedOn), cur.keepConnected),
         selectedId: piece.id,
+        // The port follows onto the part it just fed, so adding again carries on
+        // in the same direction instead of stacking back into the same joint.
+        ...(s.armedPort ? { armedPort: { pieceId: piece.id, end: s.armedPort.end } } : {}),
       }))
     },
     // The copy lands right after its original and takes over the selection.
@@ -585,11 +813,26 @@ export const useRun = create<RunState>((set, get) => {
       commit(`Duplicate ${nameOf(get(), id)}`, (s) => {
         const i = s.pieces.findIndex((p) => p.id === id)
         if (i < 0) return null
-        const { id: _id, ...rest } = s.pieces[i]
-        const copy = makePiece(rest)
+        const original = s.pieces[i]
+        const { id: _id, ...rest } = original
+        const S = PIECE_LIMITS.slope
+        // The copy is spliced into the run, not laid beside it, so on a
+        // connected run it picks up where its original leaves off, exactly as a
+        // freshly added part would.
+        const copy = makePiece(
+          s.keepConnected ? { ...rest, slope: clamp(exitSlope(original), S.min, S.max) } : rest,
+        )
         const pieces = s.pieces.slice()
         pieces.splice(i + 1, 0, copy)
-        return { pieces, selectedId: copy.id }
+        return {
+          pieces: carrySlope(
+            pieces,
+            i + 1,
+            tidy(exitSlope(copy) - exitSlope(original)),
+            s.keepConnected,
+          ),
+          selectedId: copy.id,
+        }
       }),
     // A blank name is stored as none at all, so the part falls back to its default label.
     renamePiece: (id, name) =>
@@ -623,26 +866,44 @@ export const useRun = create<RunState>((set, get) => {
       commit(
         label,
         (cur) => {
-          const piece = cur.pieces.find((p) => p.id === id)
+          const at = cur.pieces.findIndex((p) => p.id === id)
+          const piece = cur.pieces[at]
           // Slider and drag traffic repeats the value it already has \u2014 not a step.
           if (!piece || Object.entries(patch).every(([k, v]) => piece[k as keyof Piece] === v)) {
             return null
           }
-          return { pieces: cur.pieces.map((p) => (p.id === id ? { ...p, ...patch } : p)) }
+          const edited = { ...piece, ...patch }
+          const pieces = cur.pieces.slice()
+          pieces[at] = edited
+          // Swinging this part's slope or bend swings the run hanging off it.
+          return {
+            pieces: carrySlope(
+              pieces,
+              at,
+              tidy(exitSlope(edited) - exitSlope(piece)),
+              cur.keepConnected,
+            ),
+          }
         },
         // Held-down drags of the same field on the same part fold into one step.
         `piece:${id}:${Object.keys(patch).sort().join(',')}`,
       )
     },
     removePiece: (id) =>
-      commit(`Delete ${nameOf(get(), id)}`, (s) =>
-        s.pieces.some((p) => p.id === id)
-          ? {
-              pieces: s.pieces.filter((p) => p.id !== id),
-              selectedId: s.selectedId === id ? null : s.selectedId,
-            }
-          : null,
-      ),
+      commit(`Delete ${nameOf(get(), id)}`, (s) => {
+        const i = s.pieces.findIndex((p) => p.id === id)
+        if (i < 0) return null
+        const pieces = s.pieces.filter((p) => p.id !== id)
+        // What followed the deleted part now hangs off the part before it, so it
+        // has to take up the angle the deleted one used to hand on.
+        const delta = i > 0 ? tidy(exitSlope(s.pieces[i - 1]) - exitSlope(s.pieces[i])) : 0
+        return {
+          pieces: carrySlope(pieces, i - 1, delta, s.keepConnected),
+          selectedId: s.selectedId === id ? null : s.selectedId,
+          // The joint the port named has gone with the part.
+          armedPort: s.armedPort?.pieceId === id ? null : s.armedPort,
+        }
+      }),
     movePiece: (id, dir) =>
       commit(`Move ${nameOf(get(), id)} ${dir < 0 ? 'up' : 'down'}`, (s) => {
         const i = s.pieces.findIndex((p) => p.id === id)
@@ -650,7 +911,17 @@ export const useRun = create<RunState>((set, get) => {
         if (i < 0 || j < 0 || j >= s.pieces.length) return null
         const pieces = s.pieces.slice()
         ;[pieces[i], pieces[j]] = [pieces[j], pieces[i]]
-        return { pieces }
+        if (!s.keepConnected) return { pieces }
+        const S = PIECE_LIMITS.slope
+        const at = Math.min(i, j)
+        // The two have traded places in the chain: each takes the angle its new
+        // place hands it, and whatever follows swings by the difference.
+        const was = exitSlope(s.pieces[at + 1])
+        if (at > 0) {
+          pieces[at] = { ...pieces[at], slope: clamp(exitSlope(pieces[at - 1]), S.min, S.max) }
+        }
+        pieces[at + 1] = { ...pieces[at + 1], slope: clamp(exitSlope(pieces[at]), S.min, S.max) }
+        return { pieces: carrySlope(pieces, at + 1, tidy(exitSlope(pieces[at + 1]) - was), true) }
       }),
     // Picking a part is not a model change, so it never lands in the history.
     select: (selectedId) => set({ selectedId }),

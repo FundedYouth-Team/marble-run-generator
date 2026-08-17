@@ -16,6 +16,19 @@ interface Group {
 }
 
 /**
+ * A worked example: the question as it gets asked, and the clicks that answer
+ * it. The cheat-sheet rows say what each control does one at a time; these are
+ * for the jobs that take several of them in the right order.
+ */
+interface HowTo {
+  question: string
+  /** Said before the steps — usually why the obvious approach is not the one. */
+  lead?: string
+  steps: string[]
+  note?: string
+}
+
+/**
  * The help is tabbed by what you are working on: the run as a whole, or one of
  * the two workspaces. Anything true of both workspaces lives in `ALWAYS`
  * instead, so it is said once rather than in every tab.
@@ -110,13 +123,27 @@ const HELP: Record<HelpTab, Group[]> = {
       rows: [
         { keys: ['Left-click a part'], action: 'Select it and open its settings in the sidebar' },
         { keys: ['Left-click empty space'], action: 'Deselect' },
+        {
+          keys: ['Click a joint'],
+          action: 'Build there — the next part from the library is joined on at that joint',
+          note: 'click it again to go back to building at the end of the run',
+        },
+        {
+          keys: ['Active Parts'],
+          action: 'Switch a part off to take it out of both views',
+          note: 'it still holds its place in the run',
+        },
       ],
     },
     {
       title: 'HUD',
       rows: [
         { keys: ['↶', '↷'], action: 'Step back and forward through the last 10 changes', note: 'listed in the History tab' },
-        { keys: ['▶ Simulator'], action: 'Start the simulation', note: 'the same button pauses it' },
+        {
+          keys: ['▶ Simulator'],
+          action: 'Put the marble on the run and start it rolling',
+          note: 'there is no marble on the stage until you press it; the same button pauses it',
+        },
         { keys: ['↺ Reset'], action: 'Send the marble back to the start' },
         { keys: ['◉ Solid', '◍ Transparent'], action: 'See through the tube walls' },
         { keys: ['⤓ 3MF', '⤓ STL'], action: 'Export the print plate', note: 'format is set in the sidebar' },
@@ -137,6 +164,11 @@ const HELP: Record<HelpTab, Group[]> = {
         },
         { keys: ['Fit'], action: 'Re-frame the whole run' },
         {
+          keys: ['Active Parts'],
+          action: 'Draw only the parts you are working on',
+          note: 'the same list, and the same switches, as the 3D view',
+        },
+        {
           keys: ['1:1'],
           action: 'Zoom to true physical size',
           note: 'calibrate your screen in Settings first, or it is only a guess',
@@ -153,8 +185,13 @@ const HELP: Record<HelpTab, Group[]> = {
           action: 'Set slope or turn',
           note: 'which one depends on the view; the first joint is a fixed origin',
         },
+        {
+          keys: ['Drag the break'],
+          action: 'On an angle connector, swing one leg at a time',
+          note: 'in elevation: the break sets the entry slope, the outlet sets the bend',
+        },
         { keys: ['Shift', 'Drag'], action: 'Snap the angle to 5°' },
-        { keys: ['Alt', 'Drag'], action: 'Stretch the piece length as well' },
+        { keys: ['Alt', 'Drag'], action: 'Stretch that leg as well' },
         { keys: ['Esc'], action: 'Cancel the drag and restore the piece' },
       ],
     },
@@ -164,6 +201,43 @@ const HELP: Record<HelpTab, Group[]> = {
         { keys: ['Section A–A'], action: 'Live cross-section of the tube front face' },
         { keys: ['Ghost circle'], action: 'The marble, shown resting in the bore' },
       ],
+    },
+  ],
+}
+
+/**
+ * Filed by tab, like the cheat sheet. A tab with nothing worked out for it is
+ * simply left out rather than carrying an empty heading.
+ */
+const HOWTO: Partial<Record<HelpTab, HowTo[]>> = {
+  '3d': [
+    {
+      question: 'How do I join one part to another?',
+      lead: 'They already are. The run is a chain: every part is joined to the one before it, in the order they appear in Active Parts. Parts cannot be dragged around the stage on their own — you change the run by changing the chain.',
+      steps: [
+        'The joints are the small balls on the run — one at each end of every part, plus the one the run starts at.',
+        'Blue is where the next part lands if you do nothing: the end of the run.',
+        'Click any other joint to build there instead — it turns orange. Click it again to hand building back to the end.',
+      ],
+    },
+    {
+      question: 'How do I add a part at the start of the run instead of the end?',
+      steps: [
+        'Click the joint at the very start of the run — the free ball on the first part’s inlet. It turns orange.',
+        'Open ＋ Add Part and pick the part you want.',
+        'It is put in ahead of the old first part, entering at whatever angle leaves the rest of the run exactly as it was.',
+      ],
+      note: 'Add again and it carries on in the same direction, rather than stacking back into the same joint.',
+    },
+    {
+      question: 'How do I move a part I have already placed to a different point in the run?',
+      lead: 'There is no reorder yet — a part cannot be picked up and dropped elsewhere in the chain. Rebuild it where you want it instead.',
+      steps: [
+        'Select the part, in the viewport or in Active Parts, and Delete it from the sidebar. What followed it closes up onto the part before it.',
+        'Click the joint you want it at, so it is armed and orange.',
+        'Add the part again from ＋ Add Part, then set its length, slope and turn in the sidebar.',
+      ],
+      note: 'Ctrl+Z puts it back if the reshuffle is not what you wanted.',
     },
   ],
 }
@@ -238,6 +312,26 @@ function Rows({ group }: { group: Group }) {
           </div>
         ))}
       </dl>
+    </div>
+  )
+}
+
+function HowTos({ items }: { items: HowTo[] }) {
+  return (
+    <div className="help-group help-howto">
+      <h4>How do I…</h4>
+      {items.map((h) => (
+        <article key={h.question}>
+          <h5>{h.question}</h5>
+          {h.lead && <p className="help-howto-lead">{h.lead}</p>}
+          <ol>
+            {h.steps.map((s) => (
+              <li key={s}>{s}</li>
+            ))}
+          </ol>
+          {h.note && <p className="help-howto-note">{h.note}</p>}
+        </article>
+      ))}
     </div>
   )
 }
@@ -330,6 +424,8 @@ export default function HelpOverlay() {
               {HELP[tab].map((g) => (
                 <Rows key={g.title} group={g} />
               ))}
+              {/* Worked examples sit under the controls they string together. */}
+              {HOWTO[tab] && <HowTos items={HOWTO[tab]!} />}
               <Rows group={ALWAYS} />
             </div>
           </div>
