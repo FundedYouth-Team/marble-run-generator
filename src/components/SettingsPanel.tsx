@@ -12,6 +12,10 @@ import {
   MARBLE_CLEARANCE,
   DEFAULT_MARBLE_COLOR,
 } from '../store'
+import { UNIT_NAME, formatDensity, formatLength, type Unit } from '../lib/units'
+
+/** Millimetres first: it is the default, and what the model is kept in. */
+const UNITS: Unit[] = ['mm', 'in']
 
 /** First entry is the default, so clicking it restores the stock look. */
 const MARBLE_SWATCHES = [DEFAULT_MARBLE_COLOR, '#2a9e35', '#f2c94c', '#e2464e', '#3fa9f5', '#f5f7fa']
@@ -61,10 +65,36 @@ export default function SettingsPanel({ open, onClose }: { open: boolean; onClos
       </header>
 
       <div className="parts-body">
+        <CollapsiblePanel title="Units" defaultOpen={false}>
+          <span className="field-label">
+            Show measurements in
+            <em>every length in the app, both stages and the sidebar</em>
+          </span>
+          <div className="segmented">
+            {UNITS.map((u) => (
+              <button
+                key={u}
+                className={s.units === u ? 'on' : ''}
+                aria-pressed={s.units === u}
+                onClick={() => s.setUnits(u)}
+                title={`Show every measurement in ${UNIT_NAME[u].toLowerCase()}`}
+              >
+                {UNIT_NAME[u]}
+              </button>
+            ))}
+          </div>
+          <InfoNote label="Does this change my model?">
+            No. The run is held in millimetres whichever you pick, and every exported STL or 3MF is
+            in millimetres too — that is what slicers expect. This only changes the numbers you read
+            and type: {formatLength(STANDARD_MARBLE, 'mm')} and{' '}
+            {formatLength(STANDARD_MARBLE, 'in')} are the same marble.
+          </InfoNote>
+        </CollapsiblePanel>
+
         <CollapsiblePanel title="Marble Size & Color" defaultOpen={false}>
           <NumberField
             label="Marble diameter"
-            hint={`a standard glass marble is ${STANDARD_MARBLE} mm`}
+            hint={`a standard glass marble is ${formatLength(STANDARD_MARBLE, s.units)}`}
             value={s.marbleDiameter}
             onChange={s.setMarbleDiameter}
             min={3}
@@ -75,9 +105,10 @@ export default function SettingsPanel({ open, onClose }: { open: boolean; onClos
             ↺ {standardFit ? 'Standard marble size' : 'Reset to standard marble'}
           </button>
           <InfoNote label="What is the standard marble size?">
-            A shop-bought glass marble is about {STANDARD_MARBLE} mm across. Reset sets the marble to
-            that and opens the bore to {STANDARD_BORE} mm — {MARBLE_CLEARANCE} mm of slack so it
-            rolls instead of jamming. Scale both however you like; this brings them back.
+            A shop-bought glass marble is about {formatLength(STANDARD_MARBLE, s.units)} across.
+            Reset sets the marble to that and opens the bore to{' '}
+            {formatLength(STANDARD_BORE, s.units)} — {formatLength(MARBLE_CLEARANCE, s.units)} of
+            slack so it rolls instead of jamming. Scale both however you like; this brings them back.
           </InfoNote>
           <ColorField
             label="Ball color"
@@ -132,7 +163,7 @@ export default function SettingsPanel({ open, onClose }: { open: boolean; onClos
         <CollapsiblePanel title="Screen & Scale" defaultOpen={false}>
           <div className="setting-row">
             <span>{s.screenCalibrated ? 'Calibrated' : 'Not calibrated'}</span>
-            <span className="setting-value">{s.screenPxPerMm.toFixed(2)} px / mm</span>
+            <span className="setting-value">{formatDensity(s.screenPxPerMm, s.units)}</span>
           </div>
           <button onClick={() => setCalibrating(true)}>
             {s.screenCalibrated ? 'Re-calibrate screen…' : 'Calibrate screen…'}

@@ -17,6 +17,8 @@ import {
   exitSlope,
   exitTurn,
   tubeSpec,
+  boreOf,
+  wallOf,
   colorOf,
   variantOf,
   jointSpec,
@@ -26,6 +28,7 @@ import {
   DEFAULT_PIECE_COLOR,
   type TubeVariant,
 } from '../store'
+import { UNIT_LABEL, UNIT_WORD, coarseText, formatCoarse, formatLength, lengthText } from '../lib/units'
 
 const VARIANTS: TubeVariant[] = ['half', 'threequarter', 'closed']
 
@@ -51,16 +54,26 @@ export default function Sidebar() {
   // nothing is picked, and Apply to All is live while some part differs.
   const color = selected ? colorOf(selected, s.pieceColor) : s.pieceColor
   const mixedColor = s.pieces.some((p) => colorOf(p, s.pieceColor) !== color)
-  const spec = tubeSpec(s.innerDiameter, s.wallThickness, style)
+  // Bore and wall work the same way again: the selected part's own, or the
+  // run's when nothing is picked, and Apply to All is live while some part is
+  // cut from another tube.
+  const bore = selected ? boreOf(selected, s.innerDiameter) : s.innerDiameter
+  const wall = selected ? wallOf(selected, s.wallThickness) : s.wallThickness
+  const mixedTube = s.pieces.some(
+    (p) => boreOf(p, s.innerDiameter) !== bore || wallOf(p, s.wallThickness) !== wall,
+  )
+  const spec = tubeSpec(bore, wall, style)
   // Centreline length, so a bent part counts what it actually carries.
   const totalLength = s.pieces.reduce((a, p) => a + pieceAxisLength(p), 0)
   const selectedLength = selected ? pieceAxisLength(selected) : 100
   const joint = jointSpec(spec, selectedLength)
   const angle = selected && selected.type === 'angle' ? angleSpec(selected) : null
   const corner = selected && selected.type === 'corner' ? cornerSpec(selected) : null
-  // What the part before hands this one. With Keep connected off the two can
-  // drift apart, and the joint between them is what opens up.
-  const upstream = selected && selectedIndex > 0 ? s.pieces[selectedIndex - 1] : null
+  // What the part before hands this one, if the two are actually joined. With
+  // Keep connected off they can drift apart, and the joint is what opens up; an
+  // unjoined part has no joint behind it at all.
+  const upstream =
+    selected && selectedIndex > 0 && selected.joined ? s.pieces[selectedIndex - 1] : null
   const handedOn = upstream ? exitSlope(upstream) : 0
   const kink = selected && upstream ? selected.slope - handedOn : 0
   const open = Math.abs(kink) > 0.05
@@ -80,51 +93,86 @@ export default function Sidebar() {
             {selected ? pieceLabel(selected, selectedIndex) : 'none'}
           </span>
         </h2>
-        {/* Measurements, style and colour are per-piece; diameter is run-wide. */}
+        {/* Measurements, tube and colour are all a part's own; with nothing
+            picked the same fields set what the run — and every part following
+            it — is made to. */}
         <p className="scope-note">
           {selected ? (
             <>
-              Its measurements, tube style and color belong to this part alone. Tube diameter
-              applies to every part in the run.
+              Its measurements, tube size, style and color belong to this part alone. Apply to All
+              Parts puts any of them on the whole run.
             </>
           ) : (
             <>
-              Pick a part in Active Parts or the list below to edit its measurements, tube style
-              and color. Tube diameter applies to every part in the run.
+              Pick a part in Active Parts or the list below to edit its measurements, tube size,
+              style and color. With nothing picked, these set the run — every part that has none of
+              its own follows it.
             </>
           )}
         </p>
       </header>
 
       <CollapsiblePanel title="Tube Diameter">
+        <span className="field-label">
+          {selected ? pieceLabel(selected, selectedIndex) : 'Run tube'}
+          <em>
+            {selected
+              ? 'this part only'
+              : 'every part that has not been sized on its own, and every part added next'}
+          </em>
+        </span>
         <NumberField
           label="Inner diameter"
           hint="bore the marble rolls in"
-          value={s.innerDiameter}
-          onChange={s.setInnerDiameter}
+          value={bore}
+          onChange={(v) => (selected ? s.setPieceBore(selected.id, v) : s.setInnerDiameter(v))}
           {...TUBE_LIMITS.innerDiameter}
         />
         <NumberField
           label="Wall thickness"
           hint="outer minus inner"
-          value={s.wallThickness}
-          onChange={s.setWallThickness}
+          value={wall}
+          onChange={(v) => (selected ? s.setPieceWall(selected.id, v) : s.setWallThickness(v))}
           {...TUBE_LIMITS.wallThickness}
         />
         <div className="readout">
           <div>
-            <b>{(spec.outerR * 2).toFixed(1)}</b>
-            <span>Outer Ø mm</span>
+            <b>{lengthText(spec.outerR * 2, s.units)}</b>
+            <span>Outer Ø {UNIT_LABEL[s.units]}</span>
           </div>
           <div>
-            <b>{spec.innerR.toFixed(1)}</b>
-            <span>Inner R mm</span>
+            <b>{lengthText(spec.innerR, s.units)}</b>
+            <span>Inner R {UNIT_LABEL[s.units]}</span>
           </div>
           <div>
             <b>{Math.round((spec.sweep * 180) / Math.PI)}°</b>
             <span>Wall sweep</span>
           </div>
         </div>
+        <button onClick={() => s.applyTubeToAll(bore, wall)} disabled={!mixedTube}>
+          Apply to All Parts
+        </button>
+        <p className="note">
+          {mixedTube
+            ? `Cuts all ${s.pieces.length} parts — and every part added next — from Ø${lengthText(bore, s.units)} bore with a ${formatLength(wall, s.units)} wall.`
+            : s.pieces.length
+              ? `Every part is already Ø${lengthText(bore, s.units)} bore, ${formatLength(wall, s.units)} wall.`
+              : 'No parts yet — this is the tube the first one is cut from.'}
+        </p>
+        {/* A part is only ever printed against the parts it mates with, so a bore
+            of its own is worth saying out loud rather than leaving to be noticed
+            at the joint. */}
+        {mixedTube && (
+          <p className="warn">
+            Parts cut from different tubes do not mate — their sockets and spigots step at the
+            joint.
+          </p>
+        )}
+        {s.marbleDiameter >= bore && (
+          <p className="warn">
+            Marble is Ø{formatLength(s.marbleDiameter, s.units)} — it will not fit this bore.
+          </p>
+        )}
       </CollapsiblePanel>
 
       <CollapsiblePanel title="Tube Style">
@@ -198,7 +246,7 @@ export default function Sidebar() {
                 {pieceLabel(selected, selectedIndex) !== pieceTypeLabel(selected, selectedIndex) && (
                   <span className="piece-type">{PART_LABEL[selected.type]}</span>
                 )}
-                <span className="piece-dim">{Math.round(selectedLength)} mm</span>
+                <span className="piece-dim">{formatCoarse(selectedLength, s.units)}</span>
               </div>
               <div className="piece-body">
                 {angle ? (
@@ -351,12 +399,12 @@ export default function Sidebar() {
             <span>Pieces</span>
           </div>
           <div>
-            <b>{Math.round(totalLength)}</b>
-            <span>Run length mm</span>
+            <b>{coarseText(totalLength, s.units)}</b>
+            <span>Run length {UNIT_WORD[s.units]}</span>
           </div>
           <div>
-            <b>{joint.depth.toFixed(1)}</b>
-            <span>Snap depth mm</span>
+            <b>{lengthText(joint.depth, s.units)}</b>
+            <span>Snap depth {UNIT_WORD[s.units]}</span>
           </div>
         </div>
         <p className="note">
@@ -477,11 +525,15 @@ export default function Sidebar() {
                 one button for when they do not. */}
             <span className="field-label">
               Inlet joint
-              <em>{upstream ? pieceLabel(upstream, selectedIndex - 1) : 'start of the run'}</em>
+              <em>{upstream ? pieceLabel(upstream, selectedIndex - 1) : 'not joined'}</em>
             </span>
             <p className="note">
               {!upstream ? (
-                <>This is the first part — its start angle is the one the whole run sets off at.</>
+                <>
+                  Nothing is joined to this part's inlet, so it starts a run of its own — its start
+                  angle is the one that run sets off at. Join it on with the Connector in the
+                  toolbar.
+                </>
               ) : open ? (
                 <>
                   {pieceLabel(upstream, selectedIndex - 1)} hands on {degLabel(handedOn)}° and this
@@ -532,7 +584,7 @@ export default function Sidebar() {
         </button>
         <p className="note">
           {selected
-            ? `Adds a copy of ${pieceLabel(selected, selectedIndex)} right after it, and selects the copy.`
+            ? `Sets a copy of ${pieceLabel(selected, selectedIndex)} down beside the run, unjoined, and selects it.`
             : 'Select a part to copy it.'}
         </p>
       </CollapsiblePanel>

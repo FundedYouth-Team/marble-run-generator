@@ -79,15 +79,15 @@ export interface ExportResult {
 /**
  * One mesh per distinct shape. 3MF instancing keys off geometry identity, so
  * sharing here is also what lets a plate of identical parts store them once.
- * `spec` carries the run's bore and wall, and the style a part falls back to
- * when it has none of its own.
+ * `spec` is the tube the run is cut from — the bore, wall and style a part
+ * falls back to when it has none of its own.
  */
 function geometryCache(spec: TubeSpec) {
   const cache = new Map<string, THREE.BufferGeometry>()
   return {
     get(piece: Piece) {
       const own = pieceSpec(spec, piece)
-      const key = shapeKey(piece, own.variant)
+      const key = shapeKey(piece, own)
       let g = cache.get(key)
       if (!g) {
         g = buildPieceGeometry(own, centerlineFor(piece))
@@ -207,14 +207,20 @@ export function exportPrintPlate(
 ): ExportResult {
   const cache = geometryCache(spec)
   const group = new THREE.Group()
-  const pitch = spec.outerR * 2 + PLATE_GAP
 
   // Longest first, so the plate reads tidily.
   const parts = placed.slice().sort((a, b) => b.length - a.length)
+  // Rows are stepped by the two tubes either side of the gap rather than by one
+  // pitch, so a part sized on its own still lands clear of its neighbours.
+  let y = 0
+  let previousR = 0
   parts.forEach((p, i) => {
+    const r = pieceSpec(spec, p.piece).outerR
+    if (i > 0) y += previousR + r + PLATE_GAP
+    previousR = r
     const mesh = new THREE.Mesh(cache.get(p.piece))
     mesh.applyMatrix4(layFlat(p.piece))
-    mesh.position.set(0, i * pitch, 0)
+    mesh.position.set(0, y, 0)
     group.add(mesh)
   })
 

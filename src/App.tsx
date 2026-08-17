@@ -7,7 +7,8 @@ import HelpOverlay from './components/HelpOverlay'
 import PartLibrary from './components/PartLibrary'
 import ProjectBar from './components/ProjectBar'
 import { pieceAxisLength } from './lib/centerline'
-import { useRun, tubeSpec, variantOf, VARIANT_LABEL } from './store'
+import { useRun, tubeSpec, variantOf, sizedLikeRun, VARIANT_LABEL } from './store'
+import { formatCoarse, lengthText } from './lib/units'
 
 /** Fields own their own undo stack — the run's only takes over outside them. */
 function isTyping(el: EventTarget | null) {
@@ -16,7 +17,7 @@ function isTyping(el: EventTarget | null) {
 }
 
 export default function App() {
-  const { mode, setMode, pieces, innerDiameter, wallThickness, variant } = useRun()
+  const { mode, setMode, pieces, innerDiameter, wallThickness, variant, units } = useRun()
 
   // The usual shortcuts, wherever you are — both stages share the one timeline.
   useEffect(() => {
@@ -35,10 +36,16 @@ export default function App() {
   }, [])
   const spec = tubeSpec(innerDiameter, wallThickness, variant)
   // Centreline length, so a bent part counts what it actually carries.
-  const total = Math.round(pieces.reduce((a, p) => a + pieceAxisLength(p), 0))
+  const total = pieces.reduce((a, p) => a + pieceAxisLength(p), 0)
   // Style is a part's own, so the strip only names one when the run agrees on it.
   const styles = new Set(pieces.map((p) => variantOf(p, variant)))
   const style = styles.size > 1 ? 'Mixed styles' : VARIANT_LABEL[[...styles][0] ?? variant]
+  // Same for the tube itself: one size is only worth quoting while every part is
+  // cut to it.
+  const mixedTube = pieces.some((p) => !sizedLikeRun(p, innerDiameter, wallThickness))
+  const size = mixedTube
+    ? 'Mixed tube sizes'
+    : `Ø${lengthText(innerDiameter, units)} bore / Ø${lengthText(spec.outerR * 2, units)} outer`
 
   return (
     <div className="app">
@@ -73,12 +80,10 @@ export default function App() {
         </div>
 
         <div className="spec-strip">
-          <span>
-            Ø{innerDiameter.toFixed(1)} bore / Ø{(spec.outerR * 2).toFixed(1)} outer
-          </span>
+          <span>{size}</span>
           <span>{style}</span>
           <span>
-            {pieces.length} pcs · {total} mm
+            {pieces.length} pcs · {formatCoarse(total, units)}
           </span>
         </div>
 

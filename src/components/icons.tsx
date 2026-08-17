@@ -85,6 +85,85 @@ export function PickIcon({ size = 14 }: { size?: number }) {
   )
 }
 
+/**
+ * The three axis arrows every CAD move gizmo wears, in the colours they are
+ * always drawn in: X red, Y green, Z blue. Coloured rather than currentColor on
+ * purpose — the point of the picture is that it is the handle you see on stage.
+ */
+export function MoveIcon({ size = 17 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+      {/* Up is +Y, right is +X, and towards the viewer — down-left — is +Z. */}
+      <g stroke="#3fb950">
+        <path d="M12 13.4V3.9" />
+        <path d="M9.4 6.4 12 3.4l2.6 3" />
+      </g>
+      <g stroke="#e5534b">
+        <path d="M12.6 13.4h8.1" />
+        <path d="M18.2 10.9l3 2.6-3 2.6" />
+      </g>
+      <g stroke="#4d9cf5">
+        <path d="M11.4 14 5.6 19.2" />
+        <path d="M4 15.9 5.2 19.7l3.9-.6" />
+      </g>
+      <circle cx="12" cy="13.4" r="1.5" fill="currentColor" stroke="none" />
+    </svg>
+  )
+}
+
+/**
+ * A ring turning about the upright — "swing this round". Green like the Y arrow
+ * of {@link MoveIcon}, because the ring on stage is the green one: a run is set
+ * down on a heading, and its climbs and corners belong to the parts themselves,
+ * so the vertical is the only axis there is anything to turn about.
+ */
+export function RotateIcon({ size = 17 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+      {/* The axis it turns about, drawn faint so the ring stays the subject. */}
+      <path d="M12 3.4v17.2" stroke="currentColor" opacity="0.45" />
+      <g stroke="#3fb950">
+        {/* Left of the ring, the long way round under it, up to the top. */}
+        <path d="M4.6 12.6a7.4 4.3 0 1 0 7.4-4.3" />
+        <path d="M14.5 6.7 12 8.3l2.5 1.6" />
+      </g>
+      <circle cx="12" cy="12.6" r="1.4" fill="currentColor" stroke="none" />
+    </svg>
+  )
+}
+
+/** Two links closed on each other — "bond these two ends together". */
+export function ConnectIcon({ size = 16 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M9.6 14.4 14.4 9.6" />
+      <path d="M13 6.6l1.6-1.6a3.4 3.4 0 0 1 4.8 4.8L17.8 11.4" />
+      <path d="M11 17.4 9.4 19a3.4 3.4 0 0 1-4.8-4.8L6.2 12.6" />
+    </svg>
+  )
+}
+
+/** The same links pulled apart, with the break shown — "take this joint open". */
+export function DisconnectIcon({ size = 16 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M13.4 6.2l1.2-1.2a3.4 3.4 0 0 1 4.8 4.8L18.2 11" />
+      <path d="M10.6 17.8 9.4 19a3.4 3.4 0 0 1-4.8-4.8L5.8 13" />
+      <path d="M20.4 14.6h-2.6M6.2 9.4H3.6M15.6 18.8v-2.4M8.4 7.6V5.2" />
+    </svg>
+  )
+}
+
+/** Mouse arrow with its tail — "back to picking parts". */
+export function SelectIcon({ size = 16 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M5 3.2 17.6 9.6l-5.4 1.6-1.6 5.4z" />
+      <path d="M12.6 12.6 19 19" />
+    </svg>
+  )
+}
+
 /** Waste bin — "take this part out of the run". */
 export function TrashIcon({ size = 14 }: { size?: number }) {
   return (

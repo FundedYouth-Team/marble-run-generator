@@ -1,11 +1,17 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
-import { ContactShadows, GizmoHelper, Grid, OrbitControls } from '@react-three/drei'
+import {
+  ContactShadows,
+  GizmoHelper,
+  Grid,
+  OrbitControls,
+  TransformControls,
+} from '@react-three/drei'
 import * as THREE from 'three'
 import ViewCube, { type CubePalette } from './ViewCube'
 import MouseLegend from './MouseLegend'
 import RightDock from './RightDock'
-import UndoRedo from './UndoRedo'
+import Toolbar from './Toolbar'
 import ActiveParts from './ActiveParts'
 import PartContextMenu, { type MenuTarget } from './PartContextMenu'
 import { FitIcon, HomeIcon } from './icons'
@@ -13,14 +19,19 @@ import { buildEndBandGeometry, buildPieceGeometry } from '../lib/geometry'
 import { centerlineFor, shapeKey } from '../lib/centerline'
 import { buildAssembly, type Assembly } from '../lib/layout'
 import { createMarble, resetMarble, seekMarble, stepMarble } from '../lib/sim'
-import { exportPrintPlate } from '../lib/exporters'
+import { scrub, telemetry } from '../lib/telemetry'
+import { coarseText, formatCoarse } from '../lib/units'
 import {
   useRun,
-  tubeSpecs,
+  boreOf,
+  tubeSpec,
+  canConnect,
   colorOf,
-  variantOf,
-  exportBasename,
+  pieceSpec,
+  placementOf,
+  samePort,
   type Piece,
+  type Placement,
   type Port,
   type TubeSpec,
   type Theme,
@@ -30,21 +41,16 @@ import {
 const XRAY_OPACITY = 0.3
 const XRAY_OPACITY_SELECTED = 0.55
 
-/** Joint sockets: armed reads hot, the tail reads as the standing default. */
-const PORT_ARMED = '#ff7a45'
-const PORT_DEFAULT = '#4d9cf5'
-const PORT_IDLE = '#8aa0b4'
-
-/** Live telemetry, read by the HUD outside the render loop. */
-const telemetry = { speed: 0, distance: 0, airborne: false }
-
 /**
- * The scrubber's channel to the marble, both ways: the marble posts where it is
- * every frame, and the slider posts where it should be next. A plain object
- * rather than store state — this changes every frame, and nothing outside the
- * render loop should re-render on it.
+ * Joint ends, by what they are: open and free to bond, held by the Connector
+ * waiting for its mate, out of reach for the end in hand, bonded shut, and about
+ * to be broken open.
  */
-const scrub = { s: 0, seek: null as number | null }
+const PORT_OPEN = '#4d9cf5'
+const PORT_PICKED = '#ff7a45'
+const PORT_IDLE = '#8aa0b4'
+const PORT_JOINED = '#3fb87f'
+const PORT_BREAK = '#e2574c'
 
 /** Scene colours live in JS, so they get their own light/dark palette. */
 interface ScenePalette {
@@ -111,6 +117,7 @@ function PieceMesh({
   selected,
   tint,
   xray,
+  pickable,
   onClick,
   onRightDown,
 }: {
@@ -121,13 +128,19 @@ function PieceMesh({
   selected: boolean
   tint: ReturnType<typeof shades>
   xray: boolean
+  /**
+   * Whether a left-click on the solid picks the part. False while a joint tool
+   * has the left button: the joint marks sit on the very surface of the wall, and
+   * a part that answered the click first would swallow every one of them.
+   */
+  pickable: boolean
   onClick: () => void
   /** A right-press landed here; the stage decides whether it becomes a menu or an orbit. */
   onRightDown: (x: number, y: number) => void
 }) {
   // Keyed on the shape rather than the piece, so nudging a part it sits behind
   // in the run — or renaming it — never rebuilds the solid.
-  const shape = shapeKey(piece, spec.variant)
+  const shape = shapeKey(piece, spec)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const geom = useMemo(() => buildPieceGeometry(spec, centerlineFor(piece)), [spec, shape])
   useEffect(() => () => geom.dispose(), [geom])
@@ -140,10 +153,14 @@ function PieceMesh({
       // A see-through wall casting a solid shadow reads as a bug, so shadows go with it.
       castShadow={!xray}
       receiveShadow={!xray}
-      onClick={(e) => {
-        e.stopPropagation()
-        onClick()
-      }}
+      onClick={
+        pickable
+          ? (e) => {
+              e.stopPropagation()
+              onClick()
+            }
+          : undefined
+      }
       // Only the nearest part under the cursor is the one the menu is about.
       onPointerDown={(e) => {
         if (e.button !== 2) return
@@ -209,7 +226,7 @@ function PortMark({
 }) {
   // Keyed on the shape, like the piece's own solid: the band only changes when
   // the end it covers does.
-  const shape = shapeKey(piece, spec.variant)
+  const shape = shapeKey(piece, spec)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const geom = useMemo(
     () => buildEndBandGeometry(spec, centerlineFor(piece), end, bandDepth(spec)),
@@ -248,83 +265,116 @@ function PortMark({
   )
 }
 
-/**
- * The joints of the run, the ends you can build from: every part's outlet, plus
- * the inlet the run starts at. Click one to arm it and the next part out of the
- * Part Library is joined on there rather than at the tail, so a run grows from
- * either end or from anywhere in the middle.
- *
- * Nothing is added to the run to mark them — the ends are simply coloured. On a
- * stage whose whole subject is a rolling sphere, a marker with a shape of its own
- * reads as another marble or another part; colour on the tube itself says "this
- * end" and nothing else.
- */
-function Ports({ asm, spec }: { asm: Assembly; spec: TubeSpec }) {
-  const { armedPort, armPort } = useRun()
-  const [hovered, setHovered] = useState<string | null>(null)
+/** One end offered up by whichever joint tool is in hand. */
+interface JointMark {
+  key: string
+  port: Port
+  piece: Piece
+  end: 'in' | 'out'
+  /** The band is built in the piece's own frame, so it is placed the way the piece is. */
+  position: THREE.Vector3
+  quaternion: THREE.Quaternion
+  /** Where the part stands, for a joint that is about to be broken open. */
+  at: { x: number; y: number; z: number; yaw: number }
+}
 
-  const ports = useMemo(() => {
-    const list: {
-      key: string
-      port: Port
-      piece: Piece
-      end: 'in' | 'out'
-      // The band is built in the piece's own frame, so it is placed the way the
-      // piece is — at its start, on its entry frame.
-      position: THREE.Vector3
-      quaternion: THREE.Quaternion
-    }[] = []
-    // A switched-off part is not on the stage to be built onto, so its joints
-    // go with it rather than hanging in the air on their own.
-    const first = asm.placed.find((p) => !p.piece.hidden)
-    if (first) {
-      list.push({
-        key: `${first.piece.id}:in`,
-        port: { pieceId: first.piece.id, end: 'in' },
-        piece: first.piece,
-        end: 'in',
-        position: first.start,
-        quaternion: first.quaternion,
-      })
+/**
+ * The ends the joint tools work on, coloured on the tube itself. Nothing is
+ * added to the run to mark them: on a stage whose whole subject is a rolling
+ * sphere, a marker with a shape of its own reads as another marble or another
+ * part, while colour on the tube says "this end" and nothing else.
+ *
+ * The Connector offers the open ends — the inlet each run starts at and the
+ * outlet each one finishes on. Click one, then the end it mates with, and the
+ * two are bonded. The Disconnector offers the joints instead, and a click takes
+ * one open, leaving both sides standing where they were.
+ *
+ * With neither tool in hand nothing is drawn: the ends only matter while you are
+ * working on them, and the run is easier to read without them.
+ */
+function Joints({ asm, specOf }: { asm: Assembly; specOf: (piece: Piece) => TubeSpec }) {
+  const { tool, pieces, pendingPort, pickPort, breakJoint } = useRun()
+  const [hovered, setHovered] = useState<string | null>(null)
+  const breaking = tool === 'disconnect'
+
+  const marks = useMemo(() => {
+    if (tool !== 'connect' && tool !== 'disconnect') return []
+    const list: JointMark[] = []
+    // A switched-off part is not on the stage to be worked on, so its ends go
+    // with it rather than hanging in the air on their own.
+    const mark = (p: Assembly['placed'][number], end: 'in' | 'out'): JointMark => ({
+      key: `${p.piece.id}:${end}`,
+      port: { pieceId: p.piece.id, end },
+      piece: p.piece,
+      end,
+      position: p.start,
+      quaternion: p.quaternion,
+      at: {
+        x: p.start.x,
+        y: p.start.y,
+        z: p.start.z,
+        yaw: (p.yaw * 180) / Math.PI,
+      },
+    })
+
+    if (tool === 'disconnect') {
+      for (const p of asm.placed) {
+        // The joint is at the inlet of the part bonded on, which is the part that
+        // comes away when it is broken.
+        if (p.piece.joined && !p.piece.hidden) list.push(mark(p, 'in'))
+      }
+      return list
     }
-    for (const p of asm.placed) {
-      if (p.piece.hidden) continue
-      // The joint between two parts is the earlier one's outlet, named once.
-      list.push({
-        key: `${p.piece.id}:out`,
-        port: { pieceId: p.piece.id, end: 'out' },
-        piece: p.piece,
-        end: 'out',
-        position: p.start,
-        quaternion: p.quaternion,
-      })
+
+    for (const chain of asm.chains) {
+      const head = asm.placed[chain.pieces[0]]
+      const tail = asm.placed[chain.pieces[chain.pieces.length - 1]]
+      if (head && !head.piece.hidden) list.push(mark(head, 'in'))
+      if (tail && !tail.piece.hidden) list.push(mark(tail, 'out'))
     }
     return list
-  }, [asm])
-
-  // Nothing armed still builds at the tail, so the tail is shown as the default.
-  const fallback = armedPort ? null : ports[ports.length - 1]?.key
+  }, [asm, tool])
 
   useEffect(() => () => void (document.body.style.cursor = ''), [])
 
+  // A mark that leaves the stage — the tool changed, or the joint it named has
+  // just been made — takes its hover with it. Without this the mark that was
+  // under the pointer is unmounted before it can say the pointer has left, and
+  // nothing is left to hand the cursor back.
+  useEffect(() => {
+    setHovered(null)
+    document.body.style.cursor = ''
+  }, [marks])
+
   return (
     <group>
-      {ports.map(({ key, port, piece, end, position, quaternion }) => {
-        const armed = armedPort?.pieceId === port.pieceId && armedPort.end === port.end
-        const live = armed || key === hovered
+      {marks.map(({ key, port, piece, end, position, quaternion, at }) => {
+        const picked = samePort(pendingPort, port)
+        // With an end already in hand, only the ones it can actually mate with
+        // are live — a second outlet has nothing to offer it.
+        const reachable = breaking || !pendingPort || picked || canConnect(pieces, pendingPort, port)
+        const live = picked || key === hovered
+        const color = breaking
+          ? key === hovered
+            ? PORT_BREAK
+            : PORT_JOINED
+          : picked
+            ? PORT_PICKED
+            : reachable
+              ? PORT_OPEN
+              : PORT_IDLE
         return (
           <PortMark
             key={key}
-            spec={spec}
+            spec={specOf(piece)}
             piece={piece}
             end={end}
             position={position}
             quaternion={quaternion}
-            color={armed ? PORT_ARMED : key === fallback ? PORT_DEFAULT : PORT_IDLE}
-            glow={live ? 0.85 : key === fallback ? 0.45 : 0.2}
+            color={color}
+            glow={live ? 0.9 : reachable ? 0.5 : 0.15}
             live={live}
-            // Clicking the armed port again hands building back to the tail.
-            onArm={() => armPort(armed ? null : port)}
+            onArm={() => (breaking ? breakJoint(piece.id, at) : pickPort(port))}
             onEnter={() => {
               setHovered(key)
               document.body.style.cursor = 'pointer'
@@ -340,19 +390,159 @@ function Ports({ asm, spec }: { asm: Assembly; spec: TubeSpec }) {
   )
 }
 
-function Marble({ asm, spec }: { asm: Assembly; spec: TubeSpec }) {
-  const { marbleDiameter, marbleColor, running, loop, timeScale, friction, resetToken } = useRun()
+/**
+ * The three axis arrows, on the selected part. Dragging one moves the whole run
+ * that part belongs to: a bonded part cannot travel on its own, which is what
+ * being bonded means, so the arrows write the placement at the head of the run
+ * and everything joined to it follows.
+ *
+ * The handle is put on the part that was picked rather than at the head of the
+ * run, so it is where the pointer already is; the fixed offset between the two
+ * is what turns a drag there into a placement here.
+ */
+function MoveGizmo({ asm }: { asm: Assembly }) {
+  const { selectedId, moveChain } = useRun()
+  const [proxy, setProxy] = useState<THREE.Object3D | null>(null)
+  const placed = asm.placed.find((p) => p.piece.id === selectedId)
+  const root = placed ? asm.chains[placed.chain]?.pieces[0] : undefined
+  const at = root === undefined ? null : placementOf(asm.placed[root].piece)
+
+  if (!placed || !at || !selectedId) return null
+  // Where the head of the run stands relative to the part under the arrows. The
+  // run is rigid, so this holds for the whole drag.
+  const dx = at.x - placed.start.x
+  const dy = at.y - placed.start.y
+  const dz = at.z - placed.start.z
+  // Tenths of a millimetre — finer than anything printable, and it keeps the
+  // numbers in the timeline readable.
+  const tidy = (v: number) => Math.round(v * 10) / 10
+
+  return (
+    <>
+      <object3D ref={setProxy} position={[placed.start.x, placed.start.y, placed.start.z]} />
+      {proxy && (
+        <TransformControls
+          object={proxy}
+          mode="translate"
+          space="world"
+          size={0.85}
+          onObjectChange={() =>
+            moveChain(
+              selectedId,
+              tidy(proxy.position.x + dx),
+              tidy(proxy.position.y + dy),
+              tidy(proxy.position.z + dz),
+            )
+          }
+        />
+      )}
+    </>
+  )
+}
+
+/**
+ * A heading, tidied: folded back into (-180, 180] so a run swung round and round
+ * never ends up carrying a four-figure angle, and cut to tenths of a degree,
+ * which is as fine as anything reads it.
+ */
+const tidyYaw = (deg: number) => {
+  const wrapped = (((deg + 180) % 360) + 360) % 360 - 180
+  return Math.round(wrapped * 10) / 10
+}
+
+/**
+ * The turn ring, on the selected part. Dragging it swings the whole run that
+ * part belongs to, for the same reason the arrows move the whole run: a bonded
+ * part cannot turn on its own.
+ *
+ * Only the upright is offered. A run is set down on a heading and nothing else —
+ * its climbs and its corners are the parts' own angles — so a roll or a tip
+ * about the other two axes would have nowhere to be written.
+ *
+ * The ring is centred on the part that was picked and the run turns about it, so
+ * the part under the pointer stands still while the rest swings round it. That
+ * means writing the head of the run a new place as well as a new heading: it is
+ * carried round the pivot by the same turn.
+ */
+function RotateGizmo({ asm }: { asm: Assembly }) {
+  const { selectedId, rotateChain } = useRun()
+  const [proxy, setProxy] = useState<THREE.Object3D | null>(null)
+  /**
+   * Where the run stood when the drag began. The whole drag is measured off it
+   * rather than off the last frame, so rounding the placement never accumulates
+   * into a drift over a long swing.
+   */
+  const from = useRef<{ at: Placement; pivot: THREE.Vector3; angle: number } | null>(null)
+  const placed = asm.placed.find((p) => p.piece.id === selectedId)
+  const root = placed ? asm.chains[placed.chain]?.pieces[0] : undefined
+  const at = root === undefined ? null : placementOf(asm.placed[root].piece)
+
+  if (!placed || !at || !selectedId) return null
+  // Tenths of a millimetre, as the arrows use — finer than anything printable.
+  const tidy = (v: number) => Math.round(v * 10) / 10
+
+  return (
+    <>
+      <object3D ref={setProxy} position={[placed.start.x, placed.start.y, placed.start.z]} />
+      {proxy && (
+        <TransformControls
+          object={proxy}
+          mode="rotate"
+          space="world"
+          size={0.85}
+          showX={false}
+          showZ={false}
+          onMouseDown={() => {
+            from.current = { at, pivot: placed.start.clone(), angle: proxy.rotation.y }
+          }}
+          onMouseUp={() => {
+            from.current = null
+          }}
+          onObjectChange={() => {
+            const f = from.current
+            if (!f) return
+            // Y-only, so the proxy's rotation stays a pure heading and the Euler
+            // reads straight off it. Wrapping past ±180° is harmless: both the
+            // heading and the swing about the pivot repeat every turn.
+            const d = proxy.rotation.y - f.angle
+            const c = Math.cos(d)
+            const s = Math.sin(d)
+            const px = f.at.x - f.pivot.x
+            const pz = f.at.z - f.pivot.z
+            rotateChain(selectedId, {
+              // The same turn the heading takes, applied to where the head of
+              // the run stands relative to the part being turned about.
+              x: tidy(f.pivot.x + px * c + pz * s),
+              y: f.at.y,
+              z: tidy(f.pivot.z - px * s + pz * c),
+              yaw: tidyYaw(f.at.yaw + THREE.MathUtils.radToDeg(d)),
+            })
+          }}
+        />
+      )}
+    </>
+  )
+}
+
+function Marble({ asm }: { asm: Assembly }) {
+  const { marbleDiameter, marbleColor, running, loop, timeScale, friction, resetToken, innerDiameter } =
+    useRun()
   const tint = useMemo(() => shades(marbleColor), [marbleColor])
   const mesh = useRef<THREE.Mesh>(null)
   const state = useRef(createMarble())
   const radius = marbleDiameter / 2
-  const restOffset = Math.max(spec.innerR - radius, 0)
+  // The floor is the bore of whichever part the marble is in, so it drops as it
+  // rolls into a part sized wider than the run and rides up in a narrower one.
+  const rest = useCallback(
+    (piece: Piece) => Math.max(boreOf(piece, innerDiameter) / 2 - radius, 0),
+    [innerDiameter, radius],
+  )
 
   useLayoutEffect(() => {
-    resetMarble(state.current, asm, restOffset)
+    resetMarble(state.current, asm, rest)
     mesh.current?.position.copy(state.current.position)
     scrub.s = 0
-  }, [asm, restOffset, resetToken])
+  }, [asm, rest, resetToken])
 
   // Off stage means no readout to give — leave the HUD at zero, not at the last run's numbers.
   useEffect(
@@ -370,16 +560,16 @@ function Marble({ asm, spec }: { asm: Assembly; spec: TubeSpec }) {
     const m = state.current
     // The scrubber has the wheel whenever it has posted somewhere to be.
     if (scrub.seek !== null) {
-      seekMarble(m, asm, scrub.seek, friction, restOffset, radius)
+      seekMarble(m, asm, scrub.seek, friction, rest, radius)
       scrub.seek = null
     } else if (running) {
       const dt = Math.min(delta, 1 / 30) * timeScale
       // Fixed sub-steps keep the joint hand-off stable at high speed.
       const steps = 4
       for (let i = 0; i < steps; i++) {
-        const { lost } = stepMarble(m, dt / steps, asm, friction, restOffset, radius)
+        const { lost } = stepMarble(m, dt / steps, asm, friction, rest, radius)
         if (lost) {
-          if (loop) resetMarble(m, asm, restOffset)
+          if (loop) resetMarble(m, asm, rest)
           break
         }
       }
@@ -582,62 +772,6 @@ function CameraRig({
   return null
 }
 
-function Hud({ spec, asm }: { spec: TubeSpec; asm: Assembly }) {
-  const { running, toggleRunning, resetSim, exportFormat, shading, toggleShading } = useRun()
-  // Same name the Export panel would give it — the HUD is just a shortcut.
-  const basename = useRun(exportBasename)
-  const [t, setT] = useState({ speed: 0, distance: 0, airborne: false })
-
-  useEffect(() => {
-    const id = setInterval(() => setT({ ...telemetry }), 100)
-    return () => clearInterval(id)
-  }, [])
-
-  return (
-    <div className="hud">
-      <UndoRedo />
-      {/* Orange only while running — idle it stays a plain HUD button. */}
-      <button className={running ? 'primary on' : ''} onClick={toggleRunning}>
-        {running ? '❚❚ Simulator' : '▶ Simulator'}
-      </button>
-      <button onClick={resetSim}>↺ Reset</button>
-      <button
-        className={shading === 'transparent' ? 'on' : ''}
-        aria-pressed={shading === 'transparent'}
-        title={
-          shading === 'transparent'
-            ? 'Switch back to solid shading'
-            : 'See through the tube walls to watch the marble inside'
-        }
-        onClick={toggleShading}
-      >
-        {shading === 'transparent' ? '◍ Transparent' : '◉ Solid'}
-      </button>
-      <button
-        disabled={!asm.placed.length}
-        title={`Print plate as ${exportFormat.toUpperCase()} — every piece laid flat and separated, ready to slice`}
-        onClick={() => exportPrintPlate(spec, asm.placed, exportFormat, basename)}
-      >
-        ⤓ {exportFormat.toUpperCase()}
-      </button>
-      <div className="telemetry">
-        <div>
-          <b>{(t.speed / 1000).toFixed(2)}</b>
-          <span>m/s</span>
-        </div>
-        <div>
-          <b>{Math.round(t.distance)}</b>
-          <span>mm travelled</span>
-        </div>
-        <div>
-          <b>{t.airborne ? 'AIR' : 'IN TUBE'}</b>
-          <span>state</span>
-        </div>
-      </div>
-    </div>
-  )
-}
-
 /**
  * The transport bar along the bottom of the workplane: run and pause, and a
  * slider from the start of the run to its end that both follows the marble and
@@ -646,7 +780,7 @@ function Hud({ spec, asm }: { spec: TubeSpec; asm: Assembly }) {
  * go anywhere and it carries on as if it had rolled to that point.
  */
 function Scrubber({ asm, shifted }: { asm: Assembly; shifted: boolean }) {
-  const { running, toggleRunning, scrubSim, resetSim } = useRun()
+  const { running, toggleRunning, scrubSim, resetSim, units } = useRun()
   const total = asm.totalLength
   const [s, setS] = useState(0)
   /**
@@ -704,14 +838,14 @@ function Scrubber({ asm, shifted }: { asm: Assembly; shifted: boolean }) {
           value={s}
           onChange={(e) => seek(Number(e.target.value))}
           aria-label="Marble position along the run"
-          aria-valuetext={`${Math.round(s)} of ${Math.round(total)} mm`}
+          aria-valuetext={`${coarseText(s, units)} of ${formatCoarse(total, units)}`}
         />
         <div className="scrub-ends">
-          <span>Start · 0 mm</span>
+          <span>Start · {formatCoarse(0, units)}</span>
           <b>
-            {Math.round(s)} mm · {pct}%
+            {formatCoarse(s, units)} · {pct}%
           </b>
-          <span>End · {Math.round(total)} mm</span>
+          <span>End · {formatCoarse(total, units)}</span>
         </div>
       </div>
       <button
@@ -729,14 +863,26 @@ function Scrubber({ asm, shifted }: { asm: Assembly; shifted: boolean }) {
 /** Width of the slide-out settings panel; the corner controls step aside by this much. */
 const SETTINGS_WIDTH = 312
 
+/**
+ * Height of the toolbar across the top of the stage. The bar is snapped under
+ * the project bar and spans the full width, so everything else on the stage —
+ * the model tree, the view cube, the workplane tag — is set down below it. Kept
+ * here as well as in the stylesheet because the view cube is placed inside the
+ * canvas, in pixels from its edge, where CSS cannot reach it.
+ */
+const TOOLBAR_HEIGHT = 62
+
 /** How far the pointer may wander between press and release and still count as a click, in px. */
 const CLICK_SLOP = 4
 
 export default function Scene3D() {
-  const { pieces, innerDiameter, wallThickness, variant, selectedId, select, theme, pieceColor, shading, rightPanel, simStarted } =
+  const { pieces, innerDiameter, wallThickness, variant, selectedId, select, theme, pieceColor, shading, rightPanel, simStarted, tool } =
     useRun()
   // Either slide-out takes the same gutter, so the corner controls step aside for both.
   const docked = rightPanel !== null
+  // A joint tool owns the left button while it is in hand: a click belongs to the
+  // gesture, not to picking parts.
+  const picking = tool === 'select' || tool === 'move' || tool === 'rotate'
   const xray = shading === 'transparent'
   const palette = PALETTE[theme]
   // One set of shades per colour in play, so parts painted alike share theirs
@@ -748,15 +894,25 @@ export default function Scene3D() {
     }
     return map
   }, [pieceColor, pieces])
-  // One spec per style, so parts of the same style share a spec — and with it a
-  // mesh — however the run is styled.
-  const specs = useMemo(
-    () => tubeSpecs(innerDiameter, wallThickness),
-    [innerDiameter, wallThickness],
+  // The tube the run is cut from: what a part with no bore, wall or style of
+  // its own is made to, and what the spec strip and the camera work in.
+  const spec = useMemo(
+    () => tubeSpec(innerDiameter, wallThickness, variant),
+    [innerDiameter, wallThickness, variant],
   )
-  // Bore and wall are the run's, so everything that is not a part's own solid —
-  // the marble, the joints, the ground — takes the run's spec.
-  const spec = specs[variant]
+  // One spec per tube actually in play, so parts cut alike share a spec — and
+  // with it a mesh — however mixed the run is.
+  const specOf = useMemo(() => {
+    const cache = new Map<string, TubeSpec>()
+    return (piece: Piece) => {
+      const own = pieceSpec(spec, piece)
+      const key = `${own.variant}:${own.innerR}:${own.wall}`
+      const shared = cache.get(key)
+      if (shared) return shared
+      cache.set(key, own)
+      return own
+    }
+  }, [spec])
   const asm = useMemo(() => buildAssembly(pieces), [pieces])
   const [goal, setGoal] = useState<ViewGoal>({
     token: 0,
@@ -772,7 +928,9 @@ export default function Scene3D() {
     if (!p) return null
     // Every chord, so a bent part frames on what it really occupies.
     const points = [p.start, p.end, ...p.segments.map((seg) => seg.end)]
-    return new THREE.Box3().setFromPoints(points).expandByScalar(spec.outerR)
+    // Padded out to that part's own wall, which is not the run's if it has been
+    // sized on its own.
+    return new THREE.Box3().setFromPoints(points).expandByScalar(specOf(p.piece).outerR)
   }
 
   // Home stands back at the fixed angle and takes in the whole workplane.
@@ -788,19 +946,28 @@ export default function Scene3D() {
   const orbitRef = useRef<OrbitFn | null>(null)
   const orbit = useCallback((dx: number, dy: number) => orbitRef.current?.(dx, dy), [])
 
-  // Re-frame the camera when the run gains or loses a piece; the first framing is the
-  // initial goal above, so mounting does not queue a second one.
+  // Re-frame the camera when the stage gains or loses a piece, or when a joint is
+  // made or broken — each of those moves whole parts about, rather than nudging
+  // one. Editing a part's own angles is deliberately not in here: that must never
+  // yank the view. The first framing is the initial goal above, so mounting does
+  // not queue a second one.
+  const joints = pieces.reduce((n, p) => n + (p.joined ? 1 : 0), 0)
   const mounted = useRef(false)
   useEffect(() => {
     if (!mounted.current) {
       mounted.current = true
       return
     }
-    // Always the whole run — adding a piece must not crop the view to the selection.
+    // Always the whole stage — adding a piece must not crop the view to the selection.
     setGoal((g) => ({ token: g.token + 1, dir: null, frame: true, box: null, pad: FIT_PAD }))
-  }, [pieces.length])
+  }, [pieces.length, joints])
 
-  const groundY = (asm.bounds.isEmpty() ? 0 : asm.bounds.min.y) - spec.outerR - 20
+  // The workplane is a datum, not a floor: it stays on the world's y = 0 plane
+  // whatever the parts do. Hung off the model's own bounds it travelled with a
+  // part being lifted, and a plane that moves with the thing you are measuring
+  // against it is no reference at all — a part dragged up the green arrow read
+  // as the ground sinking rather than the part rising.
+  const groundY = 0
   const stage = useRef<HTMLDivElement>(null)
 
   /**
@@ -840,7 +1007,12 @@ export default function Scene3D() {
     <div
       className="stage-3d"
       ref={stage}
-      style={{ '--parts-w': `${SETTINGS_WIDTH}px` } as React.CSSProperties}
+      style={
+        {
+          '--parts-w': `${SETTINGS_WIDTH}px`,
+          '--toolbar-h': `${TOOLBAR_HEIGHT}px`,
+        } as React.CSSProperties
+      }
       // Ahead of the canvas, so a right-press that lands on nothing has already
       // cleared the last one by the time the parts get their say.
       onPointerDownCapture={(e) => {
@@ -854,8 +1026,9 @@ export default function Scene3D() {
         dpr={[1, 2]}
         // Opening pose, kept on the same side as HOME_DIR.
         camera={{ fov: 45, position: [-200, 160, 260] }}
-        // Only the left button selects, so only the left button clears the selection.
-        onPointerMissed={(e) => e.button === 0 && select(null)}
+        // Only the left button selects, so only the left button clears the
+        // selection — and only while the left button is still ours to pick with.
+        onPointerMissed={(e) => e.button === 0 && picking && select(null)}
       >
         <color attach="background" args={[palette.background]} />
         <fog attach="fog" args={[palette.background, 1200, 4200]} />
@@ -898,21 +1071,25 @@ export default function Scene3D() {
         {asm.placed.filter((p) => !p.piece.hidden).map((p) => (
           <PieceMesh
             key={p.piece.id}
-            spec={specs[variantOf(p.piece, variant)]}
+            spec={specOf(p.piece)}
             piece={p.piece}
             position={p.start}
             quaternion={p.quaternion}
             selected={p.piece.id === selectedId}
             tint={tints.get(colorOf(p.piece, pieceColor))!}
             xray={xray}
+            pickable={picking}
             onClick={() => select(p.piece.id === selectedId ? null : p.piece.id)}
             onRightDown={(x, y) => (pressed.current = { pieceId: p.piece.id, x, y })}
           />
         ))}
 
         {/* No marble until the Simulator button has asked for one. */}
-        {simStarted && asm.placed.length > 0 && <Marble asm={asm} spec={spec} />}
-        <Ports asm={asm} spec={spec} />
+        {simStarted && asm.placed.length > 0 && <Marble asm={asm} />}
+        <Joints asm={asm} specOf={specOf} />
+        {/* The handles are the tools themselves, so each is only on stage with its own in hand. */}
+        {tool === 'move' && <MoveGizmo asm={asm} />}
+        {tool === 'rotate' && <RotateGizmo asm={asm} />}
 
         <OrbitControls
           makeDefault
@@ -925,14 +1102,19 @@ export default function Scene3D() {
           mouseButtons={{ LEFT: undefined, MIDDLE: THREE.MOUSE.PAN, RIGHT: THREE.MOUSE.ROTATE }}
         />
         <CameraRig asm={asm} goal={goal} orbitRef={orbitRef} />
-        {/* Margin is the cube's centre; .view-tools is positioned to hang below it.
-            The open parts list pushes the whole corner cluster clear of it. */}
-        <GizmoHelper alignment="top-right" margin={[64, docked ? 64 + SETTINGS_WIDTH : 64]}>
+        {/* Margin is the cube's centre — in from the right, and down from the top
+            far enough to clear the toolbar. .view-tools is positioned to hang
+            below it, and the open parts list pushes the whole corner cluster
+            clear of the panel. */}
+        <GizmoHelper
+          alignment="top-right"
+          margin={[docked ? 64 + SETTINGS_WIDTH : 64, 64 + TOOLBAR_HEIGHT]}
+        >
           <ViewCube palette={palette.cube} onPick={snapTo} onOrbit={orbit} />
         </GizmoHelper>
       </Canvas>
 
-      <Hud spec={spec} asm={asm} />
+      <Toolbar spec={spec} asm={asm} />
       <Scrubber asm={asm} shifted={docked} />
       <ActiveParts />
       <div className={docked ? 'view-tools shifted' : 'view-tools'}>

@@ -21,8 +21,9 @@ import {
   angleSpec,
   cornerSpec,
   headingAt,
+  isChainRoot,
   degLabel,
-  variantOf,
+  pieceSpec,
   PIECE_LIMITS,
   slopeLimitsFor,
   bendLimitsFor,
@@ -31,6 +32,7 @@ import {
   type Piece,
   type DraftView,
 } from '../store'
+import { UNIT_WORD, formatLength, lengthText } from '../lib/units'
 
 /* ------------------------------------------------------------------ */
 /* Shared drafting primitives                                          */
@@ -230,12 +232,14 @@ function FlowCap({
 /* ------------------------------------------------------------------ */
 
 function CrossSection() {
-  const { innerDiameter, wallThickness, variant, marbleDiameter, pieces, selectedId } = useRun()
-  // Style is a part's own, so the front face is the selected part's — and the
-  // run's own style whenever nothing is picked.
+  const { innerDiameter, wallThickness, variant, marbleDiameter, pieces, selectedId, units } =
+    useRun()
+  // Bore, wall and style are each a part's own, so the front face is the section
+  // of the selected part — and the run's own tube whenever nothing is picked.
   const selected = pieces.find((p) => p.id === selectedId)
-  const style = selected ? variantOf(selected, variant) : variant
-  const spec = tubeSpec(innerDiameter, wallThickness, style)
+  const run = tubeSpec(innerDiameter, wallThickness, variant)
+  const spec = selected ? pieceSpec(run, selected) : run
+  const style = spec.variant
   const marbleR = marbleDiameter / 2
   const openDeg = Math.round(360 - (spec.sweep * 180) / Math.PI)
 
@@ -287,7 +291,7 @@ function CrossSection() {
         y1={dimY1}
         x2={ri}
         y2={dimY1}
-        label={`Ø${innerDiameter.toFixed(1)} bore`}
+        label={`Ø${lengthText(spec.innerR * 2, units)} bore`}
         off={1.4}
       />
       <Dim
@@ -296,7 +300,7 @@ function CrossSection() {
         y1={dimY2}
         x2={ro}
         y2={dimY2}
-        label={`Ø${(R * 2).toFixed(1)} outer`}
+        label={`Ø${lengthText(R * 2, units)} outer`}
         off={1.4}
       />
 
@@ -311,7 +315,7 @@ function CrossSection() {
         y1={ri}
         x2={wallX}
         y2={ro}
-        label={`t ${wallThickness.toFixed(1)}`}
+        label={`t ${lengthText(spec.wall, units)}`}
         off={1.4}
       />
 
@@ -342,7 +346,9 @@ interface DraftPart {
   id: string
   index: number
   points: Pt[]
-  /** Where this part's first point sits in the run's own polyline. */
+  /** Which run this part belongs to — parts joined together share one polyline. */
+  chain: number
+  /** Where this part's first point sits in that run's own polyline. */
   from: number
   /** False when the part's eye is off in the parts list — it holds its place but is not drawn. */
   shown: boolean
@@ -507,8 +513,13 @@ function AssemblyDraft({ shifted }: { shifted: boolean }) {
     screenCalibrated,
     keepConnected,
     setKeepConnected,
+    units,
   } = useRun()
-  const spec = tubeSpec(innerDiameter, wallThickness, variant)
+  // The tube the run is cut from — what a part with no size of its own follows.
+  const spec = useMemo(
+    () => tubeSpec(innerDiameter, wallThickness, variant),
+    [innerDiameter, wallThickness, variant],
+  )
   const proj = VIEWS[draftView]
   const { ref, size } = useSize<HTMLDivElement>()
   const [view, setView] = useState({ scale: 1, tx: 0, ty: 0 })
@@ -525,7 +536,7 @@ function AssemblyDraft({ shifted }: { shifted: boolean }) {
   const before = useRef<{ pieces: Piece[]; tx: number; ty: number } | null>(null)
   const [grabbed, setGrabbed] = useState<string | null>(null)
 
-  const { parts, chain, grips } = useMemo(() => {
+  const { parts, chains, grips } = useMemo(() => {
     const asm = buildAssembly(pieces)
     const flat = proj.developed === true
     const parts: DraftPart[] = []
@@ -562,20 +573,23 @@ function AssemblyDraft({ shifted }: { shifted: boolean }) {
       const startX = points[0].x
       const startY = points[0].y
       const last = points[points.length - 1]
-      // Each part picks up on the joint the one before it ended at, so the run
-      // is one polyline and the parts are windows onto it.
+      // A part joined onto another picks up on the joint that one ended at, so a
+      // run is one polyline and its parts are windows onto it. A part standing on
+      // its own starts a polyline of its own instead.
       const previous = parts[parts.length - 1]
+      const root = isChainRoot(pieces, p.index)
       parts.push({
         id: piece.id,
         index: p.index,
         points,
-        from: previous ? previous.from + previous.points.length - 1 : 0,
+        chain: previous ? previous.chain + (root ? 1 : 0) : 0,
+        from: previous && !root ? previous.from + previous.points.length - 1 : 0,
         shown,
         label: angle
-          ? `${a.entry}+${a.exit} mm  ∠${degLabel(piece.slope)}°  ⌐${degLabel(a.bend)}°${a.fillet ? `  r${a.fillet}` : '  sharp'}`
+          ? `${lengthText(a.entry, units)}+${formatLength(a.exit, units)}  ∠${degLabel(piece.slope)}°  ⌐${degLabel(a.bend)}°${a.fillet ? `  r${lengthText(a.fillet, units)}` : '  sharp'}`
           : corner
-            ? `${c.entry}+${c.exit} mm  ∠${degLabel(piece.slope)}°  ↻${degLabel(c.sweep)}°${c.fillet ? `  r${c.fillet}` : '  sharp'}`
-            : `${piece.length} mm  ∠${degLabel(piece.slope)}°${piece.turn ? `  ↻${degLabel(piece.turn)}°` : ''}`,
+            ? `${lengthText(c.entry, units)}+${formatLength(c.exit, units)}  ∠${degLabel(piece.slope)}°  ↻${degLabel(c.sweep)}°${c.fillet ? `  r${lengthText(c.fillet, units)}` : '  sharp'}`
+            : `${formatLength(piece.length, units)}  ∠${degLabel(piece.slope)}°${piece.turn ? `  ↻${degLabel(piece.turn)}°` : ''}`,
       })
 
       const yawPrev = p.yaw - (piece.turn * Math.PI) / 180
@@ -784,25 +798,51 @@ function AssemblyDraft({ shifted }: { shifted: boolean }) {
 
     // The joint between two parts is one point, not two — walls offset from this
     // mitre at every joint alike, so nothing gaps or overlaps where parts meet.
-    const chain = parts.flatMap((part, i) => (i === 0 ? part.points : part.points.slice(1)))
+    // Two parts that are not joined share no such point, so each run is gathered
+    // on its own and offset on its own.
+    const chains: Pt[][] = []
+    for (const part of parts) {
+      const line = (chains[part.chain] ??= [])
+      line.push(...(part.from === 0 ? part.points : part.points.slice(1)))
+    }
 
-    return { parts, chain, grips }
+    return { parts, chains, grips }
   }, [pieces, draftView])
 
   /**
-   * The run's walls and bores, offset once along the whole chain. Each part is
-   * then drawn from its own stretch of them, so a part is still its own pickable
-   * shape while the joints it shares are drawn exactly once.
+   * A part's walls and bore. Each run is offset along the whole of it, once per
+   * radius actually used on it: parts cut from the same tube share the offset,
+   * so the joints between them still mitre to one point and are drawn exactly
+   * once, while a part sized on its own gets a wall of its own — which simply
+   * steps at the joint, because that is what a change of bore between two parts
+   * really does.
    */
-  const walls = useMemo(
-    () =>
-      chain.length < 2
-        ? null
-        : {
-            outer: [offsetPath(chain, spec.outerR), offsetPath(chain, -spec.outerR)],
-            bore: [offsetPath(chain, spec.innerR), offsetPath(chain, -spec.innerR)],
-          },
-    [chain, spec.outerR, spec.innerR],
+  const walls = useMemo(() => {
+    const sizes = new Map(pieces.map((p) => [p.id, pieceSpec(spec, p)]))
+    const cache = chains.map(() => new Map<number, [Pt[], Pt[]]>())
+    const offsetAt = (chain: number, r: number): [Pt[], Pt[]] | null => {
+      const line = chains[chain]
+      if (!line || line.length < 2) return null
+      let pair = cache[chain].get(r)
+      if (!pair) {
+        pair = [offsetPath(line, r), offsetPath(line, -r)]
+        cache[chain].set(r, pair)
+      }
+      return pair
+    }
+    return (part: DraftPart) => {
+      const own = sizes.get(part.id)
+      if (!own) return null
+      const outer = offsetAt(part.chain, own.outerR)
+      const bore = offsetAt(part.chain, own.innerR)
+      return outer && bore ? { outer, bore, outerR: own.outerR } : null
+    }
+  }, [chains, pieces, spec])
+
+  /** The fattest part on the paper — what the framing has to leave room for. */
+  const outerReach = useMemo(
+    () => pieces.reduce((r, p) => Math.max(r, pieceSpec(spec, p).outerR), spec.outerR),
+    [pieces, spec],
   )
 
   /** Only the parts whose eye is on — what the drawing is actually about. */
@@ -816,7 +856,7 @@ function AssemblyDraft({ shifted }: { shifted: boolean }) {
     }
     const xs = pts.map((p) => p.x)
     const ys = pts.map((p) => p.y)
-    const m = spec.outerR + 26
+    const m = outerReach + 26
     const minX = Math.min(...xs) - m
     const maxX = Math.max(...xs) + m
     const minY = Math.min(...ys) - m
@@ -827,7 +867,7 @@ function AssemblyDraft({ shifted }: { shifted: boolean }) {
       tx: size.w / 2 - ((minX + maxX) / 2) * scale,
       ty: size.h / 2 - ((minY + maxY) / 2) * scale,
     })
-  }, [visible, size.w, size.h, spec.outerR])
+  }, [visible, size.w, size.h, outerReach])
 
   // Re-framed when the drawn set changes, so switching parts off zooms in on
   // whatever is left rather than leaving it adrift in the old frame.
@@ -1211,19 +1251,21 @@ function AssemblyDraft({ shifted }: { shifted: boolean }) {
           </defs>
           <rect width={size.w} height={size.h} fill="url(#grid-coarse)" />
 
-          {walls && visible.map((part) => {
+          {visible.map((part) => {
+            const tube = walls(part)
+            if (!tube) return null
             const on = part.id === selectedId
             /** Model-space path → an SVG point list in screen space. */
             const screen = (pts: Pt[]) => pts.map((p) => `${px(p.x)},${py(p.y)}`).join(' ')
-            /** This part's stretch of a path drawn along the whole run. */
+            /** This part's stretch of a path drawn along the whole of its run. */
             const span = (path: Pt[]) => path.slice(part.from, part.from + part.points.length)
             // Out along one wall and back along the other closes the part.
-            const wall = [...span(walls.outer[0]), ...span(walls.outer[1]).reverse()]
-            const bores = walls.bore.map(span)
+            const wall = [...span(tube.outer[0]), ...span(tube.outer[1]).reverse()]
+            const bores = tube.bore.map(span)
             // The dimension spans the whole part, however many chords it bends through.
             const head = part.points[0]
             const tail = part.points[part.points.length - 1]
-            const d = offsetPath([head, tail], spec.outerR + 16)
+            const d = offsetPath([head, tail], tube.outerR + 16)
 
             return (
               <g
@@ -1273,8 +1315,12 @@ function AssemblyDraft({ shifted }: { shifted: boolean }) {
               {(() => {
                 // The caps mark where the drawn run starts and ends, so with
                 // parts switched off they move in to whatever is still shown.
-                const head = visible[0].points
-                const tail = visible[visible.length - 1].points
+                // With several runs on the paper they belong to the one the
+                // marble travels — the first — rather than spanning two runs
+                // that have nothing to do with each other.
+                const run = visible.filter((p) => p.chain === visible[0].chain)
+                const head = run[0].points
+                const tail = run[run.length - 1].points
                 const dir = (a: Pt, b: Pt) => {
                   const dx = b.x - a.x
                   const dy = b.y - a.y
@@ -1391,13 +1437,14 @@ const SETTINGS_WIDTH = 312
 export default function Draft2D() {
   // Either slide-out takes the same gutter, so the panes step aside for both.
   const docked = useRun((s) => s.rightPanel !== null)
+  const units = useRun((s) => s.units)
 
   return (
     <div className="stage-2d" style={{ '--parts-w': `${SETTINGS_WIDTH}px` } as React.CSSProperties}>
       <div className="pane">
         <header className="pane-head">
           <h3>Section A–A · Tube front face</h3>
-          <span>1:1 mm</span>
+          <span>1:1 {UNIT_WORD[units]}</span>
         </header>
         <div className="pane-body center">
           <CrossSection />

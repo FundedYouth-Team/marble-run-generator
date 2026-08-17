@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { angleSpec, cornerSpec, type Piece, type TubeVariant } from '../store'
+import { angleSpec, cornerSpec, type Piece, type TubeSpec } from '../store'
 
 /**
  * The centreline a part is built around, in the part's own frame: it starts at
@@ -131,20 +131,21 @@ export function centerlineFor(piece: Piece): Centerline {
 /**
  * Everything about a part that changes its solid, and nothing that does not —
  * so two parts with the same key can share one mesh, and editing a part's
- * position or name never rebuilds it. `variant` is the style the part is
- * actually cut in, already resolved: two parts of the same shape in different
- * styles are different solids.
+ * position or name never rebuilds it. `spec` is the tube the part is actually
+ * cut from, already resolved: same shape in another style, bore or wall is
+ * another solid, so all three are in the key.
  */
-export function shapeKey(piece: Piece, variant: TubeVariant): string {
+export function shapeKey(piece: Piece, spec: TubeSpec): string {
+  const tube = `${spec.variant}:${spec.innerR}:${spec.wall}`
   if (piece.type === 'angle') {
     const a = angleSpec(piece)
-    return `${variant}:angle:${a.entry}:${a.bend}:${a.exit}:${a.fillet}`
+    return `${tube}:angle:${a.entry}:${a.bend}:${a.exit}:${a.fillet}`
   }
   if (piece.type === 'corner') {
     const c = cornerSpec(piece)
-    return `${variant}:corner:${c.entry}:${c.sweep}:${c.exit}:${c.fillet}`
+    return `${tube}:corner:${c.entry}:${c.sweep}:${c.exit}:${c.fillet}`
   }
-  return `${variant}:straight:${piece.length}`
+  return `${tube}:straight:${piece.length}`
 }
 
 /** Centreline length of a part, mm — what it actually contributes to the run. */

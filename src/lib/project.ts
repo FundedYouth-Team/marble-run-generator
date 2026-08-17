@@ -11,6 +11,7 @@ import {
   projectSlug,
   type LoadedProject,
   type Piece,
+  type Placement,
   type PieceType,
   type TubeVariant,
 } from '../store'
@@ -34,8 +35,18 @@ export const PROJECT_FORMAT = 'marble-run-generator'
  * never touches the parts themselves.
  * v4 added the corner connector, which a v3 reader would turn into a straight
  * tube — the run would come back with its turns missing.
+ * v5 gave each part a joint of its own and a place to stand: parts are only in
+ * the same run if they are joined together. A v4 reader chains every part
+ * head-to-tail, so it would weld separate runs into one and lose wherever they
+ * were standing. Read the other way round, a file from v4 or earlier has no
+ * joints in it and every part in it was welded to the one before, which is what
+ * {@link parseProject} puts back.
+ * v6 gave each part its own bore and wall. A v5 reader drops them and cuts every
+ * part to the run's tube, so a run built from more than one size would come back
+ * the wrong size — parts that were never meant to mate would look as though they
+ * did.
  */
-export const PROJECT_VERSION = 4
+export const PROJECT_VERSION = 6
 
 /** Double-barrelled so a saved run reads as a project, not as loose data. */
 export const PROJECT_EXT = '.mrun.json'
@@ -99,6 +110,15 @@ function num(v: unknown, min: number, max: number, fallback: number): number {
   return typeof v === 'number' && Number.isFinite(v) ? clamp(v, min, max) : fallback
 }
 
+/**
+ * A number that is really in range, rather than one clamped into it. Used where
+ * the field is optional and following the run is the better answer than pinning
+ * a part to the nearest legal size.
+ */
+function inRange(v: unknown, limits: { min: number; max: number }): boolean {
+  return typeof v === 'number' && Number.isFinite(v) && v >= limits.min && v <= limits.max
+}
+
 function isVariant(v: unknown): v is TubeVariant {
   return typeof v === 'string' && v in VARIANT_LABEL
 }
@@ -107,14 +127,34 @@ function isType(v: unknown): v is PieceType {
   return typeof v === 'string' && v in PART_LABEL
 }
 
+/** How far from the origin a part may be stood down, mm — past this it is junk. */
+const PLACEMENT_LIMIT = 100_000
+
+/**
+ * Where a saved part was standing. Anything missing or unreadable puts it on the
+ * origin, which is where a part with no placement of its own stands anyway.
+ */
+function readPlacement(raw: unknown): Placement | undefined {
+  if (!raw || typeof raw !== 'object') return undefined
+  const o = raw as Record<string, unknown>
+  return {
+    x: num(o.x, -PLACEMENT_LIMIT, PLACEMENT_LIMIT, 0),
+    y: num(o.y, -PLACEMENT_LIMIT, PLACEMENT_LIMIT, 0),
+    z: num(o.z, -PLACEMENT_LIMIT, PLACEMENT_LIMIT, 0),
+    yaw: num(o.yaw, -360, 360, 0),
+  }
+}
+
 /**
  * A saved part, made safe to load: anything missing or out of range falls back
  * to what a new part would have used, so a hand-edited file still opens. A file
  * from before part types had been added has no `type` at all, and every part in
- * it was a straight tube.
+ * it was a straight tube. `joined` is passed in rather than trusted, so a file
+ * written before joints existed comes back as the one welded run it was.
  */
-function readPiece(raw: unknown): Piece {
+function readPiece(raw: unknown, joined: boolean): Piece {
   const o = (raw ?? {}) as Record<string, unknown>
+  const at = joined ? undefined : readPlacement(o.at)
   const name = typeof o.name === 'string' && o.name.trim() ? o.name.slice(0, 60) : undefined
   const type: PieceType = isType(o.type) ? o.type : 'straight'
   return makePiece({
@@ -156,7 +196,19 @@ function readPiece(raw: unknown): Piece {
     ...(isVariant(o.variant) ? { variant: o.variant } : {}),
     // Same for colour, and a part painted something unreadable simply follows it too.
     ...(isHexColor(o.color) ? { color: o.color.toLowerCase() } : {}),
+    // Bore and wall the same way: only a part that was sized on its own carries
+    // one, and an unreadable size drops back to following the run rather than
+    // landing the part somewhere it could never be cut.
+    ...(inRange(o.innerDiameter, TUBE_LIMITS.innerDiameter)
+      ? { innerDiameter: o.innerDiameter as number }
+      : {}),
+    ...(inRange(o.wallThickness, TUBE_LIMITS.wallThickness)
+      ? { wallThickness: o.wallThickness as number }
+      : {}),
     ...(o.hidden === true ? { hidden: true } : {}),
+    // Bonded onto the part before it, or standing on its own somewhere — never
+    // both, so a file that says both is read as the joint it claims.
+    ...(joined ? { joined: true } : at ? { at } : {}),
   })
 }
 
@@ -192,6 +244,9 @@ export function parseProject(text: string): LoadedProject {
     20,
   )
   const name = typeof o.name === 'string' && o.name.trim() ? o.name.trim().slice(0, 60) : ''
+  // Before joints, the parts list *was* the run: every part after the first was
+  // welded to the one before it, so that is how a file from back then opens.
+  const welded = typeof o.version === 'number' ? o.version < 5 : true
 
   return {
     projectName: name || UNTITLED_PROJECT,
@@ -205,7 +260,10 @@ export function parseProject(text: string): LoadedProject {
     variant: isVariant(o.variant) ? o.variant : 'threequarter',
     // The marble has to stay inside whatever bore the file arrived with.
     marbleDiameter: num(o.marbleDiameter, 4, Math.max(4, innerDiameter - 1), 16),
-    pieces: o.pieces.map(readPiece),
+    // The first part is never joined to anything: there is nothing ahead of it.
+    pieces: o.pieces.map((raw, i) =>
+      readPiece(raw, i > 0 && (welded || (raw as Record<string, unknown> | null)?.joined === true)),
+    ),
   }
 }
 

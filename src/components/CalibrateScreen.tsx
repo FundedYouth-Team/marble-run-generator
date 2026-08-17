@@ -6,6 +6,7 @@ import {
   PX_PER_MM_MAX,
   REFERENCE_CARD_MM,
 } from '../store'
+import { formatDensity, formatLength } from '../lib/units'
 
 /**
  * Teaches the app how big a millimetre is on this particular screen.
@@ -17,6 +18,7 @@ import {
  */
 export default function CalibrateScreen({ open, onClose }: { open: boolean; onClose: () => void }) {
   const stored = useRun((s) => s.screenPxPerMm)
+  const units = useRun((s) => s.units)
   const setScreenPxPerMm = useRun((s) => s.setScreenPxPerMm)
   const resetScreenCalibration = useRun((s) => s.resetScreenCalibration)
 
@@ -71,7 +73,7 @@ export default function CalibrateScreen({ open, onClose }: { open: boolean; onCl
 
           <div className="calibrate-stage">
             <div className="calibrate-card" style={{ width: cardW, height: cardH }}>
-              <span>85.6 mm</span>
+              <span>{formatLength(REFERENCE_CARD_MM, units)}</span>
             </div>
           </div>
 
@@ -88,7 +90,7 @@ export default function CalibrateScreen({ open, onClose }: { open: boolean; onCl
 
           <div className="calibrate-readout">
             <span>
-              {pxPerMm.toFixed(2)} px / mm · about {dpi} dpi
+              {formatDensity(pxPerMm, units)} · about {dpi} dpi
             </span>
             <button
               className="link-btn"

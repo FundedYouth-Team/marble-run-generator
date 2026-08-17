@@ -30,7 +30,9 @@ export const ORBIT_MOUSE: MouseConfig = {
   scroll: 'Zoom',
   hints: [
     ['left-click', 'select'],
-    ['click joint', 'build there'],
+    ['click end', 'join / unjoin'],
+    ['drag arrow', 'move the run'],
+    ['drag ring', 'turn the run'],
     ['right-click part', 'part menu'],
     ['right-drag', 'rotate'],
     ['middle-drag', 'pan'],

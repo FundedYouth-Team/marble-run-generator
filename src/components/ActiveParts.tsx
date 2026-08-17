@@ -13,25 +13,29 @@ import {
   type Piece,
   type TubeVariant,
 } from '../store'
+import { formatLength, lengthText, type Unit } from '../lib/units'
 
 /** What the part is, in one line, for the row's tooltip. */
-function summarise(p: Piece, style: TubeVariant): string {
+function summarise(p: Piece, style: TubeVariant, units: Unit): string {
   const tube = VARIANT_LABEL[style]
+  const n = (mm: number) => lengthText(mm, units)
   if (p.type === 'angle') {
     const a = angleSpec(p)
-    return `${a.entry}+${a.exit} mm · ${degLabel(p.slope)}° in, ${degLabel(exitSlope(p))}° out · ${
-      a.fillet > 0 ? `r${a.fillet} corner` : 'sharp corner'
-    } · ${tube}`
+    return `${n(a.entry)}+${formatLength(a.exit, units)} · ${degLabel(p.slope)}° in, ${degLabel(
+      exitSlope(p),
+    )}° out · ${a.fillet > 0 ? `r${n(a.fillet)} corner` : 'sharp corner'} · ${tube}`
   }
   if (p.type === 'corner') {
     const c = cornerSpec(p)
-    return `${c.entry}+${c.exit} mm · ${degLabel(c.sweep)}° ${
+    return `${n(c.entry)}+${formatLength(c.exit, units)} · ${degLabel(c.sweep)}° ${
       c.sweep < 0 ? 'left' : 'right'
     } · ${degLabel(p.slope)}° in, ${degLabel(exitSlope(p))}° out · ${
-      c.fillet > 0 ? `r${c.fillet} corner` : 'sharp corner'
+      c.fillet > 0 ? `r${n(c.fillet)} corner` : 'sharp corner'
     } · ${tube}`
   }
-  return `${p.length} mm · ${degLabel(p.slope)}° slope · ${degLabel(p.turn)}° turn · ${tube}`
+  return `${formatLength(p.length, units)} · ${degLabel(p.slope)}° slope · ${degLabel(
+    p.turn,
+  )}° turn · ${tube}`
 }
 
 /** Points down when the list is open, right when it is rolled up. */
@@ -54,8 +58,16 @@ function ChevronIcon() {
  * tag of what it actually is, so "Big Drop" is still visibly Tube 2.
  */
 export default function ActiveParts() {
-  const { pieces, variant, selectedId, select, renamePiece, togglePieceHidden, showAllPieces } =
-    useRun()
+  const {
+    pieces,
+    variant,
+    selectedId,
+    select,
+    renamePiece,
+    togglePieceHidden,
+    showAllPieces,
+    units,
+  } = useRun()
   const [open, setOpen] = useState(true)
   /** Which row is being renamed, and the in-flight text — committed on Enter or blur. */
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -119,7 +131,7 @@ export default function ActiveParts() {
             <div
               key={p.id}
               className={classes.join(' ')}
-              title={`${renamed ? `${label} — ` : ''}${typeLabel} · ${summarise(p, variantOf(p, variant))}`}
+              title={`${renamed ? `${label} — ` : ''}${typeLabel} · ${summarise(p, variantOf(p, variant), units)}`}
               onClick={() => !editing && select(p.id === selectedId ? null : p.id)}
               onDoubleClick={() => startEdit(p.id, p.name)}
             >

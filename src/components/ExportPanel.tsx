@@ -114,7 +114,8 @@ export default function ExportPanel() {
       <p className="note">
         <b>Print plate</b> lays every piece flat and separated, opening upward — no supports
         needed for the Half and 3/4 variants. <b>Assembly</b> exports the run as designed, for
-        checking fit rather than printing. 1 unit = 1 mm, Z up.
+        checking fit rather than printing. 1 unit = 1 mm, Z up — files are always written in
+        millimetres, whichever unit you design in.
       </p>
 
       {last && (

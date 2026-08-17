@@ -1,5 +1,6 @@
 import * as THREE from 'three'
 import { sampleAssembly, type Assembly } from './layout'
+import type { Piece } from '../store'
 
 /** Gravity in mm/s². */
 export const G = 9810
@@ -29,20 +30,27 @@ export function createMarble(): MarbleState {
   }
 }
 
-export function resetMarble(m: MarbleState, asm: Assembly, restOffset: number) {
+/**
+ * How far below the axis the marble rests, mm — asked of the part it is in,
+ * since a part sized on its own has a floor of its own to sit on.
+ */
+export type RestOffset = (piece: Piece) => number
+
+export function resetMarble(m: MarbleState, asm: Assembly, rest: RestOffset) {
   m.s = 0
   m.v = 0
   m.airborne = false
   m.velocity.set(0, 0, 0)
   m.spin = 0
-  seat(m, asm, restOffset)
+  seat(m, asm, rest)
 }
 
 /** Places the marble on the floor of the bore at its current arc length. */
-function seat(m: MarbleState, asm: Assembly, restOffset: number) {
-  const { point } = sampleAssembly(asm, m.s)
+function seat(m: MarbleState, asm: Assembly, rest: RestOffset) {
+  const { point, index } = sampleAssembly(asm, m.s)
   m.position.copy(point)
-  m.position.y -= restOffset
+  const seg = asm.segments[index]
+  if (seg) m.position.y -= rest(seg.piece)
 }
 
 /**
@@ -80,7 +88,7 @@ export function seekMarble(
   asm: Assembly,
   s: number,
   friction: number,
-  restOffset: number,
+  rest: RestOffset,
   radius: number,
 ) {
   m.s = THREE.MathUtils.clamp(s, 0, asm.totalLength)
@@ -89,7 +97,7 @@ export function seekMarble(
   m.velocity.set(0, 0, 0)
   // Rolling without slipping ties spin to distance, so scrubbing back unrolls it.
   m.spin = m.s / Math.max(radius, 0.1)
-  seat(m, asm, restOffset)
+  seat(m, asm, rest)
 }
 
 export interface StepResult {
@@ -102,7 +110,7 @@ export function stepMarble(
   dt: number,
   asm: Assembly,
   friction: number,
-  restOffset: number,
+  rest: RestOffset,
   radius: number,
 ): StepResult {
   if (!asm.segments.length) return { lost: false }
@@ -135,7 +143,7 @@ export function stepMarble(
     } else {
       // Off the end of the run — hand over to free flight.
       m.s = asm.totalLength
-      seat(m, asm, restOffset)
+      seat(m, asm, rest)
       m.airborne = true
       m.velocity.copy(p.dir).multiplyScalar(m.v)
       return { lost: false }
@@ -145,6 +153,6 @@ export function stepMarble(
   next = Math.min(next, asm.totalLength)
   m.s = next
   m.spin += (m.v / Math.max(radius, 0.1)) * dt
-  seat(m, asm, restOffset)
+  seat(m, asm, rest)
   return { lost: false }
 }

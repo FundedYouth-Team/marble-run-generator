@@ -129,11 +129,6 @@ const HELP: Record<HelpTab, Group[]> = {
           note: 'a right-drag still rotates the camera; only a press that stays put opens the menu',
         },
         {
-          keys: ['Click a joint'],
-          action: 'Build there — the next part from the library is joined on at that joint',
-          note: 'click it again to go back to building at the end of the run',
-        },
-        {
           keys: ['Active Parts'],
           action: 'Switch a part off to take it out of both views',
           note: 'it still holds its place in the run',
@@ -141,7 +136,37 @@ const HELP: Record<HelpTab, Group[]> = {
       ],
     },
     {
-      title: 'HUD',
+      title: 'Tools',
+      rows: [
+        {
+          keys: ['Select'],
+          action: 'Pick parts with the left button',
+          note: 'the resting state — the other tools take the left button over until switched off',
+        },
+        {
+          keys: ['Move'],
+          action: 'Drag the three axis arrows to move the selected part about the workplane',
+          note: 'red is X, green Y, blue Z; anything joined to that part travels with it',
+        },
+        {
+          keys: ['Rotate'],
+          action: 'Drag the green ring to swing the selected part’s run round the upright',
+          note: 'it turns about the part you picked, so that one stands still while the rest comes round it',
+        },
+        {
+          keys: ['Connector'],
+          action: 'Join two parts: click the end you want to move, then the end it travels to',
+          note: 'the first end picked is the one that moves; an inlet mates with an outlet, and the ends that cannot take the one in hand go grey',
+        },
+        {
+          keys: ['Disconnector'],
+          action: 'Click a joint to break it open',
+          note: 'both sides stay exactly where they were — nothing springs back',
+        },
+      ],
+    },
+    {
+      title: 'Toolbar',
       rows: [
         { keys: ['↶', '↷'], action: 'Step back and forward through the last 10 changes', note: 'listed in the History tab' },
         {
@@ -241,31 +266,50 @@ const HOWTO: Partial<Record<HelpTab, HowTo[]>> = {
   '3d': [
     {
       question: 'How do I join one part to another?',
-      lead: 'They already are. The run is a chain: every part is joined to the one before it, in the order they appear in Active Parts. Parts cannot be dragged around the stage on their own — you change the run by changing the chain.',
+      lead: 'With the Connector, in the Joints group of the toolbar. A part out of the library lands on its own in free space — nothing is joined until you say so.',
       steps: [
-        'The joints are the coloured ends on the run — one at each end of every part, plus the one the run starts at.',
-        'Blue is where the next part lands if you do nothing: the end of the run.',
-        'Click any other joint to build there instead — it turns orange. Click it again to hand building back to the end.',
+        'Click Connector. The open ends light up blue: the inlet each run starts at, and the outlet each one finishes on.',
+        'Click the end of the part you want to move. It turns orange, and any end that cannot mate with it goes grey.',
+        'Click the end it should travel to. That one stays exactly where it is; the first part swings round and lands on it, bonded flush.',
       ],
+      note: 'Whatever was joined behind the part you picked comes with it: a run joins onto a run in one piece, keeping every angle it had.',
     },
     {
-      question: 'How do I add a part at the start of the run instead of the end?',
+      question: 'How do I move a part around the stage?',
+      lead: 'With the Move tool. It works on runs rather than single parts: a bonded part cannot travel on its own, which is what being bonded means.',
       steps: [
-        'Click the joint at the very start of the run — the coloured inlet on the first part. It turns orange.',
-        'Open ＋ Add Part and pick the part you want.',
-        'It is put in ahead of the old first part, entering at whatever angle leaves the rest of the run exactly as it was.',
+        'Select the part, in the viewport or in Active Parts.',
+        'Click Move. The three axis arrows appear on it — red is X, green Y, blue Z.',
+        'Drag an arrow. The whole run the part belongs to travels with it, holding its shape.',
       ],
-      note: 'Add again and it carries on in the same direction, rather than stacking back into the same joint.',
+      note: 'To move one part out of a run, break the joint with the Disconnector first — it comes away standing exactly where it was.',
     },
     {
-      question: 'How do I move a part I have already placed to a different point in the run?',
-      lead: 'There is no reorder yet — a part cannot be picked up and dropped elsewhere in the chain. Rebuild it where you want it instead.',
+      question: 'How do I turn a run to face another way?',
+      lead: 'With the Rotate tool. Like Move it works on runs, and like Move it works about the part you picked rather than about the head of the run.',
       steps: [
-        'Select the part, in the viewport or in Active Parts, and Delete it from the sidebar. What followed it closes up onto the part before it.',
-        'Click the joint you want it at, so it is armed and orange.',
-        'Add the part again from ＋ Add Part, then set its length, slope and turn in the sidebar.',
+        'Select the part, in the viewport or in Active Parts.',
+        'Click Rotate. A green ring appears on it, lying in the workplane.',
+        'Drag the ring. The whole run swings round that part, which stays exactly where it is.',
       ],
-      note: 'Ctrl+Z puts it back if the reshuffle is not what you wanted.',
+      note: 'Only the upright is offered: a run is set down on a heading, and its climbs and corners are the parts’ own slope and turn — edit those in the sidebar.',
+    },
+    {
+      question: 'How do I take a part back out of a run?',
+      steps: [
+        'Click Disconnector. Every joint on the stage turns green.',
+        'Click the joint at the part’s inlet — it goes red under the pointer. The part and everything joined behind it comes away as its own run, standing where it stood.',
+        'Break the joint on its far side too, and the part is on its own; then move it, delete it, or join it back on somewhere else.',
+      ],
+      note: 'Ctrl+Z puts any of this back if it was not what you wanted.',
+    },
+    {
+      question: 'Which run does the marble roll down?',
+      lead: 'The first one in Active Parts. There is one marble, so with several separate runs on the stage it has to be given one, and it takes the run the parts list starts with.',
+      steps: [
+        'Join the parts you want it to travel into one run.',
+        'Press ▶ Simulator.',
+      ],
     },
   ],
 }
@@ -273,12 +317,21 @@ const HOWTO: Partial<Record<HelpTab, HowTo[]>> = {
 const ALWAYS: Group = {
   title: 'Anywhere',
   rows: [
-    { keys: ['＋ Add Part'], action: 'Browse the part library and drop a part on the stage', note: 'top of the window' },
+    {
+      keys: ['＋ Add Part'],
+      action: 'Browse the part library and drop a part on the stage',
+      note: 'top of the window; it lands unjoined, in clear space beside whatever is already there',
+    },
     { keys: ['2D Draft Mode', '3D Mode'], action: 'Switch workspace', note: 'top of the window' },
     {
       keys: ['Settings tab', 'History tab'],
       action: 'Slide out the settings, or the last changes to the run',
       note: 'the vertical tabs on the right edge; Esc closes them',
+    },
+    {
+      keys: ['Settings', 'Units'],
+      action: 'Read and type every measurement in millimeters or inches',
+      note: 'display only — the run is held in millimeters, and exports are always millimeters',
     },
     { keys: ['Ctrl', 'Z'], action: 'Undo the last change', note: 'Ctrl+Shift+Z redoes it; ⌘ on a Mac' },
     { keys: ['?'], action: 'Open this help' },

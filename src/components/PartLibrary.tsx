@@ -1,21 +1,5 @@
 import { useEffect, useMemo, useState, type ReactElement } from 'react'
-import { useRun, pieceLabel, type Piece, type Port } from '../store'
-
-/**
- * Where the next part will be joined on, said in the parts' own names. The run
- * grows at the tail unless a joint has been armed in the 3D view, so this is
- * what tells you which it is before you pick anything.
- */
-function describeTarget(pieces: Piece[], port: Port | null): string {
-  if (!pieces.length) return 'at the start of the run'
-  const label = (i: number) => pieceLabel(pieces[i], i)
-  const last = pieces.length - 1
-  const i = port ? pieces.findIndex((p) => p.id === port.pieceId) : -1
-  if (!port || i < 0 || (port.end === 'out' && i === last)) return `at the end, after ${label(last)}`
-  const at = port.end === 'in' ? i : i + 1
-  if (at === 0) return `at the start, before ${label(0)}`
-  return `between ${label(at - 1)} and ${label(at)}`
-}
+import { useRun } from '../store'
 
 /** A plain length of pipe, drawn side-on as a simple outlined bar. */
 function StraightLinePreview() {
@@ -163,7 +147,7 @@ export default function PartLibrary() {
   const [open, setOpen] = useState(false)
   const [category, setCategory] = useState<Category | 'all'>('all')
   const [query, setQuery] = useState('')
-  const { pieces, armedPort, armPort } = useRun()
+  const { pieces, setTool } = useRun()
 
   useEffect(() => {
     if (!open) return
@@ -274,20 +258,14 @@ export default function PartLibrary() {
 
             <footer className="lib-foot">
               <p className="note">
-                <b>Joining {describeTarget(pieces, armedPort)}.</b>{' '}
-                {armedPort ? (
-                  <>
-                    Picked from the joint you armed in the 3D view.{' '}
-                    <button className="link-btn" onClick={() => armPort(null)}>
-                      build at the end instead
-                    </button>
-                    .
-                  </>
-                ) : (
-                  <>Click a coloured joint end in the 3D view to build from somewhere else.</>
-                )}{' '}
-                The part is selected once it lands, so its measurements are ready to edit in the
-                sidebar.
+                <b>The part lands on its own, in clear space beside the run.</b> Nothing already on
+                the stage moves to make room for it, and nothing is joined to it yet — take the{' '}
+                <button className="link-btn" onClick={() => setTool('connect')}>
+                  Connector
+                </button>{' '}
+                from the toolbar and click the two ends you want bonded together. The part is
+                selected once it lands, so its measurements are ready to edit in the sidebar
+                {pieces.length ? ', and the Move tool carries it about the workplane' : ''}.
               </p>
             </footer>
           </div>

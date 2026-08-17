@@ -1,10 +1,25 @@
 import { create } from 'zustand'
 import type { ExportFormat } from './lib/exporters'
+import { formatLength, type Unit } from './lib/units'
+// Standing one run against another needs to know where its far end actually
+// lands in the world, and the layout is the one place that works that out. It is
+// only ever called from an action, so the two modules importing each other never
+// meet at load time.
+import { buildAssembly } from './lib/layout'
 
-/** All dimensions in this app are millimetres. */
+/**
+ * All dimensions in this app are millimetres. The unit setting only changes how
+ * they are written and read on screen — see `lib/units`.
+ */
 export type TubeVariant = 'half' | 'threequarter' | 'closed'
 export type PieceType = 'straight' | 'angle' | 'corner'
 export type Mode = '2d' | '3d'
+/**
+ * What the left button does on the 3D stage. Picking a part is the resting
+ * state; the other three are modal because each one reads a click as something
+ * other than "select this" — a drag on the arrows, or one end of a joint.
+ */
+export type Tool = 'select' | 'move' | 'rotate' | 'connect' | 'disconnect'
 /**
  * Which way the 2D draft looks at the run. The six ortho views are named for
  * the side of the model they are taken from, the same way the 3D view cube
@@ -27,6 +42,7 @@ const MARBLE_COLOR_KEY = 'mrg.marbleColor'
 const SHADING_KEY = 'mrg.shading'
 const SCREEN_KEY = 'mrg.screenPxPerMm'
 const KEEP_CONNECTED_KEY = 'mrg.keepConnected'
+const UNITS_KEY = 'mrg.units'
 
 /**
  * CSS pins an inch to 96px no matter what the panel actually is, so this is
@@ -105,11 +121,49 @@ function initialKeepConnected(): boolean {
   return saved !== 'off'
 }
 
+/** Millimetres are the default; only an explicit past choice flips it. */
+function initialUnits(): Unit {
+  const saved = typeof localStorage !== 'undefined' ? localStorage.getItem(UNITS_KEY) : null
+  return saved === 'in' ? 'in' : 'mm'
+}
+
+/**
+ * The unit history steps are worded in, kept alongside the state so a label can
+ * be written from module scope. Step labels are written once, when the edit
+ * happens, and stand as written — a past step says what it said at the time.
+ */
+let labelUnits: Unit = initialUnits()
+
+/**
+ * Where a part that is not bonded to anything stands: the world point its inlet
+ * sits on, and the heading it was set down facing. A part's own `turn` adds to
+ * that heading, so the two together are where the run it starts sets off from.
+ */
+export interface Placement {
+  x: number
+  y: number
+  z: number
+  /** Heading the part is set down on, degrees. */
+  yaw: number
+}
+
 export interface Piece {
   id: string
   type: PieceType
   /** Optional label from the parts list; blank falls back to the part name. */
   name?: string
+  /**
+   * Bonded onto the outlet of the part before it in the list. A part that is not
+   * bonded stands on its own at {@link Piece.at} and starts a run of its own —
+   * which is what every part is when it first lands on the stage. Joints are made
+   * with the Connector tool and broken with the Disconnector.
+   */
+  joined?: boolean
+  /**
+   * Where the part stands while it is not bonded to anything. Ignored once it is
+   * joined on: a bonded part takes its place from the part it is bonded to.
+   */
+  at?: Placement
   /**
    * Nominal run length along the tube axis, mm (excludes the snap spigot). On a
    * connector this is the rigid entry leg, up to the break.
@@ -149,6 +203,15 @@ export interface Piece {
    * to. Appearance only — colours never reach the exported mesh.
    */
   color?: string
+  /**
+   * This part's own bore, mm. Unset follows the run's, so a part that has never
+   * been sized on its own keeps up with whatever the run is set to. A part sized
+   * differently from the one it is bonded to steps at the joint — the two no
+   * longer mate, which is what a bore change between parts really is.
+   */
+  innerDiameter?: number
+  /** This part's own wall, mm. Unset follows the run's, like {@link Piece.innerDiameter}. */
+  wallThickness?: number
   /** Hidden from the 3D view. Display only — the piece still shapes the run. */
   hidden?: boolean
 }
@@ -258,13 +321,17 @@ export function sweepForTurn(turn: number, slope: number): number {
 }
 
 /**
- * The heading a part enters at, degrees: every turn ahead of it in the run,
- * plus every corner those parts swung through.
+ * The heading a part enters at, degrees: the heading its run was set down on,
+ * plus every turn ahead of it in that run and every corner those parts swung
+ * through. A part on its own is measured from its own placement, so one run's
+ * heading says nothing about the next one's.
  */
 export function headingAt(pieces: Piece[], index: number): number {
-  let yaw = 0
-  for (let i = 0; i <= index && i < pieces.length; i++) {
-    if (i > 0) yaw += exitTurn(pieces[i - 1])
+  if (index < 0 || index >= pieces.length) return 0
+  const from = chainRootOf(pieces, index)
+  let yaw = placementOf(pieces[from]).yaw
+  for (let i = from; i <= index; i++) {
+    if (i > from) yaw += exitTurn(pieces[i - 1])
     yaw += pieces[i].turn
   }
   return tidy(yaw)
@@ -320,22 +387,6 @@ const roomFor = (value: number, swing: number, lim: { min: number; max: number }
 const narrow = (swing: number, room: number) => (Math.abs(room) < Math.abs(swing) ? room : swing)
 
 /**
- * The slope a fresh part has to enter at to leave at `exit` — what a part put
- * in at the head of the run needs so the part it now feeds is handed exactly
- * the angle it already had. A corner flattens whatever it hands on, so past a
- * point no entry slope is steep enough; there it enters as steeply as it can.
- */
-function entrySlopeFor(type: PieceType, exit: number): number {
-  if (type === 'angle') return exit - ANGLE_DEFAULTS.bend
-  if (type === 'corner') {
-    const cos = Math.cos(CORNER_DEFAULTS.sweep * RAD)
-    if (Math.abs(cos) < 1e-6) return exit
-    return tidy(Math.asin(clamp(Math.sin(exit * RAD) / cos, -1, 1)) / RAD)
-  }
-  return exit
-}
-
-/**
  * A place another part can be joined on: the inlet a part is fed through, or
  * the outlet it hands the marble out of. Naming the part rather than an index
  * keeps a port pointing at the same joint while the run is edited around it.
@@ -345,26 +396,91 @@ export interface Port {
   end: 'in' | 'out'
 }
 
+/** Two ports name the same end of the same part. */
+export function samePort(a: Port | null, b: Port | null): boolean {
+  return !!a && !!b && a.pieceId === b.pieceId && a.end === b.end
+}
+
+/** Where a part stands on its own — the origin, for one that has never been set down. */
+export const ORIGIN_PLACEMENT: Placement = { x: 0, y: 0, z: 0, yaw: 0 }
+
+export function placementOf(piece: Piece): Placement {
+  return piece.at ?? ORIGIN_PLACEMENT
+}
+
 /**
- * Where a part added at `port` lands in the run. The inlet of a part means
- * "immediately before this one", its outlet "immediately after" — so any joint
- * in the run is a place to build from, not just the far end. Nothing armed
- * carries on at the tail, which is how the run has always grown.
+ * Whether the part at `index` starts a run of its own: nothing is bonded to its
+ * inlet, so it stands where it was put rather than off the end of the part
+ * before it. The first part in the list is always one — there is nothing ahead
+ * of it to be bonded to.
  */
-export function insertIndexAt(pieces: Piece[], port: Port | null): number {
-  if (!port) return pieces.length
+export function isChainRoot(pieces: Piece[], index: number): boolean {
+  return index === 0 || !pieces[index].joined
+}
+
+/**
+ * The runs the parts make up, each as its own list of indices in order. A part
+ * that has never been joined onto anything is a run of one, which is how it
+ * lands on the stage.
+ */
+export function chainsOf(pieces: Piece[]): number[][] {
+  const chains: number[][] = []
+  pieces.forEach((_, i) => {
+    if (isChainRoot(pieces, i)) chains.push([i])
+    else chains[chains.length - 1].push(i)
+  })
+  return chains
+}
+
+/** The part the run containing `index` starts at. */
+export function chainRootOf(pieces: Piece[], index: number): number {
+  let i = index
+  while (i > 0 && !isChainRoot(pieces, i)) i--
+  return i
+}
+
+/** The last part of the run containing `index` — the end nothing is bonded to. */
+export function chainTailOf(pieces: Piece[], index: number): number {
+  let i = index
+  while (i + 1 < pieces.length && pieces[i + 1].joined) i++
+  return i
+}
+
+/**
+ * Whether a port has nothing bonded to it: the inlet of a part that starts a
+ * run, or the outlet at the end of one. Those are the only two ends the
+ * Connector has anything to do — every other port is already inside a joint.
+ */
+export function isOpenPort(pieces: Piece[], port: Port): boolean {
   const i = pieces.findIndex((p) => p.id === port.pieceId)
-  if (i < 0) return pieces.length
-  return port.end === 'in' ? i : i + 1
+  if (i < 0) return false
+  return port.end === 'in' ? isChainRoot(pieces, i) : chainTailOf(pieces, i) === i
+}
+
+/**
+ * Whether two open ports can be bonded together: a spigot into a socket, on two
+ * different runs. Two outlets have nothing to mate, and joining a run's own tail
+ * back onto its own head would close it into a loop, which a marble run is not.
+ */
+export function canConnect(pieces: Piece[], a: Port, b: Port): boolean {
+  if (a.end === b.end) return false
+  if (!isOpenPort(pieces, a) || !isOpenPort(pieces, b)) return false
+  const ia = pieces.findIndex((p) => p.id === a.pieceId)
+  const ib = pieces.findIndex((p) => p.id === b.pieceId)
+  if (ia < 0 || ib < 0) return false
+  return chainRootOf(pieces, ia) !== chainRootOf(pieces, ib)
 }
 
 /**
  * The angle each joint stands at: what a part enters at, less what the part
  * before it leaves at. Zero is a joint pulled shut; anything else is a kink,
- * and a kink the user built on purpose is theirs to keep.
+ * and a kink the user built on purpose is theirs to keep. A part that starts a
+ * run has no joint behind it to measure.
  */
 function kinksOf(pieces: Piece[]): number[] {
-  return pieces.map((p, i) => (i === 0 ? 0 : tidy(p.slope - exitSlope(pieces[i - 1]))))
+  return pieces.map((p, i) =>
+    isChainRoot(pieces, i) ? 0 : tidy(p.slope - exitSlope(pieces[i - 1])),
+  )
 }
 
 /**
@@ -376,12 +492,17 @@ function kinksOf(pieces: Piece[]): number[] {
  * across the fall, so it hands on less than it takes — and this walk is what
  * keeps the joint after one shut. A part taken past vertical stops there; the
  * run runs out of travel at that part rather than everywhere at once.
+ *
+ * A part that is not bonded to the one before it is left alone, and with it
+ * everything bonded behind it: a swing travels along one run and stops where
+ * that run ends, rather than dragging every other part on the stage with it.
  */
 function relink(pieces: Piece[], kinks: number[], from: number, to: number): Piece[] {
   const S = PIECE_LIMITS.slope
   const next = pieces.slice()
   let changed = false
   for (let i = Math.max(1, from); i <= Math.min(to, next.length - 1); i++) {
+    if (!next[i].joined) continue
     // Each part is relinked to the one already relinked before it, so a single
     // pass carries a correction all the way down the run.
     const slope = tidy(clamp(exitSlope(next[i - 1]) + kinks[i], S.min, S.max))
@@ -419,6 +540,83 @@ function weldJoints(pieces: Piece[]): Piece[] {
   return relink(pieces, pieces.map(() => 0), 1, pieces.length - 1)
 }
 
+/**
+ * Swings a whole run in elevation, from its head. Every joint along it is left
+ * standing at the angle it already had, so the run turns as one piece rather
+ * than opening up somewhere in the middle.
+ */
+function swingRun(pieces: Piece[], root: number, tail: number, delta: number): Piece[] {
+  const S = PIECE_LIMITS.slope
+  const kinks = kinksOf(pieces)
+  const next = pieces.slice()
+  next[root] = { ...next[root], slope: clamp(tidy(next[root].slope + delta), S.min, S.max) }
+  return relink(next, kinks, root + 1, tail)
+}
+
+/** How close a swing has to land on the angle it was aiming at, degrees. */
+const ALIGN_TOLERANCE = 1e-4
+/** Runs of corners are closed in on rather than solved; this is the give-up point. */
+const ALIGN_PASSES = 8
+
+/**
+ * Brings the run that ends at `outlet` round to meet `inlet`, which does not
+ * move: the run is swung until it leaves at the angle and heading the other one
+ * enters at, then set down so the two ends touch.
+ *
+ * This is what lets the end picked first be the one that travels. A joint has to
+ * bring two frames into line, and only one of the two runs can keep its own —
+ * whichever end was picked second is the one that keeps it.
+ *
+ * A run with a corner in it cannot be swung in elevation exactly: a corner tipped
+ * further over turns across a different amount of the fall, so the angle it hands
+ * on does not move one for one with the swing. That is closed in on over a few
+ * passes instead. A run of tubes and angle connectors lands on it first time.
+ */
+function alignRun(pieces: Piece[], outlet: Port, inlet: Port): Piece[] {
+  const from = pieces.findIndex((p) => p.id === outlet.pieceId)
+  const onto = pieces.findIndex((p) => p.id === inlet.pieceId)
+  if (from < 0 || onto < 0) return pieces
+  const root = chainRootOf(pieces, from)
+  const target = pieces[onto]
+  // The run being joined onto stands where it was set down — its inlet could not
+  // have been free to join if it were anything but a run's head.
+  const seat = placementOf(target)
+  let next = pieces.slice()
+
+  for (let i = 0; i < ALIGN_PASSES; i++) {
+    const delta = tidy(target.slope - exitSlope(next[from]))
+    if (Math.abs(delta) < ALIGN_TOLERANCE) break
+    next = swingRun(next, root, from, delta)
+  }
+
+  // Heading: a run's placement carries the whole swing round, so this is one
+  // number rather than a walk along the parts.
+  const swung = placementOf(next[root])
+  const yaw = tidy(
+    swung.yaw +
+      tidy(seat.yaw + target.turn) -
+      tidy(headingAt(next, from) + exitTurn(next[from])),
+  )
+  next[root] = { ...next[root], at: { ...swung, yaw } }
+
+  // Position: pointing the right way at last, the run slides along until its
+  // outlet is on the other one's inlet.
+  const placed = buildAssembly(next.slice(root, from + 1)).placed
+  const end = placed[placed.length - 1]?.end
+  if (end) {
+    next[root] = {
+      ...next[root],
+      at: {
+        x: tidy(swung.x + seat.x - end.x),
+        y: tidy(swung.y + seat.y - end.y),
+        z: tidy(swung.z + seat.z - end.z),
+        yaw,
+      },
+    }
+  }
+  return next
+}
+
 /** Editing limits for the tube every part is cut from, shared by the sidebar and file loading. */
 export const TUBE_LIMITS = {
   innerDiameter: { min: 6, max: 80, step: 0.5 },
@@ -454,6 +652,24 @@ export function variantOf(piece: Piece, runVariant: TubeVariant): TubeVariant {
  */
 export function colorOf(piece: Piece, runColor: string): string {
   return piece.color ?? runColor
+}
+
+/**
+ * The bore a part is actually cut to: its own, if it has been sized, and
+ * otherwise the run's — the same fallback style and colour work on.
+ */
+export function boreOf(piece: Piece, runBore: number): number {
+  return piece.innerDiameter ?? runBore
+}
+
+/** The wall a part is actually cut to: its own if it has one, else the run's. */
+export function wallOf(piece: Piece, runWall: number): number {
+  return piece.wallThickness ?? runWall
+}
+
+/** Whether a part is cut from the very tube the run is set to — no size of its own. */
+export function sizedLikeRun(piece: Piece, runBore: number, runWall: number): boolean {
+  return boreOf(piece, runBore) === runBore && wallOf(piece, runWall) === runWall
 }
 
 /** A standard glass marble — the 5/8" size sold by the bag. */
@@ -533,6 +749,46 @@ export function makePiece(partial: Partial<Piece> = {}): Piece {
   return { id: nextId(), type, ...TYPE_DEFAULTS[type], ...partial }
 }
 
+/** How far apart parts are set down, mm — side by side, clear of one another. */
+const SPAWN_STEP = 160
+
+/**
+ * How far a part falls from its inlet to its outlet, mm. The rounding at a
+ * connector's break is left out: this is for standing a part clear of the
+ * workplane, where a millimetre either way makes no odds.
+ */
+function dropOf(piece: Piece): number {
+  const sin = (deg: number) => Math.sin(deg * RAD)
+  if (piece.type === 'angle') {
+    const a = angleSpec(piece)
+    return a.entry * sin(piece.slope) + a.exit * sin(piece.slope + a.bend)
+  }
+  if (piece.type === 'corner') {
+    const c = cornerSpec(piece)
+    return c.entry * sin(piece.slope) + c.exit * sin(exitSlope(piece))
+  }
+  return piece.length * sin(piece.slope)
+}
+
+/**
+ * Where a part fresh out of the library is set down: standing on the workplane,
+ * a step along from whatever is already out there on its own, so it lands in
+ * free space rather than inside another part.
+ *
+ * It is raised by its own fall plus the tube's radius, so the part rests on the
+ * plane rather than sinking through it — a part that descends is lifted by as
+ * much as it descends. `outerR` is the tube the run is cut from.
+ */
+function spawnPlacement(pieces: Piece[], piece: Piece, outerR: number): Placement {
+  const xs = pieces.filter((_, i) => isChainRoot(pieces, i)).map((p) => placementOf(p).x)
+  return {
+    x: xs.length ? Math.max(...xs) + SPAWN_STEP : 0,
+    y: Math.round((outerR + Math.max(0, dropOf(piece))) * 10) / 10,
+    z: 0,
+    yaw: 0,
+  }
+}
+
 /* ---------------- history ---------------- */
 
 /** How far back the History panel can walk. Ten steps, plus the state they started from. */
@@ -585,6 +841,9 @@ function snapshot(s: Snapshot): Snapshot {
 /** Trailing zeros read as noise in a step label — 140, not 140.0. */
 const num = (v: number) => String(Math.round(v * 100) / 100)
 
+/** A length in a step label, written in whatever unit was on show at the time. */
+const len = (mm: number) => formatLength(mm, labelUnits)
+
 const FIELD_LABEL: Record<string, string> = {
   length: 'length',
   slope: 'slope',
@@ -594,14 +853,15 @@ const FIELD_LABEL: Record<string, string> = {
   exitLength: 'exit leg',
   fillet: 'corner radius',
 }
-const FIELD_UNIT: Record<string, string> = {
-  length: ' mm',
-  slope: '°',
-  turn: '°',
-  bend: '°',
-  sweep: '°',
-  exitLength: ' mm',
-  fillet: ' mm',
+/** How each field's value is written out — lengths follow the unit setting. */
+const FIELD_VALUE: Record<string, (v: number) => string> = {
+  length: len,
+  slope: (v) => `${num(v)}°`,
+  turn: (v) => `${num(v)}°`,
+  bend: (v) => `${num(v)}°`,
+  sweep: (v) => `${num(v)}°`,
+  exitLength: len,
+  fillet: len,
 }
 
 /** What a part is called right now, for a step label. */
@@ -614,7 +874,7 @@ function nameOf(s: { pieces: Piece[] }, id: string): string {
 function editLabel(name: string, patch: Partial<Piece>): string {
   const parts = Object.entries(patch)
     .filter(([k]) => k in FIELD_LABEL)
-    .map(([k, v]) => `${FIELD_LABEL[k]} ${num(v as number)}${FIELD_UNIT[k]}`)
+    .map(([k, v]) => `${FIELD_LABEL[k]} ${FIELD_VALUE[k](v as number)}`)
   return parts.length ? `${name} ${parts.join(', ')}` : `Edit ${name}`
 }
 
@@ -627,6 +887,11 @@ interface RunState {
   mode: Mode
   draftView: DraftView
   theme: Theme
+  /**
+   * The unit every length on screen is written and typed in. The model stays
+   * millimetres whichever this is — see `lib/units`.
+   */
+  units: Unit
 
   // Tube front-face definition. Bore and wall are the run's throughout; the
   // style is only what a part falls back to when it has none of its own.
@@ -637,11 +902,14 @@ interface RunState {
   // Assembly
   pieces: Piece[]
   selectedId: string | null
+  /** What the left button does on the 3D stage. */
+  tool: Tool
   /**
-   * The joint a part added from the Part Library is joined onto. Null builds at
-   * the tail of the run, which is how it grew before ports existed.
+   * The first end the Connector has been given, waiting for the one it is to be
+   * bonded to. Null with nothing picked yet, and cleared the moment a joint is
+   * made — one click is half a joint, not a mode.
    */
-  armedPort: Port | null
+  pendingPort: Port | null
   /**
    * Whether the run is held together as one assembly: connected, a part starts
    * where the one before it ends, and swinging a joint swings everything
@@ -700,8 +968,25 @@ interface RunState {
   setMode: (m: Mode) => void
   setDraftView: (v: DraftView) => void
   toggleTheme: () => void
+  /**
+   * Switches what unit lengths are shown in, everywhere at once. Nothing about
+   * the run changes, so this is not a step on the timeline.
+   */
+  setUnits: (v: Unit) => void
+  /** The bore parts fall back to — every part that has none of its own follows it. */
   setInnerDiameter: (v: number) => void
+  /** The wall parts fall back to — every part that has none of its own follows it. */
   setWallThickness: (v: number) => void
+  /** Sizes one part's bore on its own, leaving the rest of the run as it is. */
+  setPieceBore: (id: string, v: number) => void
+  /** Sizes one part's wall on its own, leaving the rest of the run as it is. */
+  setPieceWall: (id: string, v: number) => void
+  /**
+   * Cuts the whole run from one tube: the bore and wall become the run's, and
+   * every part's own is dropped, so the parts are back to following it from
+   * here on.
+   */
+  applyTubeToAll: (innerDiameter: number, wallThickness: number) => void
   /** The style parts fall back to — every part that has none of its own follows it. */
   setVariant: (v: TubeVariant) => void
   /** Styles one part on its own, leaving the rest of the run as it is. */
@@ -738,8 +1023,40 @@ interface RunState {
   setScreenPxPerMm: (v: number) => void
   resetScreenCalibration: () => void
 
-  /** Arms the joint the next part is built onto; null goes back to the tail. */
-  armPort: (p: Port | null) => void
+  /** Switches what the left button does on the 3D stage; any half-made joint is dropped. */
+  setTool: (t: Tool) => void
+  /**
+   * Hands the Connector an end. The first one is held; the second makes the
+   * joint if the two can take one, and is ignored if they cannot. Null lets go
+   * of whatever was held.
+   */
+  pickPort: (p: Port | null) => void
+  /**
+   * Bonds an outlet to an inlet, in either order. The run hanging off the inlet
+   * comes along and swings into line as one piece: it is welded flush onto the
+   * outlet, and every kink it already had is kept.
+   */
+  connectPorts: (a: Port, b: Port) => void
+  /**
+   * Breaks the joint at a part's inlet, leaving that part and everything bonded
+   * behind it standing exactly where they were. `at` is where the part is now,
+   * which only the stage knows — the store holds shapes and joints, not the
+   * layout they work out to.
+   */
+  breakJoint: (pieceId: string, at: Placement) => void
+  /**
+   * Sets the run `pieceId` belongs to down with its first part's inlet at
+   * `x, y, z`. A bonded part cannot be moved on its own — the whole run travels,
+   * which is what being bonded means.
+   */
+  moveChain: (pieceId: string, x: number, y: number, z: number) => void
+  /**
+   * Stands the run `pieceId` belongs to on a fresh placement — the same job
+   * {@link RunState.moveChain} does, with the heading in it as well. Only the
+   * stage knows what turning about a part on screen works out to at the head of
+   * the run, so it hands the answer down rather than the gesture.
+   */
+  rotateChain: (pieceId: string, at: Placement) => void
   addPiece: (type?: PieceType) => void
   duplicatePiece: (id: string) => void
   renamePiece: (id: string, name: string) => void
@@ -850,6 +1167,7 @@ export const useRun = create<RunState>((set, get) => {
     mode: '3d',
     draftView: 'developed',
     theme: initialTheme(),
+    units: labelUnits,
 
     // Sized for a standard glass marble out of the box.
     innerDiameter: INITIAL_SNAPSHOT.innerDiameter,
@@ -858,7 +1176,8 @@ export const useRun = create<RunState>((set, get) => {
 
     pieces: INITIAL_SNAPSHOT.pieces,
     selectedId: INITIAL_SNAPSHOT.selectedId,
-    armedPort: null,
+    tool: 'select',
+    pendingPort: null,
 
     pieceColor: initialColor(PIECE_COLOR_KEY, DEFAULT_PIECE_COLOR),
     marbleColor: initialColor(MARBLE_COLOR_KEY, DEFAULT_MARBLE_COLOR),
@@ -902,7 +1221,7 @@ export const useRun = create<RunState>((set, get) => {
           ...snap,
           projectName: UNTITLED_PROJECT,
           exportName: '',
-          armedPort: null,
+          pendingPort: null,
           running: false,
           simStarted: false,
           resetToken: s.resetToken + 1,
@@ -924,7 +1243,7 @@ export const useRun = create<RunState>((set, get) => {
           ...snap,
           projectName,
           exportName: '',
-          armedPort: null,
+          pendingPort: null,
           running: false,
           simStarted: false,
           resetToken: s.resetToken + 1,
@@ -948,9 +1267,14 @@ export const useRun = create<RunState>((set, get) => {
         applyTheme(theme)
         return { theme }
       }),
+    setUnits: (units) => {
+      labelUnits = units
+      remember(UNITS_KEY, units)
+      set({ units })
+    },
     setInnerDiameter: (innerDiameter) =>
       commit(
-        `Bore \u00d8${num(innerDiameter)} mm`,
+        `Bore \u00d8${len(innerDiameter)}`,
         (s) =>
           s.innerDiameter === innerDiameter
             ? null
@@ -963,10 +1287,53 @@ export const useRun = create<RunState>((set, get) => {
       ),
     setWallThickness: (wallThickness) =>
       commit(
-        `Wall ${num(wallThickness)} mm`,
+        `Wall ${len(wallThickness)}`,
         (s) => (s.wallThickness === wallThickness ? null : { wallThickness }),
         'wall',
       ),
+    setPieceBore: (id, innerDiameter) =>
+      commit(
+        `${nameOf(get(), id)} bore Ø${len(innerDiameter)}`,
+        (s) => {
+          const piece = s.pieces.find((p) => p.id === id)
+          // Typing the bore a part already has changes nothing, whether it holds
+          // that bore itself or follows the run's.
+          if (!piece || boreOf(piece, s.innerDiameter) === innerDiameter) return null
+          return { pieces: s.pieces.map((p) => (p.id === id ? { ...p, innerDiameter } : p)) }
+        },
+        // Holding the stepper down folds into one step, like every other field.
+        `bore:${id}`,
+      ),
+    setPieceWall: (id, wallThickness) =>
+      commit(
+        `${nameOf(get(), id)} wall ${len(wallThickness)}`,
+        (s) => {
+          const piece = s.pieces.find((p) => p.id === id)
+          if (!piece || wallOf(piece, s.wallThickness) === wallThickness) return null
+          return { pieces: s.pieces.map((p) => (p.id === id ? { ...p, wallThickness } : p)) }
+        },
+        `wall:${id}`,
+      ),
+    applyTubeToAll: (innerDiameter, wallThickness) =>
+      commit(`Tube all: Ø${len(innerDiameter)} bore / ${len(wallThickness)} wall`, (s) => {
+        const sized = s.pieces.some(
+          (p) => p.innerDiameter !== undefined || p.wallThickness !== undefined,
+        )
+        if (s.innerDiameter === innerDiameter && s.wallThickness === wallThickness && !sized) {
+          return null
+        }
+        return {
+          innerDiameter,
+          wallThickness,
+          // Keep the marble inside the bore, as setting the run's bore does.
+          marbleDiameter: Math.min(s.marbleDiameter, innerDiameter - 2),
+          // Dropping each part's own is what makes this stick: the run is cut
+          // from one tube, and stays that way as the tube is changed again.
+          pieces: sized
+            ? s.pieces.map(({ innerDiameter: _d, wallThickness: _w, ...rest }) => rest)
+            : s.pieces,
+        }
+      }),
     setVariant: (variant) =>
       commit(`Style: ${VARIANT_LABEL[variant]}`, (s) => (s.variant === variant ? null : { variant })),
     setPieceVariant: (id, variant) =>
@@ -1045,7 +1412,7 @@ export const useRun = create<RunState>((set, get) => {
       }),
     setMarbleDiameter: (marbleDiameter) =>
       commit(
-        `Marble \u00d8${num(marbleDiameter)} mm`,
+        `Marble \u00d8${len(marbleDiameter)}`,
         (s) => (s.marbleDiameter === marbleDiameter ? null : { marbleDiameter }),
         'marble',
       ),
@@ -1087,73 +1454,151 @@ export const useRun = create<RunState>((set, get) => {
       set({ screenPxPerMm: NOMINAL_PX_PER_MM, screenCalibrated: false })
     },
 
-    armPort: (armedPort) => set({ armedPort }),
+    // Changing tool drops any half-made joint: the end you picked belonged to the
+    // gesture you have just walked away from.
+    setTool: (tool) => set((s) => (s.tool === tool ? s : { tool, pendingPort: null })),
+
+    pickPort: (port) => {
+      const s = get()
+      // Clicking the held end again lets go of it.
+      if (!port || samePort(s.pendingPort, port)) {
+        set({ pendingPort: null })
+        return
+      }
+      if (!s.pendingPort) {
+        set({ pendingPort: port })
+        return
+      }
+      if (canConnect(s.pieces, s.pendingPort, port)) get().connectPorts(s.pendingPort, port)
+      // Two ends that cannot take a joint: the newer one is the one being asked
+      // for, so it takes over rather than the click doing nothing at all.
+      else set({ pendingPort: port })
+    },
+
+    connectPorts: (a, b) =>
+      commit(`Join ${nameOf(get(), a.pieceId)} to ${nameOf(get(), b.pieceId)}`, (s) => {
+        if (!canConnect(s.pieces, a, b)) return null
+        const outlet = a.end === 'out' ? a : b
+        const inlet = a.end === 'in' ? a : b
+        // The end picked first is the one that travels. Picked by its inlet, the
+        // run behind it is carried onto the outlet anyway — that is what welding
+        // it on does. Picked by its outlet, it is the run in front that has to
+        // come round, so it is swung and set down against the other one first,
+        // and the weld below then has nothing left to move.
+        const base = a.end === 'out' ? alignRun(s.pieces, outlet, inlet) : s.pieces
+        const from = base.findIndex((p) => p.id === outlet.pieceId)
+        const head = base.findIndex((p) => p.id === inlet.pieceId)
+        // The whole run hanging off that inlet travels, not just the one part.
+        const tail = chainTailOf(base, head)
+        const block = base.slice(head, tail + 1)
+        const rest = [...base.slice(0, head), ...base.slice(tail + 1)]
+        // Bonded parts follow the part they are bonded to, so the run that
+        // arrives is filed straight after the outlet it now hangs off.
+        const at = rest.findIndex((p) => p.id === outlet.pieceId) + 1
+        const S = PIECE_LIMITS.slope
+        // A snap-fit joint is coaxial: the part bonded on takes the angle the
+        // outlet hands over and picks up its heading, so the two sit flush.
+        block[0] = {
+          ...block[0],
+          joined: true,
+          at: undefined,
+          slope: clamp(exitSlope(base[from]), S.min, S.max),
+          turn: 0,
+        }
+        const pieces = [...rest.slice(0, at), ...block, ...rest.slice(at)]
+        if (!s.keepConnected || block.length < 2) return { pieces, pendingPort: null }
+        // Measured before anything moved, so the run that arrived keeps every
+        // kink it had rather than being pulled straight by the joint.
+        const was = kinksOf(base)
+        const kinks = pieces.map((_, i) =>
+          i > at && i < at + block.length ? was[head + i - at] : 0,
+        )
+        return { pieces: relink(pieces, kinks, at + 1, at + block.length - 1), pendingPort: null }
+      }),
+
+    breakJoint: (pieceId, at) =>
+      commit(`Unjoin ${nameOf(get(), pieceId)}`, (s) => {
+        const i = s.pieces.findIndex((p) => p.id === pieceId)
+        if (i < 0 || isChainRoot(s.pieces, i)) return null
+        const piece = s.pieces[i]
+        return {
+          pieces: s.pieces.map((p, j) =>
+            j === i
+              ? // Its own turn still counts towards where it points, so the
+                // placement takes the heading less that turn and the part comes
+                // out of the joint aimed exactly where it already was.
+                { ...p, joined: undefined, at: { ...at, yaw: tidy(at.yaw - piece.turn) } }
+              : p,
+          ),
+          pendingPort: null,
+        }
+      }),
+
+    moveChain: (pieceId, x, y, z) =>
+      commit(
+        `Move ${nameOf(get(), pieceId)}`,
+        (s) => {
+          const i = s.pieces.findIndex((p) => p.id === pieceId)
+          if (i < 0) return null
+          const root = chainRootOf(s.pieces, i)
+          const at = placementOf(s.pieces[root])
+          if (at.x === x && at.y === y && at.z === z) return null
+          return {
+            pieces: s.pieces.map((p, j) => (j === root ? { ...p, at: { ...at, x, y, z } } : p)),
+          }
+        },
+        // One drag of the arrows is one step, however far it travels.
+        `piece:${pieceId}:move`,
+      ),
+
+    rotateChain: (pieceId, at) =>
+      commit(
+        `Rotate ${nameOf(get(), pieceId)}`,
+        (s) => {
+          const i = s.pieces.findIndex((p) => p.id === pieceId)
+          if (i < 0) return null
+          const root = chainRootOf(s.pieces, i)
+          const was = placementOf(s.pieces[root])
+          if (was.x === at.x && was.y === at.y && was.z === at.z && was.yaw === at.yaw) return null
+          return { pieces: s.pieces.map((p, j) => (j === root ? { ...p, at } : p)) }
+        },
+        // One drag of the ring is one step, however far it turns.
+        `piece:${pieceId}:rotate`,
+      ),
 
     addPiece: (type = 'straight') => {
-      const s = get()
-      const S = PIECE_LIMITS.slope
-      const at = insertIndexAt(s.pieces, s.armedPort)
-      const before = s.pieces[at - 1]
-      const after = s.pieces[at]
-      // Entering: carry on at the angle the run is already travelling at. Put in
-      // at the head of the run there is nothing to carry on from, so the part
-      // instead enters at whatever angle lets it hand the old first part the
-      // angle it already had — the run gets longer without changing shape.
-      const slope = before ? exitSlope(before) : after ? entrySlopeFor(type, after.slope) : null
-      const piece = makePiece({
-        type,
-        ...(slope === null ? {} : { slope: clamp(tidy(slope), S.min, S.max) }),
-        // Length only carries over between plain tubes. A connector is meant to
-        // stay short, and its own short entry leg is no guide to how long the
-        // next tube should be.
-        ...(before?.type === 'straight' && type === 'straight' ? { length: before.length } : {}),
-      })
-      // Heading is the same story: a corner put in at the head would swing the
-      // whole run round behind it, so it enters turned back by as much as it
-      // turns and the run keeps the heading it already had.
-      if (!before && after && piece.type === 'corner') {
-        const T = PIECE_LIMITS.turn
-        piece.turn = clamp(tidy(-exitTurn(piece)), T.min, T.max)
+      const s0 = get()
+      const shape = makePiece({ type })
+      const piece = {
+        ...shape,
+        at: spawnPlacement(s0.pieces, shape, s0.innerDiameter / 2 + s0.wallThickness),
       }
-      // What the part now sitting downstream used to be handed. A tube changes
-      // nothing; dropping a connector in tips everything after it by its bend.
-      const handedOn = before ? exitSlope(before) : after ? after.slope : exitSlope(piece)
-      const pieces = s.pieces.slice()
-      pieces.splice(at, 0, piece)
-
-      commit(`Add ${PART_LABEL[piece.type]}`, (cur) => ({
-        pieces: carrySlope(pieces, at, tidy(exitSlope(piece) - handedOn), cur.keepConnected),
+      // A part lands on its own, in clear space: joining it to the run is the
+      // Connector's job, so nothing already on the stage moves when one arrives.
+      commit(`Add ${PART_LABEL[piece.type]}`, (s) => ({
+        pieces: [...s.pieces, piece],
         selectedId: piece.id,
-        // The port follows onto the part it just fed, so adding again carries on
-        // in the same direction instead of stacking back into the same joint.
-        ...(s.armedPort ? { armedPort: { pieceId: piece.id, end: s.armedPort.end } } : {}),
       }))
     },
-    // The copy lands right after its original and takes over the selection.
+    // The copy lands beside the run rather than in it, the same as a part fresh
+    // out of the library, and takes over the selection.
     duplicatePiece: (id) =>
       commit(`Duplicate ${nameOf(get(), id)}`, (s) => {
         const i = s.pieces.findIndex((p) => p.id === id)
         if (i < 0) return null
-        const original = s.pieces[i]
-        const { id: _id, ...rest } = original
-        const S = PIECE_LIMITS.slope
-        // The copy is spliced into the run, not laid beside it, so on a
-        // connected run it picks up where its original leaves off, exactly as a
-        // freshly added part would.
-        const copy = makePiece(
-          s.keepConnected ? { ...rest, slope: clamp(exitSlope(original), S.min, S.max) } : rest,
-        )
-        const pieces = s.pieces.slice()
-        pieces.splice(i + 1, 0, copy)
-        return {
-          pieces: carrySlope(
-            pieces,
-            i + 1,
-            tidy(exitSlope(copy) - exitSlope(original)),
-            s.keepConnected,
+        const { id: _id, joined: _joined, at: _at, ...rest } = s.pieces[i]
+        const shape = makePiece(rest)
+        const copy = {
+          ...shape,
+          // Stood clear on the copy's own tube — it carries the original's size,
+          // which is not the run's if that part was sized on its own.
+          at: spawnPlacement(
+            s.pieces,
+            shape,
+            boreOf(shape, s.innerDiameter) / 2 + wallOf(shape, s.wallThickness),
           ),
-          selectedId: copy.id,
         }
+        return { pieces: [...s.pieces, copy], selectedId: copy.id }
       }),
     // A blank name is stored as none at all, so the part falls back to its default label.
     renamePiece: (id, name) =>
@@ -1223,6 +1668,9 @@ export const useRun = create<RunState>((set, get) => {
           const W = PIECE_LIMITS.sweep
           let pieces = cur.pieces.slice()
           let swing = tidy(delta)
+          // Everything here works within the run the part belongs to: a swing
+          // travels to the head of its own run and no further.
+          const root = chainRootOf(cur.pieces, at)
 
           if (axis === 'turn') {
             // Plan: a heading is only ever a change from the one before, so the
@@ -1233,8 +1681,8 @@ export const useRun = create<RunState>((set, get) => {
             // On a corner held by its outgoing leg the giveback is the sweep
             // instead: the break is the pivot, so what the entry leg takes the
             // sweep hands back and the leg past it never moves.
-            const after = holdExit ? null : pieces[at + 1]
-            swing = narrow(swing, roomFor(pieces[0].turn, swing, T))
+            const after = holdExit || !pieces[at + 1]?.joined ? null : pieces[at + 1]
+            swing = narrow(swing, roomFor(pieces[root].turn, swing, T))
             if (after) swing = narrow(swing, -roomFor(after.turn, -swing, T))
             // The giveback is measured in heading, not in sweep: on a falling
             // run a corner swings the heading further than its own sweep, so
@@ -1247,7 +1695,7 @@ export const useRun = create<RunState>((set, get) => {
               swing = tidy(was - exitTurn({ ...pieces[at], sweep: held }))
             }
             if (tidy(swing)) {
-              pieces[0] = { ...pieces[0], turn: tidy(pieces[0].turn + swing) }
+              pieces[root] = { ...pieces[root], turn: tidy(pieces[root].turn + swing) }
               if (after) pieces[at + 1] = { ...after, turn: tidy(after.turn - swing) }
               if (holdExit) {
                 pieces[at] = { ...pieces[at], sweep: held }
@@ -1266,7 +1714,7 @@ export const useRun = create<RunState>((set, get) => {
             // along takes the same delta and the run ahead stays rigid. Off a
             // connected run only the part under the pointer moves, and the joint
             // behind it is free to open.
-            const from = cur.keepConnected ? 0 : at
+            const from = cur.keepConnected ? root : at
             for (let i = from; i <= at; i++) {
               swing = narrow(swing, roomFor(pieces[i].slope, swing, S))
               // A connector carried along swings what it hands on as well, and
@@ -1325,15 +1773,29 @@ export const useRun = create<RunState>((set, get) => {
       commit(`Delete ${nameOf(get(), id)}`, (s) => {
         const i = s.pieces.findIndex((p) => p.id === id)
         if (i < 0) return null
+        const gone = s.pieces[i]
+        const next = s.pieces[i + 1]
+        const root = isChainRoot(s.pieces, i)
         const pieces = s.pieces.filter((p) => p.id !== id)
-        // What followed the deleted part now hangs off the part before it, so it
-        // has to take up the angle the deleted one used to hand on.
-        const delta = i > 0 ? tidy(exitSlope(s.pieces[i - 1]) - exitSlope(s.pieces[i])) : 0
+        // Deleting the part a run starts at leaves the next one standing where
+        // the deleted part stood — the run closes up onto the ground the deleted
+        // part was holding, still pointing the way it was.
+        if (root && next?.joined) {
+          const at = placementOf(gone)
+          pieces[i] = {
+            ...next,
+            joined: undefined,
+            at: { ...at, yaw: tidy(at.yaw + gone.turn + exitTurn(gone)) },
+          }
+        }
+        // Mid-run, what followed now hangs off the part before, so it has to
+        // take up the angle the deleted one used to hand on.
+        const delta = root ? 0 : tidy(exitSlope(s.pieces[i - 1]) - exitSlope(gone))
         return {
           pieces: carrySlope(pieces, i - 1, delta, s.keepConnected),
           selectedId: s.selectedId === id ? null : s.selectedId,
           // The joint the port named has gone with the part.
-          armedPort: s.armedPort?.pieceId === id ? null : s.armedPort,
+          pendingPort: s.pendingPort?.pieceId === id ? null : s.pendingPort,
         }
       }),
     movePiece: (id, dir) =>
@@ -1341,15 +1803,26 @@ export const useRun = create<RunState>((set, get) => {
         const i = s.pieces.findIndex((p) => p.id === id)
         const j = i + dir
         if (i < 0 || j < 0 || j >= s.pieces.length) return null
+        const at = Math.min(i, j)
+        // Only two parts of the same run can trade places: the list order is
+        // what says which part is bonded to which, so a swap across two runs
+        // would tear both of them apart.
+        if (!s.pieces[at + 1].joined) return null
         const pieces = s.pieces.slice()
         ;[pieces[i], pieces[j]] = [pieces[j], pieces[i]]
+        // Where a run stands belongs to the place at the head of it, not to
+        // whichever part is standing there, so the placement stays behind.
+        if (isChainRoot(s.pieces, at)) {
+          pieces[at] = { ...pieces[at], joined: undefined, at: s.pieces[at].at }
+          pieces[at + 1] = { ...pieces[at + 1], joined: true, at: undefined }
+        }
         if (!s.keepConnected) return { pieces }
         const S = PIECE_LIMITS.slope
-        const at = Math.min(i, j)
         // The two have traded places in the chain: each takes the angle its new
         // place hands it, and whatever follows swings by the difference.
         const was = exitSlope(s.pieces[at + 1])
-        if (at > 0) {
+        // The part at the head of a run holds the angle it was set down on.
+        if (!isChainRoot(pieces, at)) {
           pieces[at] = { ...pieces[at], slope: clamp(exitSlope(pieces[at - 1]), S.min, S.max) }
         }
         pieces[at + 1] = { ...pieces[at + 1], slope: clamp(exitSlope(pieces[at]), S.min, S.max) }
@@ -1393,26 +1866,18 @@ export function tubeSpec(innerDiameter: number, wallThickness: number, variant: 
 }
 
 /**
- * One spec per style, off the run's bore and wall. Parts sharing a style get
- * the very same object back, which is what keeps a memoised mesh from being
- * rebuilt every time the run is touched.
- */
-export function tubeSpecs(innerDiameter: number, wallThickness: number): Record<TubeVariant, TubeSpec> {
-  return {
-    half: tubeSpec(innerDiameter, wallThickness, 'half'),
-    threequarter: tubeSpec(innerDiameter, wallThickness, 'threequarter'),
-    closed: tubeSpec(innerDiameter, wallThickness, 'closed'),
-  }
-}
-
-/**
- * The tube one part is cut from: the run's bore and wall, in that part's own
- * style. `base` doubles as the fallback, so an unstyled part hands back the
- * spec it was given.
+ * The tube one part is cut from — its own bore, wall and style, each falling
+ * back to the run's. `base` doubles as that fallback, so a part with nothing of
+ * its own hands back the very spec it was given: same object, so a mesh keyed
+ * on it is not rebuilt.
  */
 export function pieceSpec(base: TubeSpec, piece: Piece): TubeSpec {
   const variant = variantOf(piece, base.variant)
-  return variant === base.variant ? base : tubeSpec(base.innerR * 2, base.wall, variant)
+  const innerDiameter = boreOf(piece, base.innerR * 2)
+  const wall = wallOf(piece, base.wall)
+  return variant === base.variant && innerDiameter === base.innerR * 2 && wall === base.wall
+    ? base
+    : tubeSpec(innerDiameter, wall, variant)
 }
 
 /** Snap-fit joint geometry, derived from the tube wall. */

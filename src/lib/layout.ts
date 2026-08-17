@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import { centerlineFor, type Centerline } from './centerline'
-import { exitTurn, type Piece } from '../store'
+import { exitTurn, isChainRoot, placementOf, type Piece } from '../store'
 
 /**
  * One straight chord of the run. A plain tube is a single chord; a bent part
@@ -39,8 +39,10 @@ export interface PlacedPiece {
   exitDir: THREE.Vector3
   /** Entry frame: X = right, Y = up (opening side), Z = dir. The mesh is placed with it. */
   quaternion: THREE.Quaternion
-  /** Cumulative axis length at the start of this piece, mm. */
+  /** Cumulative axis length at the start of this piece, mm, along its own run. */
   startS: number
+  /** Which run this part belongs to — its index in {@link Assembly.chains}. */
+  chain: number
   /** Centreline length of the whole part, mm. */
   length: number
   /** Entry pitch in radians, positive = falling. */
@@ -53,13 +55,30 @@ export interface PlacedPiece {
   line: Centerline
 }
 
+/** One run of bonded parts: the chords along it, in order, from its own zero. */
+export interface Chain {
+  /** Indices into {@link Assembly.placed}, head first. */
+  pieces: number[]
+  segments: Segment[]
+  length: number
+}
+
 export interface Assembly {
   placed: PlacedPiece[]
-  /** Every chord in the run, in order — what the marble actually travels along. */
+  /**
+   * Every run on the stage. A part that has not been joined onto anything is a
+   * run of one — which is what a part is when it lands.
+   */
+  chains: Chain[]
+  /**
+   * The chords the marble travels, in order. That is the first run in the list:
+   * with several runs on the stage the marble has to be given one, and the one
+   * the parts list starts with is the one the run reads as starting from.
+   */
   segments: Segment[]
   totalLength: number
   bounds: THREE.Box3
-  /** Axis polyline, one point per chord end. */
+  /** Axis polyline, one point per chord end, run by run. */
   polyline: THREE.Vector3[]
 }
 
@@ -83,18 +102,33 @@ export function frameFor(yaw: number, pitch: number) {
   return new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(x, y, z))
 }
 
-/** Chain the pieces head-to-tail from the origin. */
+/**
+ * Stands every part up in the world. Parts bonded together are chained
+ * head-to-tail, and a part that is bonded to nothing starts a fresh run where it
+ * was set down — so the stage holds as many runs as there are unbonded parts,
+ * each measured from its own zero.
+ */
 export function buildAssembly(pieces: Piece[]): Assembly {
   const placed: PlacedPiece[] = []
-  const segments: Segment[] = []
+  const chains: Chain[] = []
   const polyline: THREE.Vector3[] = []
   const cursor = new THREE.Vector3(0, 0, 0)
   let yaw = 0
   let s = 0
-
-  polyline.push(cursor.clone())
+  let chain: Chain | null = null
 
   pieces.forEach((piece, index) => {
+    // A part on its own is a run of its own: it starts where it was put, facing
+    // the way it was set down, with its own arc length running from zero.
+    if (isChainRoot(pieces, index) || !chain) {
+      const at = placementOf(piece)
+      cursor.set(at.x, at.y, at.z)
+      yaw = THREE.MathUtils.degToRad(at.yaw)
+      s = 0
+      chain = { pieces: [], segments: [], length: 0 }
+      chains.push(chain)
+      polyline.push(cursor.clone())
+    }
     yaw += THREE.MathUtils.degToRad(piece.turn)
     const pitch = THREE.MathUtils.degToRad(piece.slope)
     const dir = directionFor(yaw, pitch)
@@ -129,6 +163,7 @@ export function buildAssembly(pieces: Piece[]): Assembly {
     }
 
     const end = world[world.length - 1]
+    chain.pieces.push(placed.length)
     placed.push({
       piece,
       index,
@@ -139,13 +174,15 @@ export function buildAssembly(pieces: Piece[]): Assembly {
       exitDir: own.length ? own[own.length - 1].dir.clone() : dir.clone(),
       quaternion,
       startS: own.length ? own[0].startS : s,
+      chain: chains.length - 1,
       length: line.length,
       pitch,
       yaw,
       segments: own,
       line,
     })
-    segments.push(...own)
+    chain.segments.push(...own)
+    chain.length = s
     cursor.copy(end)
     // A corner hands the run on at a new heading, so the next part is measured
     // from there rather than from the heading this one came in on. Pitch needs
@@ -158,7 +195,17 @@ export function buildAssembly(pieces: Piece[]): Assembly {
   if (polyline.length) bounds.setFromPoints(polyline)
   else bounds.set(new THREE.Vector3(), new THREE.Vector3())
 
-  return { placed, segments, totalLength: s, bounds, polyline }
+  // The marble is given the first run; the rest are parts waiting to be joined
+  // on, and there is only one marble.
+  const run = chains[0]
+  return {
+    placed,
+    chains,
+    segments: run ? run.segments : [],
+    totalLength: run ? run.length : 0,
+    bounds,
+    polyline,
+  }
 }
 
 /** Point + direction at arc length `s` along the axis, and the chord it falls on. */

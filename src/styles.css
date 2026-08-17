@@ -97,6 +97,11 @@
 
   --font: 'IBM Plex Sans', 'Segoe UI', system-ui, -apple-system, sans-serif;
   --mono: 'IBM Plex Mono', 'SF Mono', ui-monospace, Menlo, monospace;
+
+  /* How far the stage furniture is set down to clear the toolbar across the top.
+     The 3D stage sets its own from the height the view cube is placed against;
+     the 2D draft carries no such bar, so nothing there is pushed down. */
+  --toolbar-h: 0px;
 }
 
 :root[data-theme='dark'] {
@@ -2030,25 +2035,140 @@ button.danger {
   display: block;
 }
 
-.hud {
+/* ---------------- toolbar ---------------- */
+
+/* Snapped under the project bar and spanning the stage, so the tools sit where
+   the eye already is rather than floating over the workplane. Everything else on
+   the stage is set down below it by --toolbar-h. */
+.toolbar {
   position: absolute;
-  top: 14px;
-  left: 14px;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 5;
+  height: var(--toolbar-h);
   display: flex;
-  align-items: center;
-  gap: 8px;
-  background: var(--hud-bg);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 8px;
-  backdrop-filter: blur(6px);
+  align-items: stretch;
+  gap: 0;
+  padding: 0 12px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+  box-shadow: 0 1px 6px rgba(15, 30, 45, 0.06);
+  overflow: hidden;
 }
 
-/* Toggle buttons in the HUD keep the segmented control's active look. */
-.hud button.on:not(.primary) {
+/* One band of the bar, named above its buttons. */
+.tool-group {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 3px;
+  padding: 6px 12px;
+  flex: 0 0 auto;
+}
+
+/* The border between bands is what makes the bar read as a few short lists. */
+.tool-group + .tool-group {
+  border-left: 1px solid var(--line-soft);
+}
+
+.tool-group-name {
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-mute);
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.tool-group-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Wraps the button so the pointer is still watched when the tool is greyed out —
+   a disabled button is given no pointer events of its own, and a tool with
+   nothing to work on is exactly when its hint is worth reading. */
+.tool-slot {
+  display: inline-flex;
+}
+
+/* Just the picture. What it means is said on hover, in .tool-tip. */
+.tool-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px;
+  width: 32px;
+  height: 32px;
+  color: var(--ink-dim);
+}
+
+.tool-btn svg {
+  display: block;
+  flex: 0 0 auto;
+}
+
+/* The hover hint. Hung off the body and placed in viewport pixels, because the
+   toolbar clips its own overflow and a hint inside it would be cut off at the
+   bar's edge. */
+.tool-tip {
+  position: fixed;
+  z-index: 60;
+  transform: translateX(-50%);
+  max-width: 248px;
+  display: grid;
+  gap: 2px;
+  padding: 6px 9px;
+  border-radius: 6px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  box-shadow: 0 6px 18px rgba(15, 30, 45, 0.18);
+  font-size: 11px;
+  line-height: 1.35;
+  /* It follows the pointer's tool, so it must never be under the pointer itself. */
+  pointer-events: none;
+}
+
+.tool-tip b {
+  color: var(--ink);
+}
+
+.tool-tip span {
+  color: var(--ink-faint);
+}
+
+/* A tool in hand reads as pressed: until it is switched off, every click on the
+   stage belongs to it. */
+.toolbar button.on:not(.primary) {
   background: linear-gradient(180deg, var(--seg-on-a), var(--seg-on-b));
   border-color: var(--primary-on-border);
   color: var(--primary-ink);
+}
+
+/* What the tool in hand is waiting for, said in the bar rather than in a
+   tooltip. It gives up its width first — the buttons never wrap — and folds onto
+   a second line before it gives up any words. */
+.tool-hint {
+  flex: 1 1 auto;
+  min-width: 0;
+  align-self: center;
+  margin: 0;
+  padding: 0 14px;
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--ink-faint);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.toolbar .telemetry {
+  align-self: center;
+  flex: 0 0 auto;
 }
 
 .telemetry {
@@ -2154,14 +2274,14 @@ button.danger {
 
 /* ---------------- active parts tree ---------------- */
 
-/* The CAD-style model tree, hanging under the HUD bar in the stage's top-left. */
+/* The CAD-style model tree, hanging under the toolbar in the stage's top-left. */
 .active-parts {
   position: absolute;
-  top: 88px;
+  top: calc(var(--toolbar-h) + 14px);
   left: 14px;
   width: 196px;
-  /* Clears the HUD above and the control hint pinned to the bottom-left. */
-  max-height: calc(100% - 140px);
+  /* Clears the toolbar above and the control hint pinned to the bottom-left. */
+  max-height: calc(100% - var(--toolbar-h) - 80px);
   display: flex;
   flex-direction: column;
   background: var(--tree-bg);
@@ -2487,7 +2607,7 @@ button.danger {
    64px + its widest corner-on silhouette, and centres on that same 64px axis. */
 .view-tools {
   position: absolute;
-  top: 124px;
+  top: calc(var(--toolbar-h) + 124px);
   right: 47px;
   display: flex;
   flex-direction: column;
@@ -2584,9 +2704,10 @@ button.danger {
   border-color: var(--primary-border);
 }
 
+/* Slides out below the toolbar, so the bar stays unbroken across the stage. */
 .parts-panel {
   position: absolute;
-  top: 0;
+  top: var(--toolbar-h);
   right: 0;
   bottom: 0;
   width: var(--parts-w);
