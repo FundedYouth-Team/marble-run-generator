@@ -230,28 +230,37 @@ const HELP: Record<HelpTab, Group[]> = {
         },
         {
           keys: ['Drag a joint'],
-          action: 'Set slope or turn',
-          note: 'a side view sets slope, a top or bottom view sets turn; the part swings about the joint behind it',
+          action: 'Resize and swing the leg at once — the point follows the pointer',
+          note: 'a side view sets slope, a top or bottom view sets turn; the part swings about the joint behind it and stretches to reach where you let go',
         },
         {
           keys: ['Drag a ring'],
           action: "Swing a part from its head, about its own far end",
-          note: 'the run ahead of it comes round with it; nothing past the pivot moves',
+          note: 'the run ahead of it comes round with it; nothing past the pivot moves, and the part resizes the same way',
+        },
+        {
+          keys: ['Drag a square'],
+          action: 'Stretch that leg and nothing else',
+          note: 'this view holds no angle for that leg — a corner’s outgoing leg seen side-on, an angle connector’s entry leg seen from above — so its end only slides along itself',
         },
         {
           keys: ['Drag the break'],
           action: 'On a connector, swing one leg at a time',
           note: 'an angle in a side view: the break sets the entry slope, the outlet sets the bend — a corner in Top or Bottom: the break sets the turn, the outlet sets the sweep',
         },
-        { keys: ['Shift', 'Drag'], action: 'Snap the angle to 5°' },
-        { keys: ['Alt', 'Drag'], action: 'Stretch that leg as well' },
+        { keys: ['Shift', 'Drag'], action: 'Snap to 5° and 5mm' },
+        { keys: ['Alt', 'Drag'], action: 'Hold the length — swing the angle only' },
         { keys: ['Esc'], action: 'Cancel the drag and restore the piece' },
       ],
     },
     {
       title: 'Reading the drawing',
       rows: [
-        { keys: ['Section A–A'], action: 'Live cross-section of the tube front face' },
+        {
+          keys: ['Tube face'],
+          action: 'Live cross-section of the tube the selected part is cut from',
+          note: 'the second tab at the top of the drawing — scroll on it to zoom, drag to pan once you are in, double-click or Fit to go back to the whole section',
+        },
         { keys: ['Ghost circle'], action: 'The marble, shown resting in the bore' },
       ],
     },

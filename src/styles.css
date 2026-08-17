@@ -51,6 +51,12 @@
   --beta-bg: rgba(221, 96, 20, 0.14);
   --beta-border: rgba(221, 96, 20, 0.42);
 
+  /* Draft toolbar toggle pills, switched on — a light yellow that reads as a
+     setting being held rather than as the green go-ahead of an action. */
+  --pill-on-bg: #fdf6d8;
+  --pill-on-border: #ecdca4;
+  --pill-on-ink: #b0530f;
+
   /* Add Part sits in a green-dominant bar, so it takes the orange accent. */
   --addpart-a: #f59331;
   --addpart-b: #dd6014;
@@ -149,6 +155,11 @@
   --beta-ink: #ffa268;
   --beta-bg: rgba(255, 122, 69, 0.16);
   --beta-border: rgba(255, 122, 69, 0.4);
+
+  /* Held back a shade off the light palette so it does not glare on a dark stage. */
+  --pill-on-bg: #f2e8c0;
+  --pill-on-border: #d8c98e;
+  --pill-on-ink: #9a440a;
 
   --addpart-a: #ff8a3d;
   --addpart-b: #e2661a;
@@ -1678,13 +1689,58 @@ button.danger {
   color: var(--ink-mute);
 }
 
+/* The two drawings share one pane, so the head carries the toggle that swaps
+   them where it used to carry a title — the mode toggle's own look, in the
+   mode toggle's blue, because it is the same kind of switch. It is given room
+   above and below rather than sitting tight against the head's own edges. */
+.segmented.tabs {
+  flex: 0 0 auto;
+  margin: 4px 0;
+}
+
+.segmented.tabs button {
+  /* Each label keeps its own line — .segmented shares the width out evenly by
+     default, which is a squeeze two words cannot take. */
+  flex: 0 0 auto;
+  white-space: nowrap;
+  min-width: 124px;
+  padding: 7px 12px;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.segmented.tabs button.on {
+  background: linear-gradient(180deg, var(--mode-on-a), var(--mode-on-b));
+  color: var(--mode-on-ink);
+}
+
 .pane-body {
   flex: 1 1 auto;
   min-height: 0;
   display: flex;
+  /* The section sheet lies over the assembly rather than replacing it. */
+  position: relative;
 }
 
 .pane-body.center {
+  align-items: center;
+  justify-content: center;
+  padding: 10px;
+}
+
+/* The section, on top of the assembly it was taken from — opaque, so what is
+   underneath keeps its view without showing through. */
+.section-sheet {
+  position: absolute;
+  inset: 0;
+  background: var(--panel);
+}
+
+.section-stage {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
   align-items: center;
   justify-content: center;
   padding: 10px;
@@ -1695,6 +1751,17 @@ button.danger {
   max-width: 420px;
   height: auto;
   max-height: 100%;
+  /* The wheel zooms the section rather than scrolling the pane under it. */
+  touch-action: none;
+}
+
+/* Only draggable once the wheel has taken the view in past the frame. */
+.section-svg.zoomed {
+  cursor: grab;
+}
+
+.section-svg.zoomed:active {
+  cursor: grabbing;
 }
 
 .section-svg .centerline {
@@ -1819,6 +1886,21 @@ button.danger {
   letter-spacing: 0.02em;
 }
 
+/* On, these read as a setting left switched on rather than a button to press,
+   so they take a filled yellow pill with orange text instead of the green
+   accent outline. Hover is kept off the green accent for the same reason. */
+.draft-toolbar .view-tool.wide:hover:not(:disabled) {
+  border-color: var(--line);
+  color: var(--ink);
+}
+
+.draft-toolbar .view-tool.wide.on,
+.draft-toolbar .view-tool.wide.on:hover:not(:disabled) {
+  background: var(--pill-on-bg);
+  border-color: var(--pill-on-border);
+  color: var(--pill-on-ink);
+}
+
 .draft-canvas {
   flex: 1 1 auto;
   min-height: 0;
@@ -1932,6 +2014,27 @@ button.danger {
   stroke-dasharray: none;
 }
 
+/* A leg this view holds no angle for — a corner's outgoing leg seen side-on, an
+   angle connector's entry leg seen from above — still draws its full length, so
+   its end is grabbable for exactly one thing. The square says so: it slides
+   along its own leg and nowhere else. */
+.draft-canvas .joint-handle.stretch {
+  cursor: nesw-resize;
+}
+
+.draft-canvas .joint-handle.stretch.live {
+  cursor: grabbing;
+}
+
+.draft-canvas .joint-handle.stretch .joint {
+  stroke: var(--draw-axis);
+}
+
+.draft-canvas .joint-handle.stretch.live .joint {
+  stroke: var(--accent-2);
+  fill: var(--accent-2);
+}
+
 .draft-canvas .seg {
   cursor: pointer;
 }
@@ -1948,6 +2051,20 @@ button.danger {
   font-family: var(--mono);
   font-size: 11px;
   text-anchor: middle;
+}
+
+/* Figures sit over the parts and never take a press — a click that lands on a
+   dimension is meant for whatever it is called out on. */
+.draft-canvas .dim-layer {
+  pointer-events: none;
+}
+
+/* The legs squared off at the break — what the bend angle is measured between,
+   so they are drawn as reference lines rather than as material. */
+.draft-canvas .dim .ext {
+  stroke-width: 0.9;
+  stroke-dasharray: 4 3;
+  opacity: 0.7;
 }
 
 /* Marble travel direction — annotation only, never a hit target. */

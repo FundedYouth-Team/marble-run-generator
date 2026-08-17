@@ -54,13 +54,13 @@ export default function App() {
           <span className="logo" />
           <div>
             <h1>
-              Marble Run Generator
+              Marble Run
               {/* The app is still being built — said next to the name, where it is read first. */}
               <span className="beta" title="Under active development — press ? for what that means">
                 Beta
               </span>
             </h1>
-            <p>Parametric CAD Tool</p>
+            <p>Parametric CAD Builder</p>
           </div>
         </div>
 
