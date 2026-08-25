@@ -1,5 +1,6 @@
 import {
   ANGLE_DEFAULTS,
+  CORKSCREW_DEFAULTS,
   CORNER_DEFAULTS,
   HOOK_DEFAULTS,
   HOOK_SLOPE_LIMIT,
@@ -59,8 +60,11 @@ export const PROJECT_FORMAT = 'marble-run-generator'
  * Which plane a hook turns on rides along inside v7 without a bump: it arrived
  * with the part, and a file written before it says nothing about the plane,
  * which reads back as the flat turn every hook was until then.
+ * v8 added the corkscrew, the same way v7 added the hook: a v7 reader would
+ * turn every corkscrew into a straight tube, and the run would come back with
+ * its towers missing — and with them the height they were carrying.
  */
-export const PROJECT_VERSION = 7
+export const PROJECT_VERSION = 8
 
 /** Double-barrelled so a saved run reads as a project, not as loose data. */
 export const PROJECT_EXT = '.mrun.json'
@@ -151,6 +155,18 @@ function isType(v: unknown): v is PieceType {
   return typeof v === 'string' && v in PART_LABEL
 }
 
+/**
+ * A corkscrew's height, which carries a sign: a coil in a run that has been
+ * turned end for end climbs rather than drops. Only the size of it is held to
+ * the limits — the sign is which way the part faces, not how big it is.
+ */
+function readHeight(v: unknown): number {
+  const H = PIECE_LIMITS.height
+  if (typeof v !== 'number' || !Number.isFinite(v)) return CORKSCREW_DEFAULTS.height
+  const size = clamp(Math.abs(v), H.min, H.max)
+  return v < 0 ? -size : size
+}
+
 /** How far from the origin a part may be stood down, mm — past this it is junk. */
 const PLACEMENT_LIMIT = 100_000
 
@@ -164,6 +180,7 @@ const LEG_DEFAULT: Partial<Record<PieceType, number>> = {
   angle: ANGLE_DEFAULTS.length,
   corner: CORNER_DEFAULTS.length,
   hook: HOOK_DEFAULTS.length,
+  corkscrew: CORKSCREW_DEFAULTS.length,
 }
 
 /**
@@ -237,7 +254,30 @@ function readPiece(raw: unknown, joined: boolean): Piece {
           roll: num(o.roll, PIECE_LIMITS.roll.min, PIECE_LIMITS.roll.max, HOOK_DEFAULTS.roll),
         }
       : {}),
-    ...(type === 'angle' || type === 'corner' || type === 'hook'
+    // A corkscrew is its coil: its height and its widths, with the ring count
+    // and the fall following from those and the tube it is cut from. So the
+    // saved rings are read only for which way they wound — the store counts
+    // them again on the way in, along with the slope — and a file saved against
+    // a thinner tube opens with the coil it can actually have here.
+    ...(type === 'corkscrew'
+      ? {
+          height: readHeight(o.height),
+          topDiameter: num(
+            o.topDiameter,
+            PIECE_LIMITS.topDiameter.min,
+            PIECE_LIMITS.topDiameter.max,
+            CORKSCREW_DEFAULTS.topDiameter,
+          ),
+          bottomDiameter: num(
+            o.bottomDiameter,
+            PIECE_LIMITS.bottomDiameter.min,
+            PIECE_LIMITS.bottomDiameter.max,
+            CORKSCREW_DEFAULTS.bottomDiameter,
+          ),
+          rings: num(o.rings, PIECE_LIMITS.rings.min, PIECE_LIMITS.rings.max, 1),
+        }
+      : {}),
+    ...(type === 'angle' || type === 'corner' || type === 'hook' || type === 'corkscrew'
       ? {
           exitLength: num(
             o.exitLength,

@@ -19,13 +19,22 @@ import { buildAssembly, chainBox } from './lib/layout'
 // has to be solved rather than described can be solved in one place, and read
 // here and by the centreline alike.
 import { hookExit, hookFall, hookLength as hookRunLength, type HookTurn } from './lib/hook'
+import {
+  coilPlanLength,
+  coilRingPitch,
+  corkscrewExit,
+  corkscrewFall,
+  corkscrewLength as corkscrewRunLength,
+  corkscrewSlope as coilSlope,
+  type CorkscrewCoil,
+} from './lib/corkscrew'
 
 /**
  * All dimensions in this app are millimetres. The unit setting only changes how
  * they are written and read on screen — see `lib/units`.
  */
 export type TubeVariant = 'half' | 'threequarter' | 'closed'
-export type PieceType = 'straight' | 'angle' | 'corner' | 'hook'
+export type PieceType = 'straight' | 'angle' | 'corner' | 'hook' | 'corkscrew'
 export type Mode = '2d' | '3d'
 /**
  * What the left button does on the 3D stage. Picking a part is the resting
@@ -255,12 +264,30 @@ export interface Piece {
    */
   radius?: number
   /**
-   * Hook: how far the plane of the turn is rolled off level, degrees. Zero
-   * turns flat, the way a run wanders across a table; a quarter turn stands the
-   * turn on edge, so a half turn brings the run back underneath itself; a half
-   * turn is flat again, the other way about.
+   * Hook: how far the plane of the turn is rolled off level, degrees, right
+   * the way round. Zero turns flat, the way a run wanders across a table; a
+   * quarter turn stands the turn on edge, so it drops the run and brings it
+   * back underneath itself; a half turn is flat again, the other way about;
+   * three quarters is on edge again with the turn going the other way, up and
+   * over the top; and a whole turn is back where it started.
    */
   roll?: number
+  /**
+   * Corkscrew: how far the coil drops from its top ring to its bottom one, mm.
+   * The stubs either end of it fall as well, so the part as a whole loses a
+   * little more than this.
+   */
+  height?: number
+  /** Corkscrew: how wide the coil is where the run comes into it, mm. */
+  topDiameter?: number
+  /** Corkscrew: how wide it is where the run leaves it, mm. */
+  bottomDiameter?: number
+  /**
+   * Corkscrew: how many times round the run goes between the two, in quarters
+   * of a turn. Negative winds the other way about, the way a negative sweep
+   * turns a corner the other way.
+   */
+  rings?: number
   /** Connectors: length of the leg after the break, mm. */
   exitLength?: number
   /**
@@ -308,9 +335,24 @@ export const PIECE_LIMITS = {
   // Tighter than the bore is a turn the tube cannot be cut round; wider than
   // this is not a hook any more but a run that happens to bend.
   radius: { min: 20, max: 300, step: 1 },
-  // Half a turn of roll is every plane there is: past it the same planes come
-  // back round the other way about, which is what the sweep's own sign does.
-  roll: { min: 0, max: 180, step: 1 },
+  // The whole way round. Half a turn of roll is every *plane* there is — past
+  // it the same planes come back the other way about — but the plane is not the
+  // whole of it: rolled past the half turn, the axis points the other way, so a
+  // turn that dropped the run underneath itself now takes it up and over
+  // instead. Stopping at the half turn would mean only ever offering one of
+  // those two, and a dial that jumped back to nothing halfway round.
+  roll: { min: 0, max: 360, step: 1 },
+  // A corkscrew's own four. Height is what the coil drops between its top and
+  // bottom rings; the two widths are measured across the centreline, so a coil
+  // narrower than the tube it is cut from would wind through itself.
+  height: { min: 20, max: 800, step: 1 },
+  topDiameter: { min: 40, max: 400, step: 1 },
+  bottomDiameter: { min: 40, max: 400, step: 1 },
+  // Rings are counted rather than set — see {@link corkscrewRingsFor} — but a
+  // coil still has to stop somewhere: eight rings of tube is already longer
+  // than any plate it could be printed on. Quarter rings, so the outlet lands
+  // on a heading square to the inlet rather than wherever it happens to.
+  rings: { min: -8, max: 8, step: 0.25 },
 } as const
 
 /**
@@ -427,6 +469,168 @@ export function hookDrop(piece: Piece): number {
 }
 
 /**
+ * What a corkscrew is when it lands on the stage: three rings winding down and
+ * in, losing rather more height than a length of track would in the same
+ * footprint — which is the whole point of the part. The stubs either end are
+ * the same as a hook's, long enough to give the snap joint straight tube to sit
+ * on and no longer.
+ */
+export const CORKSCREW_DEFAULTS = {
+  length: 20,
+  height: 180,
+  topDiameter: 120,
+  bottomDiameter: 70,
+  exitLength: 20,
+} as const
+
+/**
+ * Air left between one ring and the next, mm.
+ *
+ * Rings that touch make a solid tower: nothing to see the marble through, and
+ * on an open trough the ring above comes down right on the slot the marble runs
+ * in. This is the daylight between the two tubes, over and above the tube
+ * itself.
+ */
+export const COIL_RING_GAP = 6
+
+/** How far apart the rings have to sit, mm — a whole tube across, plus the air. */
+export function corkscrewRingSpacing(outerR: number): number {
+  return outerR * 2 + COIL_RING_GAP
+}
+
+/**
+ * How many rings a coil of this height has room for, out of tube this thick.
+ *
+ * The rings are counted rather than set: a corkscrew is a stack of them, and
+ * how many will stack is a question its height and its tube answer between
+ * them, not one there is a free choice about. Give it more height and another
+ * ring goes in; cut it from fatter tube and one comes out.
+ *
+ * Counted down to whole quarter turns, which is what keeps the outlet on a
+ * heading square to the inlet — a coil that stopped wherever the arithmetic
+ * landed would leave the run pointing 104° round from where it went in. The
+ * quarter left over is spread back through the coil rather than dropped, so the
+ * rings still sit a little further apart than the very least they could.
+ */
+export function corkscrewRingsFor(height: number, outerR: number): number {
+  const step = PIECE_LIMITS.rings.step
+  // A climbing coil — a descending one travelled backwards — stacks its rings
+  // exactly as it did falling, so the count goes by the bare height.
+  const fits = Math.floor(Math.abs(height) / corkscrewRingSpacing(outerR) / step) * step
+  // Below a quarter turn there is no coil left to speak of, so that is the
+  // floor — and a corkscrew squeezed that far is the one case where the rings
+  // really can wind through one another.
+  return clamp(fits, step, PIECE_LIMITS.rings.max)
+}
+
+/**
+ * The corkscrew's own numbers, with anything unset filled in.
+ *
+ * The rings here are the ones the part is carrying, which is the count its
+ * space allowed when it was last settled — see {@link settle}. Everything that
+ * draws or measures the part reads it from here, so the shape a part has is one
+ * thing rather than something each caller works out again off a tube it may not
+ * know about.
+ */
+export function corkscrewSpec(piece: Piece): CorkscrewCoil {
+  return {
+    entry: piece.length,
+    topRadius: (piece.topDiameter ?? CORKSCREW_DEFAULTS.topDiameter) / 2,
+    bottomRadius: (piece.bottomDiameter ?? CORKSCREW_DEFAULTS.bottomDiameter) / 2,
+    turns: piece.rings ?? 1,
+    height: piece.height ?? CORKSCREW_DEFAULTS.height,
+    exit: piece.exitLength ?? CORKSCREW_DEFAULTS.exitLength,
+  }
+}
+
+/** Which way a coil winds: -1 for a left-hand one, +1 for a right-hand one. */
+export function corkscrewHand(piece: Piece): number {
+  return (piece.rings ?? 1) < 0 ? -1 : 1
+}
+
+/**
+ * The fall a corkscrew runs at, degrees — worked out from the coil rather than
+ * given to it. See {@link slopeIsFixed}.
+ */
+export function corkscrewPitch(piece: Piece): number {
+  return tidy(coilSlope(corkscrewSpec(piece)))
+}
+
+/** Centreline length of a corkscrew, mm — both stubs and the coil between them. */
+export function corkscrewLength(piece: Piece): number {
+  return corkscrewRunLength(corkscrewSpec(piece))
+}
+
+/** How far a corkscrew's outlet sits below its inlet, mm. */
+export function corkscrewDrop(piece: Piece): number {
+  return corkscrewFall(corkscrewSpec(piece))
+}
+
+/** How long one lap of the coil is in plan, mm — the tape measure round it. */
+export function corkscrewPlan(piece: Piece): number {
+  return coilPlanLength(corkscrewSpec(piece))
+}
+
+/** How far apart the rings sit, mm, centre to centre of the tube. */
+export function corkscrewRingPitch(piece: Piece): number {
+  return coilRingPitch(corkscrewSpec(piece))
+}
+
+/**
+ * Whether a part's fall is its own to keep rather than the run's to set.
+ *
+ * Every other part takes whatever angle the part before it hands on. A
+ * corkscrew cannot: its four numbers already fix how far it goes round and how
+ * far it drops doing it, and those two between them leave exactly one angle the
+ * coil can run at. So the part states its fall and the run has to meet it — a
+ * printed helix is a fixed thing, and this is what makes it behave like one.
+ */
+export function slopeIsFixed(piece: Piece): boolean {
+  return piece.type === 'corkscrew'
+}
+
+/**
+ * A part put back on the shape its own numbers demand: the rings its height has
+ * room for, and the fall those rings leave it running at. Only a corkscrew has
+ * either; everything else is handed its fall by the run and is left alone.
+ *
+ * `outerR` is the tube this part is actually cut from, which is what says how
+ * much room a ring takes up. The count is worked out here and then *stored*
+ * rather than derived on demand, because the centreline — the one description
+ * of a part's shape — is given nothing but the part, and knows nothing about
+ * the tube the run is set to.
+ */
+function settle(piece: Piece, outerR: number): Piece {
+  if (!slopeIsFixed(piece)) return piece
+  const height = piece.height ?? CORKSCREW_DEFAULTS.height
+  // Which way it winds is the one thing about the coil that is still a choice,
+  // so it is carried across rather than counted.
+  const rings = corkscrewRingsFor(height, outerR) * corkscrewHand(piece)
+  const wound = piece.rings === rings ? piece : { ...piece, rings }
+  const slope = corkscrewPitch(wound)
+  return wound.slope === slope ? wound : { ...wound, slope }
+}
+
+/**
+ * Every part in the list settled against the tube it is cut from — its own if
+ * it has been sized on its own, and otherwise the run's.
+ *
+ * This runs on the way out of every edit, so nothing has to remember which
+ * fields a coil watches: changing its height settles it, and so does changing
+ * the tube under it from the other side of the sidebar.
+ */
+function settleAll(pieces: Piece[], runBore: number, runWall: number): Piece[] {
+  if (!pieces.some(slopeIsFixed)) return pieces
+  let changed = false
+  const next = pieces.map((p) => {
+    const settled = settle(p, boreOf(p, runBore) / 2 + wallOf(p, runWall))
+    if (settled !== p) changed = true
+    return settled
+  })
+  return changed ? next : pieces
+}
+
+/**
  * The pitch a part hands on to whatever follows it. A plain tube leaves at the
  * angle it arrived at; the two connectors are the parts that do not.
  *
@@ -446,6 +650,9 @@ export function hookDrop(piece: Piece): number {
 export function exitSlope(piece: Piece): number {
   if (piece.type === 'angle') return piece.slope + angleSpec(piece).bend
   if (piece.type === 'hook') return tidy(hookExit(hookSpec(piece)).slope)
+  // A coil holds one fall the whole way down, so it hands on the one it runs
+  // at — which is its own rather than whatever it was handed.
+  if (piece.type === 'corkscrew') return corkscrewPitch(piece)
   if (piece.type === 'corner') {
     const drop = Math.sin(piece.slope * RAD) * Math.cos(cornerSpec(piece).sweep * RAD)
     return tidy(Math.asin(clamp(drop, -1, 1)) / RAD)
@@ -467,6 +674,9 @@ export function exitSlope(piece: Piece): number {
  */
 export function exitTurn(piece: Piece): number {
   if (piece.type === 'hook') return tidy(hookExit(hookSpec(piece)).turn)
+  // Very nearly the rings turned into degrees, and only nearly: a coil that
+  // narrows meets its own radius at a different angle top and bottom.
+  if (piece.type === 'corkscrew') return tidy(corkscrewExit(corkscrewSpec(piece)).turn)
   if (piece.type !== 'corner') return 0
   const sweep = cornerSpec(piece).sweep * RAD
   return tidy(
@@ -510,22 +720,25 @@ export function headingAt(pieces: Piece[], index: number): number {
  */
 export function slopeLimitsFor(piece: Piece) {
   const S = PIECE_LIMITS.slope
-  if (piece.type === 'hook') return { ...S, ...slopeRange(piece) }
+  if (piece.type === 'hook' || piece.type === 'corkscrew') return { ...S, ...slopeRange(piece) }
   if (piece.type !== 'angle') return S
   const { bend } = angleSpec(piece)
   return { ...S, min: Math.max(S.min, S.min - bend), max: Math.min(S.max, S.max - bend) }
 }
 
 /**
- * How far a part's own slope may go, as the walks along a run read it. Only a
- * hook narrows it — see {@link HOOK_SLOPE_LIMIT} — and an angle connector's
- * extra room is the bend's business rather than the walk's, so it is not
- * applied here.
+ * How far a part's own slope may go, as the walks along a run read it. A hook
+ * narrows it — see {@link HOOK_SLOPE_LIMIT} — and a corkscrew closes it to the
+ * single angle its coil runs at, which is what pins the part to its own fall
+ * wherever the run tries to swing it. An angle connector's extra room is the
+ * bend's business rather than the walk's, so it is not applied here.
  */
 const slopeRange = (piece: Piece) =>
   piece.type === 'hook'
     ? { min: -HOOK_SLOPE_LIMIT, max: HOOK_SLOPE_LIMIT }
-    : PIECE_LIMITS.slope
+    : piece.type === 'corkscrew'
+      ? { min: corkscrewPitch(piece), max: corkscrewPitch(piece) }
+      : PIECE_LIMITS.slope
 
 /** How far a part's break may swing — a hook turns much further than a corner. */
 export function sweepLimitsFor(piece: Piece) {
@@ -639,18 +852,146 @@ export function isOpenPort(pieces: Piece[], port: Port): boolean {
 }
 
 /**
- * Whether two open ports can be bonded together: a spigot into a socket, on two
- * different runs. Two outlets have nothing to mate, and joining a run's own tail
- * back onto its own head would close it into a loop, which a marble run is not.
+ * The shape a part takes when it is described from its far end instead of its
+ * near one — the very same piece of tube, travelled the other way.
+ *
+ * Both legs swap over, since the leg you leave by is the leg you now arrive on.
+ * Past that it goes by what the break is measured about. An angle connector
+ * breaks about the level axis across the run, and turning the part round turns
+ * that axis round with it, so the break keeps its sign. A corner breaks about
+ * the tube's own up axis, which stays pointing up however the part is turned,
+ * so its break changes sign — and so does a hook's turn, and the wind of a
+ * coil. A coil's two widths swap over with its legs, and its drop becomes a
+ * climb.
+ *
+ * All of this is measured rather than assumed: a mirrored part is only right if
+ * it lies on exactly the ground the original did, walked backwards.
+ */
+function reverseShape(piece: Piece): Partial<Piece> {
+  const legs = { length: piece.exitLength ?? piece.length, exitLength: piece.length }
+  if (piece.type === 'angle') return legs
+  if (piece.type === 'corner' || piece.type === 'hook') {
+    return { ...legs, sweep: tidy(-(piece.sweep ?? 0)) }
+  }
+  if (piece.type === 'corkscrew') {
+    return {
+      ...legs,
+      topDiameter: piece.bottomDiameter,
+      bottomDiameter: piece.topDiameter,
+      height: -(piece.height ?? CORKSCREW_DEFAULTS.height),
+      rings: -(piece.rings ?? 1),
+    }
+  }
+  return {}
+}
+
+/**
+ * Whether a part can be described from its far end at all.
+ *
+ * Only a hook cannot, and only when it is rolled off both the flat and the
+ * edge. A hook's turn runs about an axis the part is only able to name in the
+ * plane square to the way it came in — and turned round, the way it came in is
+ * somewhere else. On the quarter planes that works out: the axis is either dead
+ * upright or dead across, and both of those still lie in the new plane. Rolled
+ * between them it does not, and there is no hook that lies on the same ground
+ * backwards. Measured, not argued: off the quarters the nearest hook to the
+ * mirror is tens of millimetres from it.
+ */
+export function canReverse(piece: Piece): boolean {
+  return piece.type !== 'hook' || (piece.roll ?? HOOK_DEFAULTS.roll) % 90 === 0
+}
+
+/** Whether the whole run a part belongs to can be turned end for end. */
+export function canReverseChain(pieces: Piece[], index: number): boolean {
+  const tail = chainTailOf(pieces, index)
+  for (let i = chainRootOf(pieces, index); i <= tail; i++) {
+    if (!canReverse(pieces[i])) return false
+  }
+  return true
+}
+
+/**
+ * A run turned end for end: the same parts in the opposite order, each one
+ * described from its far end, so the marble now travels it the other way.
+ *
+ * Two things have to be walked back along with the parts. A part's fall is the
+ * angle it stands at, so turned round it starts at the negation of what it used
+ * to leave at. And a part's turn is the heading it picks up at its own inlet,
+ * which turned round is the one the part that used to follow it picked up —
+ * negated, since the run now comes at it from the other side. The old tail
+ * becomes the new head, and a head takes its heading from where it stands
+ * rather than from a part in front of it, so its turn goes to nothing.
+ *
+ * A corner is the one part this is not exact for. Its break is measured on a
+ * plane the entry slope tips over, and turned round it enters at a different
+ * slope, so the plane tips differently: on a run falling at 6° a mirrored
+ * corner lands within a millimetre or two of where it was, and a good deal
+ * further out on a steep one. The joints are welded shut afterwards, so the run
+ * stays whole — it is the odd millimetre of its shape that moves, not its
+ * joints.
+ */
+function reverseChain(pieces: Piece[], root: number, tail: number): Piece[] {
+  const run = pieces.slice(root, tail + 1)
+  return run
+    .map((piece, i) => ({
+      ...piece,
+      ...reverseShape(piece),
+      slope: tidy(-exitSlope(piece)),
+      turn: i === run.length - 1 ? 0 : tidy(-run[i + 1].turn),
+    }))
+    .reverse()
+    .map((piece, j) => ({ ...piece, joined: j > 0 ? true : undefined, at: undefined }))
+}
+
+/**
+ * The run a port belongs to, turned end for end and stood back down on exactly
+ * the ground it was on: the new head starts where the old tail's outlet was,
+ * facing back the way that outlet pointed.
+ */
+function turnRunAround(pieces: Piece[], port: Port): Piece[] {
+  const i = pieces.findIndex((p) => p.id === port.pieceId)
+  if (i < 0) return pieces
+  const root = chainRootOf(pieces, i)
+  const tail = chainTailOf(pieces, i)
+  const far = buildAssembly(pieces).placed.find((p) => p.index === tail)
+  const run = reverseChain(pieces, root, tail)
+  if (far) {
+    run[0] = {
+      ...run[0],
+      at: {
+        x: tidy(far.end.x),
+        y: tidy(far.end.y),
+        z: tidy(far.end.z),
+        yaw: tidy((Math.atan2(-far.exitDir.x, -far.exitDir.z) * 180) / Math.PI),
+      },
+    }
+  }
+  return [...pieces.slice(0, root), ...run, ...pieces.slice(tail + 1)]
+}
+
+/**
+ * Whether two open ports can be bonded together. Joining a run's own tail back
+ * onto its own head would close it into a loop, which a marble run is not.
+ *
+ * Two like ends have nothing to mate as they stand — a spigot needs a socket —
+ * so one of the two runs has to be turned end for end first. The run picked
+ * first is the one that travels, so that is the one turned round, and the pair
+ * only takes a joint if it can be. See {@link reverseChain}.
  */
 export function canConnect(pieces: Piece[], a: Port, b: Port): boolean {
-  if (a.end === b.end) return false
   if (!isOpenPort(pieces, a) || !isOpenPort(pieces, b)) return false
   const ia = pieces.findIndex((p) => p.id === a.pieceId)
   const ib = pieces.findIndex((p) => p.id === b.pieceId)
   if (ia < 0 || ib < 0) return false
-  return chainRootOf(pieces, ia) !== chainRootOf(pieces, ib)
+  if (chainRootOf(pieces, ia) === chainRootOf(pieces, ib)) return false
+  return a.end === b.end ? canReverseChain(pieces, ia) : true
 }
+
+/** The other end of a part from the one named. */
+const otherEnd = (port: Port): Port => ({
+  pieceId: port.pieceId,
+  end: port.end === 'out' ? 'in' : 'out',
+})
 
 /**
  * The angle each joint stands at: what a part enters at, less what the part
@@ -738,6 +1079,62 @@ function swingRun(pieces: Piece[], root: number, tail: number, delta: number): P
 const ALIGN_TOLERANCE = 1e-4
 /** Runs of turns are closed in on rather than solved; this is the give-up point. */
 const ALIGN_PASSES = 8
+
+/**
+ * The other half of {@link carrySlope}, for the joint at a part's inlet.
+ *
+ * A part's fall is the angle it stands at, not the angle it makes with the one
+ * before it, so putting it on a new fall moves it away from whatever it is
+ * bonded to. `carrySlope` brings the run in front along; this brings the run
+ * behind — back to the head of its own run — until the part before it hands on
+ * exactly what the part now starts at. The run swings as one piece rather than
+ * tearing at that one joint, and between the two a part can be put on any fall
+ * with both of its joints holding.
+ *
+ * It closes the joint rather than carrying whatever angle it stood at, which is
+ * what Keep connected promises: turning it on pulls every joint in the run shut
+ * — see {@link weldJoints} — so a joint left standing open under it is one that
+ * could not be closed, not one anybody asked for.
+ *
+ * A part on a fall of its own — a corkscrew's is set by its coil — cannot be
+ * swung, and stands as the far end of the swing rather than killing it: the run
+ * between it and the part being moved still comes round, and the joint at the
+ * coil is the one that opens.
+ */
+function swingBehind(pieces: Piece[], at: number, delta: number, connected: boolean): Piece[] {
+  if (!connected || !delta || at < 1 || !pieces[at].joined) return pieces
+  const root = chainRootOf(pieces, at)
+  let from = root
+  for (let i = at - 1; i >= root; i--) {
+    if (!slopeIsFixed(pieces[i])) continue
+    from = i + 1
+    break
+  }
+  if (from >= at) return pieces
+  let next = pieces.slice()
+  let was = exitSlope(next[at - 1])
+  // What the part before has to end up handing on, for the joint to sit flush.
+  const target = pieces[at].slope
+  // A turn among the parts being brought round hands on less than it was swung
+  // by — a hook can hand on a fall that moves the other way entirely — so each
+  // pass measures what the last one bought and takes the next step off that,
+  // the same closing-in {@link alignRun} does and for the same reason. A run of
+  // tubes and angle connectors moves one for one and lands on the first pass.
+  let step = tidy(target - was)
+  for (let i = 0; i < ALIGN_PASSES && Math.abs(step) >= ALIGN_TOLERANCE; i++) {
+    next = swingRun(next, from, at - 1, step)
+    const now = exitSlope(next[at - 1])
+    const left = tidy(target - now)
+    if (Math.abs(left) < ALIGN_TOLERANCE) break
+    // Nothing bought means the run is held at a stop somewhere and no further
+    // pass will shift it: the joint opens rather than the run turning for ever.
+    const bought = (now - was) / step
+    if (Math.abs(bought) < 1e-6) break
+    was = now
+    step = tidy(left / bought)
+  }
+  return next
+}
 
 /**
  * Brings the run that ends at `outlet` round to meet `inlet`, which does not
@@ -905,6 +1302,7 @@ export const PART_LABEL: Record<PieceType, string> = {
   angle: 'Angle',
   corner: 'Corner',
   hook: 'Hook',
+  corkscrew: 'Corkscrew',
 }
 
 /** What the part is, by type and position — "Tube 2" and friends. */
@@ -948,6 +1346,21 @@ const TYPE_DEFAULTS: Record<PieceType, Omit<Piece, 'id' | 'type'>> = {
     exitLength: HOOK_DEFAULTS.exitLength,
     roll: HOOK_DEFAULTS.roll,
   },
+  // The rings and the slope here are placeholders. A corkscrew's rings are
+  // counted off the room its height leaves them and its fall comes off those,
+  // so both are put right by {@link settle} — which needs to know the tube the
+  // part is cut from, and so cannot run this far out. All that survives of the
+  // ring count is its sign: a new coil winds to the right.
+  corkscrew: {
+    length: CORKSCREW_DEFAULTS.length,
+    slope: 6,
+    turn: 0,
+    height: CORKSCREW_DEFAULTS.height,
+    topDiameter: CORKSCREW_DEFAULTS.topDiameter,
+    bottomDiameter: CORKSCREW_DEFAULTS.bottomDiameter,
+    rings: 1,
+    exitLength: CORKSCREW_DEFAULTS.exitLength,
+  },
 }
 
 export function makePiece(partial: Partial<Piece> = {}): Piece {
@@ -974,6 +1387,7 @@ function dropOf(piece: Piece): number {
     return c.entry * sin(piece.slope) + c.exit * sin(exitSlope(piece))
   }
   if (piece.type === 'hook') return hookDrop(piece)
+  if (piece.type === 'corkscrew') return corkscrewDrop(piece)
   return piece.length * sin(piece.slope)
 }
 
@@ -1067,6 +1481,12 @@ const FIELD_LABEL: Record<string, string> = {
   fillet: 'corner radius',
   radius: 'turn radius',
   roll: 'turn plane',
+  height: 'height',
+  topDiameter: 'top Ø',
+  bottomDiameter: 'bottom Ø',
+  // How many rings there are is counted rather than set, so the only edit that
+  // ever reaches this field is which way they wind.
+  rings: 'wind',
 }
 /** How each field's value is written out — lengths follow the unit setting. */
 const FIELD_VALUE: Record<string, (v: number) => string> = {
@@ -1079,6 +1499,10 @@ const FIELD_VALUE: Record<string, (v: number) => string> = {
   fillet: len,
   radius: len,
   roll: (v) => `${num(v)}°`,
+  height: len,
+  topDiameter: len,
+  bottomDiameter: len,
+  rings: (v) => (v < 0 ? 'left' : 'right'),
 }
 
 /** What a part is called right now, for a step label. */
@@ -1381,8 +1805,14 @@ export const useRun = create<RunState>((set, get) => {
     coalesce?: string,
   ) =>
     set((s) => {
-      const next = patch(s)
-      if (!next) return s
+      const raw = patch(s)
+      if (!raw) return s
+      // Every edit lands here, so this is the one place a coil has to be put
+      // back on the shape its space allows — whether the edit was to the coil
+      // itself or to the tube it is cut from.
+      const merged = { ...s, ...raw }
+      const pieces = settleAll(merged.pieces, merged.innerDiameter, merged.wallThickness)
+      const next = pieces === merged.pieces ? raw : { ...raw, pieces }
       const snap = snapshot({ ...s, ...next })
       const now = Date.now()
       // Never fold into the opening state — that one has to stay reachable.
@@ -1498,7 +1928,13 @@ export const useRun = create<RunState>((set, get) => {
     loadProject: ({ projectName, shortcuts, ...model }) =>
       set((s) => {
         recent = null
-        const snap: Snapshot = { ...model, selectedId: null }
+        // Opening a file skips `commit`, so the coils are settled here instead:
+        // a saved ring count is only what fitted the tube it was saved with.
+        const snap: Snapshot = {
+          ...model,
+          pieces: settleAll(model.pieces, model.innerDiameter, model.wallThickness),
+          selectedId: null,
+        }
         // The keys in the file are a preference the file happens to carry, so
         // they are taken on and kept for this machine — but only if it had any.
         if (shortcuts) remember(SHORTCUTS_KEY, JSON.stringify(shortcuts))
@@ -1769,14 +2205,21 @@ export const useRun = create<RunState>((set, get) => {
     connectPorts: (a, b) =>
       commit(`Join ${nameOf(get(), a.pieceId)} to ${nameOf(get(), b.pieceId)}`, (s) => {
         if (!canConnect(s.pieces, a, b)) return null
-        const outlet = a.end === 'out' ? a : b
-        const inlet = a.end === 'in' ? a : b
-        // The end picked first is the one that travels. Picked by its inlet, the
-        // run behind it is carried onto the outlet anyway — that is what welding
-        // it on does. Picked by its outlet, it is the run in front that has to
-        // come round, so it is swung and set down against the other one first,
-        // and the weld below then has nothing left to move.
-        const base = a.end === 'out' ? alignRun(s.pieces, outlet, inlet) : s.pieces
+        // Two like ends have nothing to mate: a spigot needs a socket. The end
+        // picked first is the one that travels, so its run is the one turned
+        // end for end — which leaves that same end of that same part now facing
+        // the other way, and the pair a spigot and a socket after all.
+        const flip = a.end === b.end
+        const held = flip ? turnRunAround(s.pieces, a) : s.pieces
+        const first = flip ? otherEnd(a) : a
+        const outlet = first.end === 'out' ? first : b
+        const inlet = first.end === 'in' ? first : b
+        // Picked by its inlet, the run behind it is carried onto the outlet
+        // anyway — that is what welding it on does. Picked by its outlet, it is
+        // the run in front that has to come round, so it is swung and set down
+        // against the other one first, and the weld below then has nothing left
+        // to move.
+        const base = first.end === 'out' ? alignRun(held, outlet, inlet) : held
         const from = base.findIndex((p) => p.id === outlet.pieceId)
         const head = base.findIndex((p) => p.id === inlet.pieceId)
         // The whole run hanging off that inlet travels, not just the one part.
@@ -1887,10 +2330,13 @@ export const useRun = create<RunState>((set, get) => {
 
     addPiece: (type = 'straight') => {
       const s0 = get()
-      const shape = makePiece({ type })
+      // Settled before it is stood down, not after: how far a coil falls is
+      // what says how high off the workplane it has to start.
+      const outerR = s0.innerDiameter / 2 + s0.wallThickness
+      const shape = settle(makePiece({ type }), outerR)
       const piece = {
         ...shape,
-        at: spawnPlacement(s0.pieces, shape, s0.innerDiameter / 2 + s0.wallThickness),
+        at: spawnPlacement(s0.pieces, shape, outerR),
       }
       // A part lands on its own, in clear space: joining it to the run is the
       // Connector's job, so nothing already on the stage moves when one arrives.
@@ -1906,17 +2352,12 @@ export const useRun = create<RunState>((set, get) => {
         const i = s.pieces.findIndex((p) => p.id === id)
         if (i < 0) return null
         const { id: _id, joined: _joined, at: _at, ...rest } = s.pieces[i]
-        const shape = makePiece(rest)
-        const copy = {
-          ...shape,
-          // Stood clear on the copy's own tube — it carries the original's size,
-          // which is not the run's if that part was sized on its own.
-          at: spawnPlacement(
-            s.pieces,
-            shape,
-            boreOf(shape, s.innerDiameter) / 2 + wallOf(shape, s.wallThickness),
-          ),
-        }
+        // Stood clear on the copy's own tube — it carries the original's size,
+        // which is not the run's if that part was sized on its own.
+        const outerR =
+          boreOf(s.pieces[i], s.innerDiameter) / 2 + wallOf(s.pieces[i], s.wallThickness)
+        const shape = settle(makePiece(rest), outerR)
+        const copy = { ...shape, at: spawnPlacement(s.pieces, shape, outerR) }
         return { pieces: [...s.pieces, copy], selectedId: copy.id }
       }),
     // A blank name is stored as none at all, so the part falls back to its default label.
@@ -1957,9 +2398,26 @@ export const useRun = create<RunState>((set, get) => {
           if (!piece || Object.entries(patch).every(([k, v]) => piece[k as keyof Piece] === v)) {
             return null
           }
-          const edited = { ...piece, ...patch }
-          const pieces = cur.pieces.slice()
+          // Raising a coil gives it room for another ring, and either changes
+          // the fall it runs at — so the part is put straight back on its own
+          // shape here, before the joints either side are measured off it.
+          const edited = settle(
+            { ...piece, ...patch },
+            boreOf(piece, cur.innerDiameter) / 2 + wallOf(piece, cur.wallThickness),
+          )
+          let pieces = cur.pieces.slice()
           pieces[at] = edited
+          // Keep connected holds both of a part's joints, not just the one in
+          // front of it. Setting the angle a part starts at moves it off the
+          // part it is bonded to, so the run behind is brought round by the
+          // same amount and the inlet stays flush — the run swings instead of
+          // one joint tearing open. Only an angle asked for outright counts:
+          // a fall that follows from the part's own shape, as a coil's does,
+          // is the part before's to be brought to rather than something to
+          // swing the whole run by.
+          if ('slope' in patch) {
+            pieces = swingBehind(pieces, at, tidy(edited.slope - piece.slope), cur.keepConnected)
+          }
           // Swinging this part's slope or bend swings the run hanging off it.
           return {
             pieces: carrySlope(
@@ -1990,6 +2448,10 @@ export const useRun = create<RunState>((set, get) => {
           // Everything here works within the run the part belongs to: a swing
           // travels to the head of its own run and no further.
           const root = chainRootOf(cur.pieces, at)
+          // The angle every joint stood at before the drag started, so whatever
+          // the swing does to what the dragged part hands on can be walked back
+          // down the run afterwards with each joint left as it was found.
+          const kinks = kinksOf(cur.pieces)
 
           if (axis === 'turn') {
             // Plan: a heading is only ever a change from the one before, so the
@@ -2033,7 +2495,17 @@ export const useRun = create<RunState>((set, get) => {
             // along takes the same delta and the run ahead stays rigid. Off a
             // connected run only the part under the pointer moves, and the joint
             // behind it is free to open.
-            const from = cur.keepConnected ? root : at
+            let from = cur.keepConnected ? root : at
+            // A part on a fall of its own — a corkscrew's is set by its coil —
+            // cannot be swung, and stands as the far end of the swing rather
+            // than killing it: the run past it still moves, and the joint at
+            // the coil is the one that opens. Without this a single corkscrew
+            // would freeze every part behind it in the run.
+            for (let i = at; i >= from; i--) {
+              if (!slopeIsFixed(pieces[i])) continue
+              from = i + 1
+              break
+            }
             for (let i = from; i <= at; i++) {
               swing = narrow(swing, roomFor(pieces[i].slope, swing, slopeRange(pieces[i])))
               // A connector carried along swings what it hands on as well, and
@@ -2050,7 +2522,6 @@ export const useRun = create<RunState>((set, get) => {
               // What the connector at the far end hands on, before any of this
               // — a held outgoing leg has to come back to exactly that.
               const wasExit = exitSlope(pieces[at])
-              const kinks = kinksOf(pieces)
               for (let i = from; i <= at; i++) {
                 pieces[i] = { ...pieces[i], slope: tidy(pieces[i].slope + swing) }
               }
@@ -2069,6 +2540,17 @@ export const useRun = create<RunState>((set, get) => {
           if (patch && Object.entries(patch).some(([k, v]) => pieces[at][k as keyof Piece] !== v)) {
             pieces[at] = { ...pieces[at], ...patch }
           }
+          // The run in front of the dragged part is bonded to it, so it comes
+          // along too: every joint past the drag is put back at the angle it was
+          // standing at, measured off whatever the part now hands on.
+          //
+          // Only the parts behind were carried above, which is enough while a
+          // part hands on exactly what it was swung by. A corner does not, and a
+          // hook can hand on a fall that moves the other way entirely — so
+          // without this walk the joint right past the drag is left standing
+          // open, which is Keep connected not being kept. Off a connected run
+          // the joints are the user's to open, and nothing is carried.
+          if (cur.keepConnected) pieces = relink(pieces, kinks, at + 1, pieces.length - 1)
           // Drag traffic repeats the angle it already sits at, and a swing held
           // against its limits repeats it too — neither is a step.
           if (pieces.every((p, i) => p === cur.pieces[i])) return null

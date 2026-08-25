@@ -15,8 +15,16 @@ import {
   hookSpec,
   hookLength,
   hookDrop as hookDropOf,
+  corkscrewSpec,
+  corkscrewLength,
+  corkscrewDrop as corkscrewDropOf,
+  corkscrewPlan,
+  corkscrewRingPitch,
+  corkscrewRingSpacing,
+  COIL_RING_GAP,
   HOOK_ROLL_FLAT,
   HOOK_ROLL_EDGE,
+  slopeIsFixed,
   bendLimitsFor,
   slopeLimitsFor,
   sweepLimitsFor,
@@ -78,18 +86,38 @@ export default function Sidebar() {
   const corner = selected && selected.type === 'corner' ? cornerSpec(selected) : null
   const hook = selected && selected.type === 'hook' ? hookSpec(selected) : null
   const hookDrop = selected && hook ? hookDropOf(selected) : 0
+  const coil = selected && selected.type === 'corkscrew' ? corkscrewSpec(selected) : null
+  const coilDrop = selected && coil ? corkscrewDropOf(selected) : 0
+  /** A coil in a run that has been turned end for end goes up rather than down. */
+  const coilClimbs = !!coil && coil.height < 0
+  /** The height one ring of this tube takes up — what the count is worked out of. */
+  const coilNeeds = corkscrewRingSpacing(spec.outerR)
   /**
-   * A turn rolled right over is flat again, the other way about — so both ends
-   * of the range are the flat turn, and only the plane between them stands the
-   * part up on its edge.
+   * The air left between one ring and the next. The rings sit `height / rings`
+   * apart centre to centre, so anything short of a full tube across is one ring
+   * winding through the one below it — which the count only allows where a coil
+   * has not the height for even the quarter turn it is floored at.
    */
-  const hookLevel = !!hook && (hook.roll === HOOK_ROLL_FLAT || hook.roll === PIECE_LIMITS.roll.max)
+  const coilGap = selected && coil ? corkscrewRingPitch(selected) - spec.outerR * 2 : 0
+  // A part whose fall comes off its own shape has no start angle to set.
+  const fixedSlope = !!selected && slopeIsFixed(selected)
+  /**
+   * A turn rolled right over is flat again, the other way about, and rolled the
+   * whole way round is back where it started — so every half turn of roll is a
+   * flat turn, and the quarters between them are the ones stood on edge.
+   */
+  const hookLevel = !!hook && hook.roll % 180 === 0
+  const hookEdge = !!hook && hook.roll % 180 === 90
   const hookPlane = !hook
     ? ''
     : hookLevel
       ? 'lying flat'
-      : hook.roll === HOOK_ROLL_EDGE
-        ? 'stood on edge'
+      : hookEdge
+        ? // Past the half turn the axis points the other way, so the same sweep
+          // takes the run up and over rather than down and under.
+          hook.roll < 180
+          ? 'stood on edge'
+          : 'stood on edge the other way about'
         : `rolled ${degLabel(hook.roll)}° off level`
   // What the part before hands this one, if the two are actually joined. With
   // Keep connected off they can drift apart, and the joint is what opens up; an
@@ -105,6 +133,37 @@ export default function Sidebar() {
   const exitLimits = selected
     ? { min: selected.slope + bendLimits.min, max: selected.slope + bendLimits.max, step: bendLimits.step }
     : PIECE_LIMITS.slope
+
+  /**
+   * Which side of the inlet joint is free to move, if either.
+   *
+   * Normally it is this part: it comes to the angle the one before hands on. A
+   * part on a fall of its own cannot, so the part before has to be brought to
+   * it instead — which only works where that part's own exit is something we
+   * can set. A tube leaves at the angle it runs at, and an angle connector's
+   * break makes up whatever difference is left; a corner or a hook works its
+   * exit out from its own turn, and there is no one number here that lands it.
+   */
+  const matchable =
+    !fixedSlope || (!!upstream && (upstream.type === 'straight' || upstream.type === 'angle'))
+
+  const hold = (v: number, lim: { min: number; max: number }) =>
+    Math.min(lim.max, Math.max(lim.min, v))
+
+  const closeJoint = () => {
+    if (!selected) return
+    if (!fixedSlope) {
+      s.updatePiece(selected.id, { slope: hold(handedOn, slopeLimitsFor(selected)) })
+      return
+    }
+    if (!upstream) return
+    if (upstream.type === 'angle') {
+      const wanted = Math.round((selected.slope - upstream.slope) * 1e3) / 1e3
+      s.updatePiece(upstream.id, { bend: hold(wanted, bendLimitsFor(upstream)) })
+    } else if (upstream.type === 'straight') {
+      s.updatePiece(upstream.id, { slope: hold(selected.slope, slopeLimitsFor(upstream)) })
+    }
+  }
 
   return (
     <aside className="sidebar">
@@ -423,17 +482,30 @@ export default function Sidebar() {
                       Turn plane
                       <em>flat wanders across the table, on edge doubles back under itself</em>
                     </span>
+                    {/* Both buttons land on the nearest plane of their kind
+                        rather than on one fixed angle: a hook already rolled
+                        three quarters is on edge, and clicking On edge should
+                        leave it exactly where it is rather than flipping the
+                        turn over to the near edge. */}
                     <div className="segmented small">
                       <button
-                        className={hook.roll === HOOK_ROLL_FLAT ? 'on' : ''}
-                        onClick={() => s.updatePiece(selected.id, { roll: HOOK_ROLL_FLAT })}
+                        className={hookLevel ? 'on' : ''}
+                        onClick={() =>
+                          s.updatePiece(selected.id, {
+                            roll: hookLevel ? hook.roll : HOOK_ROLL_FLAT,
+                          })
+                        }
                         title="Turn flat — the run comes back alongside itself, one turn width over"
                       >
                         Flat
                       </button>
                       <button
-                        className={hook.roll === HOOK_ROLL_EDGE ? 'on' : ''}
-                        onClick={() => s.updatePiece(selected.id, { roll: HOOK_ROLL_EDGE })}
+                        className={hookEdge ? 'on' : ''}
+                        onClick={() =>
+                          s.updatePiece(selected.id, {
+                            roll: hookEdge ? hook.roll : HOOK_ROLL_EDGE,
+                          })
+                        }
                         title="Stand the turn on edge — the run drops and comes back underneath itself"
                       >
                         On edge
@@ -441,7 +513,7 @@ export default function Sidebar() {
                     </div>
                     <NumberField
                       label="Turn plane"
-                      hint="0° flat, 90° on edge, 180° flat the other way"
+                      hint="0° flat, 90° on edge, 180° flat the other way, 270° on edge going up and over"
                       unit="°"
                       value={hook.roll}
                       onChange={(v) => s.updatePiece(selected.id, { roll: v })}
@@ -490,6 +562,167 @@ export default function Sidebar() {
                       </p>
                     )}
                   </>
+                ) : coil ? (
+                  <>
+                    <NumberField
+                      label="Entry stub"
+                      hint="rigid — carries on from the part before"
+                      value={coil.entry}
+                      onChange={(v) => s.updatePiece(selected.id, { length: v })}
+                      {...PIECE_LIMITS.length}
+                    />
+                    {/* The size of the height is set here; its sign is which
+                        way the coil faces, and that is the Connector's to
+                        change — a coil in a run turned end for end climbs. So
+                        the field works in bare height and hands the sign back
+                        exactly as it found it. */}
+                    <NumberField
+                      label="Height"
+                      hint={
+                        coilClimbs
+                          ? 'bottom ring to top ring — this coil climbs, its run having been turned round'
+                          : 'top ring to bottom ring — the room the rings are counted into'
+                      }
+                      value={Math.abs(coil.height)}
+                      onChange={(v) =>
+                        s.updatePiece(selected.id, { height: coilClimbs ? -v : v })
+                      }
+                      {...PIECE_LIMITS.height}
+                    />
+                    <NumberField
+                      label="Top width"
+                      hint="across the coil where the run comes in"
+                      value={coil.topRadius * 2}
+                      onChange={(v) => s.updatePiece(selected.id, { topDiameter: v })}
+                      {...PIECE_LIMITS.topDiameter}
+                    />
+                    <NumberField
+                      label="Bottom width"
+                      hint="across the coil where the run leaves"
+                      value={coil.bottomRadius * 2}
+                      onChange={(v) => s.updatePiece(selected.id, { bottomDiameter: v })}
+                      {...PIECE_LIMITS.bottomDiameter}
+                    />
+                    <span className="field-label">
+                      Wind
+                      <em>which way round it goes on the way down</em>
+                    </span>
+                    <div className="segmented small">
+                      <button
+                        className={coil.turns >= 0 ? 'on' : ''}
+                        onClick={() =>
+                          s.updatePiece(selected.id, { rings: Math.abs(coil.turns) })
+                        }
+                        title="Wind to the right — clockwise seen from above"
+                      >
+                        Right
+                      </button>
+                      <button
+                        className={coil.turns < 0 ? 'on' : ''}
+                        onClick={() =>
+                          s.updatePiece(selected.id, { rings: -Math.abs(coil.turns) })
+                        }
+                        title="Wind to the left — anticlockwise seen from above"
+                      >
+                        Left
+                      </button>
+                    </div>
+                    <NumberField
+                      label="Exit stub"
+                      hint="after the coil"
+                      value={coil.exit}
+                      onChange={(v) => s.updatePiece(selected.id, { exitLength: v })}
+                      {...PIECE_LIMITS.exitLength}
+                    />
+                    {/* Rings are counted rather than set, so they are read off
+                        here alongside the two figures that count them: how much
+                        room each one needs, and how much it actually got. */}
+                    <div className="readout">
+                      <div>
+                        <b>{degLabel(Math.abs(coil.turns))}</b>
+                        <span>Rings</span>
+                      </div>
+                      <div>
+                        <b>{coarseText(corkscrewRingPitch(selected), s.units)}</b>
+                        <span>Ring gap {UNIT_WORD[s.units]}</span>
+                      </div>
+                      <div>
+                        <b>{degLabel(Math.abs(exitSlope(selected)))}°</b>
+                        <span>{coilClimbs ? 'Climb' : 'Fall'}</span>
+                      </div>
+                    </div>
+                    <div className="readout">
+                      <div>
+                        <b>{coarseText(corkscrewPlan(selected), s.units)}</b>
+                        <span>Coil in plan {UNIT_WORD[s.units]}</span>
+                      </div>
+                      <div>
+                        <b>{coarseText(corkscrewLength(selected), s.units)}</b>
+                        <span>Run length {UNIT_WORD[s.units]}</span>
+                      </div>
+                      <div>
+                        <b>{coarseText(Math.abs(coilDrop), s.units)}</b>
+                        <span>
+                          {coilDrop < 0 ? 'Rise' : 'Drop'} {UNIT_WORD[s.units]}
+                        </span>
+                      </div>
+                    </div>
+                    <p className="note">
+                      <b>The rings are counted, not set.</b> A ring needs{' '}
+                      {formatCoarse(coilNeeds, s.units)} of height — a whole Ø
+                      {formatLength(spec.outerR * 2, s.units)} tube across, and{' '}
+                      {formatLength(COIL_RING_GAP, s.units)} of air over it — so{' '}
+                      {formatCoarse(Math.abs(coil.height), s.units)} has room for{' '}
+                      {degLabel(Math.abs(coil.turns))} of them, counted down to whole quarter turns
+                      so the outlet lands square to the inlet. Raise the height and another ring
+                      goes in; cut the part from fatter tube and one comes out.
+                    </p>
+                    <p className="note">
+                      Those {degLabel(Math.abs(coil.turns))} rings wind to the{' '}
+                      {coil.turns < 0 ? 'left' : 'right'} over{' '}
+                      {formatCoarse(corkscrewPlan(selected), s.units)} of coil measured in plan,
+                      and {formatCoarse(Math.abs(coil.height), s.units)} of{' '}
+                      {coilClimbs ? 'climb' : 'drop'} over that length is what leaves it running at{' '}
+                      {degLabel(Math.abs(exitSlope(selected)))}°. That angle is the part's own: the
+                      coil holds it the whole way {coilClimbs ? 'up' : 'down'}, so a corkscrew hands
+                      on exactly what it runs at, and the run either side has to meet it rather
+                      than set it.
+                    </p>
+                    {/* A coil only ever climbs because the run it sits in was
+                        turned end for end at a joint. Worth saying plainly:
+                        otherwise it reads as a part that has gone wrong. */}
+                    {coilClimbs && (
+                      <p className="warn">
+                        This coil climbs — its run has been turned end for end, so every part in it
+                        now goes the other way. A marble cannot run up it: swing the run round the
+                        other way, or re-angle it from the head.
+                      </p>
+                    )}
+                    {/* The count is floored at a quarter turn, so a coil too
+                        short for even one ring is the one case that still
+                        clashes — and it is worth saying rather than leaving to
+                        be spotted in the viewport. */}
+                    {coilGap < 0 && (
+                      <p className="warn">
+                        {formatCoarse(Math.abs(coil.height), s.units)} is not enough height for a
+                        single ring of Ø{formatLength(spec.outerR * 2, s.units)} tube — the quarter
+                        turn it is held to winds through itself. Raise it to at least{' '}
+                        {formatCoarse(coilNeeds / 4, s.units)}, or cut this part from thinner tube.
+                      </p>
+                    )}
+                    {/* Bending a channel round a coil rolls it the same way it
+                        rolls round a hook — but a coil about the upright rolls
+                        it back out again every ring, so the trough stays facing
+                        the sky. Worth saying, because the hook next to it in the
+                        library does not. */}
+                    {!coilClimbs && Math.abs(exitSlope(selected)) > 40 && (
+                      <p className="warn">
+                        Running at {degLabel(exitSlope(selected))}°, this is more drop than coil —
+                        the marble will be falling rather than rolling. Widen it or raise it to
+                        take the same height more gently.
+                      </p>
+                    )}
+                  </>
                 ) : (
                   <NumberField
                     label="Length"
@@ -525,7 +758,9 @@ export default function Sidebar() {
         </div>
         <p className="note">
           Every piece is generated with a female socket at its inlet and a barbed male spigot at
-          its outlet, so pieces clip together and the bore stays continuous across the joint.
+          its outlet, so pieces clip together and the bore stays continuous across the joint. Pick
+          two ends of the same kind with the Connector and the run you picked first is turned end
+          for end to meet the other — same parts, travelled the other way.
         </p>
       </CollapsiblePanel>
 
@@ -542,7 +777,9 @@ export default function Sidebar() {
                   ? 'start, break, end'
                   : hook
                     ? `start, turn, end — ${hookLevel ? 'a flat hook leaves at the angle it enters' : 'on edge it leaves at the mirror of it'}`
-                    : 'a tube leaves at the angle it enters'}
+                    : coil
+                      ? 'start and end are the same, and neither is yours to set'
+                      : 'a tube leaves at the angle it enters'}
               </em>
             </span>
 
@@ -553,9 +790,12 @@ export default function Sidebar() {
                   ? 'the fall the entry leg arrives at'
                   : hook
                     ? 'the fall it comes into the turn at'
-                    : 'the fall it runs at — negative climbs'
+                    : coil
+                      ? 'worked out — the coil has one fall it can run at'
+                      : 'the fall it runs at — negative climbs'
               }
               unit="°"
+              readOnly={fixedSlope}
               value={selected.slope}
               onChange={(v) => s.updatePiece(selected.id, { slope: v })}
               {...slopeLimitsFor(selected)}
@@ -615,7 +855,9 @@ export default function Sidebar() {
                     ? 'worked out — turning across the fall flattens it'
                     : hook
                       ? 'worked out — which way the turn is rolled says what it hands on'
-                      : 'a straight part leaves at the angle it enters'
+                      : coil
+                        ? 'worked out — the coil holds one fall the whole way down'
+                        : 'a straight part leaves at the angle it enters'
                 }
                 unit="°"
                 readOnly
@@ -669,6 +911,16 @@ export default function Sidebar() {
                   {pieceLabel(upstream, selectedIndex - 1)} hands on {degLabel(handedOn)}° and this
                   part starts at {degLabel(selected.slope)}° — the joint is open by{' '}
                   {degLabel(Math.abs(kink))}°.
+                  {fixedSlope && (
+                    <>
+                      {' '}
+                      This part cannot come to meet it — its fall is its coil's — so it is the
+                      part before that has to be brought round
+                      {matchable
+                        ? '.'
+                        : `, and ${PART_LABEL[upstream.type]} leaves at an angle worked out from its own turn. Put a tube or an angle connector between the two.`}
+                    </>
+                  )}
                 </>
               ) : (
                 <>
@@ -678,20 +930,19 @@ export default function Sidebar() {
               )}
             </p>
             <button
-              onClick={() => {
-                const L = slopeLimitsFor(selected)
-                s.updatePiece(selected.id, {
-                  slope: Math.min(L.max, Math.max(L.min, handedOn)),
-                })
-              }}
-              disabled={!open}
+              onClick={closeJoint}
+              disabled={!open || !matchable}
               title={
-                open
-                  ? 'Set the start angle to whatever the part before hands on'
-                  : 'The joint is already closed'
+                !open
+                  ? 'The joint is already closed'
+                  : !matchable
+                    ? 'Neither side of this joint is free to move'
+                    : fixedSlope
+                      ? 'Swing the part before until it hands on the angle this coil runs at'
+                      : 'Set the start angle to whatever the part before hands on'
               }
             >
-              Match the Part Before
+              {fixedSlope ? 'Bring the Part Before to It' : 'Match the Part Before'}
             </button>
           </>
         ) : (

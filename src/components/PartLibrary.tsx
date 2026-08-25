@@ -64,10 +64,21 @@ function CurvePreview() {
   )
 }
 
-function DropPreview() {
+/**
+ * The tower seen from a little above: rings stacked and closing in, with a
+ * dimension bar down the side for the height it is really there to lose.
+ */
+function CorkscrewPreview() {
   return (
     <svg width="78" height="50" viewBox="0 0 46 30" aria-hidden="true">
-      <path className="pp-line" d="M12 5c10 0 10 6 0 6s-10 6 0 6 12 4 12 8" />
+      {/* Thinner than the rest of the previews: three rings this close would
+          blob into one another at the stock weight. */}
+      <g className="pp-line" strokeWidth="2.4">
+        <ellipse cx="18" cy="8" rx="13" ry="4.2" />
+        <ellipse cx="18" cy="15" rx="9.5" ry="3.4" />
+        <ellipse cx="18" cy="21.5" rx="6" ry="2.6" />
+      </g>
+      <path className="pp-arrow" d="M39.3 4h1.4v22h-1.4z M37 4h6v1.2h-6z M37 24.8h6v1.2h-6z" />
     </svg>
   )
 }
@@ -145,11 +156,14 @@ const PARTS: Part[] = [
     preview: CurvePreview,
   },
   {
-    id: 'drop',
-    name: 'Drop',
+    id: 'corkscrew',
+    name: 'Corkscrew',
     category: 'feature',
-    blurb: 'Vertical spiral that loses height in a small footprint.',
-    preview: DropPreview,
+    axis: 'Down',
+    blurb:
+      'Coil about a dead vertical axis that loses height in a small footprint. Set how far it drops and how wide it is at the top and at the bottom; the rings are counted off the room the height leaves them, and the fall it runs at follows from those — the same way a real printed helix has only one angle it can sit at.',
+    preview: CorkscrewPreview,
+    add: () => useRun.getState().addPiece('corkscrew'),
   },
   {
     id: 'funnel',

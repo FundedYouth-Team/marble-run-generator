@@ -5,6 +5,7 @@ import {
   angleSpec,
   cornerSpec,
   hookSpec,
+  corkscrewSpec,
   degLabel,
   exitSlope,
   pieceLabel,
@@ -36,10 +37,24 @@ function summarise(p: Piece, style: TubeVariant, units: Unit): string {
   }
   if (p.type === 'hook') {
     const h = hookSpec(p)
-    const plane = h.roll === 0 || h.roll === 180 ? 'flat' : h.roll === 90 ? 'on edge' : `${degLabel(h.roll)}° plane`
+    // Every half turn of roll is flat again; the quarters between are on edge.
+    const plane =
+      h.roll % 180 === 0
+        ? 'flat'
+        : h.roll % 180 === 90
+          ? `on edge${h.roll < 180 ? '' : ', over the top'}`
+          : `${degLabel(h.roll)}° plane`
     return `${degLabel(Math.abs(h.sweep))}° ${h.sweep < 0 ? 'left' : 'right'} ${plane} · r${n(
       h.radius,
     )} · ${degLabel(p.slope)}° in, ${degLabel(exitSlope(p))}° out · ${tube}`
+  }
+  if (p.type === 'corkscrew') {
+    const k = corkscrewSpec(p)
+    return `${degLabel(Math.abs(k.turns))} rings ${k.turns < 0 ? 'left' : 'right'} · Ø${n(
+      k.topRadius * 2,
+    )} to Ø${n(k.bottomRadius * 2)} · ${formatLength(k.height, units)} down at ${degLabel(
+      exitSlope(p),
+    )}° · ${tube}`
   }
   return `${formatLength(p.length, units)} · ${degLabel(p.slope)}° slope · ${degLabel(
     p.turn,

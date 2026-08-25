@@ -28,7 +28,8 @@ export interface HookTurn {
   /**
    * How far the plane of the turn is rolled off level, degrees. Zero turns
    * flat; a quarter turn stands it on edge; a half turn is flat again, the
-   * other way about.
+   * other way about; three quarters is on edge again with the turn running the
+   * other way about; a whole turn is back where it started.
    */
   roll: number
 }
@@ -52,7 +53,13 @@ export function upright(slope: number): THREE.Vector3 {
  * square to one another, so between them they reach every plane a turn can be
  * put on, and the roll is how far round from one to the other it is. Half a
  * turn of roll comes back to the upright pointing the other way — the flat turn
- * again, going the other way about — which is why that is where the roll stops.
+ * again, going the other way about — and the roll carries on round from there,
+ * through the far edge, to a whole turn back at the start.
+ *
+ * The second half of that revolution repeats the planes of the first, but not
+ * the turns: the axis on it points the other way, so the same sweep goes round
+ * the other way about. Rolled a quarter turn a hook drops the run under itself;
+ * rolled three quarters it takes the same run up and over the top instead.
  *
  * Local +X is that level axis: the layout stands every part up with its X level
  * and square to the run's own upright plane.

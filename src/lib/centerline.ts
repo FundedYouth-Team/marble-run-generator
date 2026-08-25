@@ -1,6 +1,14 @@
 import * as THREE from 'three'
 import { hookPath } from './hook'
-import { angleSpec, cornerSpec, hookSpec, type Piece, type TubeSpec } from '../store'
+import { corkscrewPath } from './corkscrew'
+import {
+  angleSpec,
+  cornerSpec,
+  corkscrewSpec,
+  hookSpec,
+  type Piece,
+  type TubeSpec,
+} from '../store'
 
 /**
  * The centreline a part is built around, in the part's own frame: it starts at
@@ -48,6 +56,13 @@ const LOCAL_Z = new THREE.Vector3(0, 0, 1)
 /** How finely a rounded corner is chopped into chords. */
 const ARC_STEP_DEG = 6
 const ARC_MIN_CHORDS = 3
+/**
+ * The same, for a coil. A corkscrew goes round several times rather than part
+ * of once, so it is chopped coarser: at these radii the chords still sit a
+ * fraction of a millimetre off the true curve, and cutting them as fine as a
+ * corner would multiply the whole part's mesh by the number of rings in it.
+ */
+const COIL_STEP_DEG = 12
 /**
  * A corner radius may eat this much of the shorter leg and no more, so a big
  * radius on a short connector rounds off as far as it can rather than running
@@ -141,9 +156,23 @@ function hookLine(piece: Piece): Centerline {
 }
 
 /**
+ * A corkscrew: two stubs with a coil between them, wound about the upright. The
+ * coil is solved in `lib/corkscrew` — it is the other shape here that is worked
+ * out rather than described — and all this adds is the chopping policy.
+ *
+ * The stubs are what the snap joint sits on: both ends of the part have to be
+ * straight tube for the socket and spigot to mate with anything.
+ */
+function corkscrewLine(piece: Piece): Centerline {
+  const { points, ups } = corkscrewPath(corkscrewSpec(piece), COIL_STEP_DEG, ARC_MIN_CHORDS)
+  return fromPoints(points, null, ups)
+}
+
+/**
  * The centreline of one part. A plain tube is a single chord; a connector is
  * two legs meeting at a break, with the break optionally rounded into an arc
- * tangent to both; a hook turns the run right round on a helix.
+ * tangent to both; a hook turns the run right round on a helix; a corkscrew
+ * winds it down a tower of them.
  */
 export function centerlineFor(piece: Piece): Centerline {
   // Falling is -Y, so a positive bend is a positive rotation about local +X.
@@ -157,6 +186,7 @@ export function centerlineFor(piece: Piece): Centerline {
     return bentLine({ entry, angle: sweep, exit, fillet }, LOCAL_Y)
   }
   if (piece.type === 'hook') return hookLine(piece)
+  if (piece.type === 'corkscrew') return corkscrewLine(piece)
   return fromPoints([new THREE.Vector3(), new THREE.Vector3(0, 0, piece.length)], null)
 }
 
@@ -183,6 +213,12 @@ export function shapeKey(piece: Piece, spec: TubeSpec): string {
   if (piece.type === 'hook') {
     const h = hookSpec(piece)
     return `${tube}:hook:${h.entry}:${h.radius}:${h.sweep}:${h.exit}:${h.slope}:${h.roll}`
+  }
+  // A corkscrew's fall is not part of its key: the coil sets that rather than
+  // taking it, so the four numbers of the coil already say everything about it.
+  if (piece.type === 'corkscrew') {
+    const k = corkscrewSpec(piece)
+    return `${tube}:coil:${k.entry}:${k.topRadius}:${k.bottomRadius}:${k.turns}:${k.height}:${k.exit}`
   }
   return `${tube}:straight:${piece.length}`
 }
