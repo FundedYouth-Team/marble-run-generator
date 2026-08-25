@@ -15,13 +15,17 @@ import {
 // only ever called from an action, so the two modules importing each other never
 // meet at load time.
 import { buildAssembly, chainBox } from './lib/layout'
+// Plain geometry, and no idea this store exists — so the one part whose shape
+// has to be solved rather than described can be solved in one place, and read
+// here and by the centreline alike.
+import { hookExit, hookFall, hookLength as hookRunLength, type HookTurn } from './lib/hook'
 
 /**
  * All dimensions in this app are millimetres. The unit setting only changes how
  * they are written and read on screen — see `lib/units`.
  */
 export type TubeVariant = 'half' | 'threequarter' | 'closed'
-export type PieceType = 'straight' | 'angle' | 'corner'
+export type PieceType = 'straight' | 'angle' | 'corner' | 'hook'
 export type Mode = '2d' | '3d'
 /**
  * What the left button does on the 3D stage. Picking a part is the resting
@@ -239,8 +243,24 @@ export interface Piece {
    * Corner connector: how far the run swings at the break, degrees. Positive
    * turns right, negative left. The same idea as `bend`, laid on its side: the
    * break is about the tube's own up axis rather than across it.
+   *
+   * A hook carries its turn here too, and turns much further — right round and
+   * back on itself. See {@link HOOK_SWEEP_LIMITS}.
    */
   sweep?: number
+  /**
+   * Hook: how wide the turn is, measured on the plane it turns on to the
+   * centreline, mm. The whole footprint of the part comes off this — a half
+   * turn sets the outgoing run twice this far off the incoming one.
+   */
+  radius?: number
+  /**
+   * Hook: how far the plane of the turn is rolled off level, degrees. Zero
+   * turns flat, the way a run wanders across a table; a quarter turn stands the
+   * turn on edge, so a half turn brings the run back underneath itself; a half
+   * turn is flat again, the other way about.
+   */
+  roll?: number
   /** Connectors: length of the leg after the break, mm. */
   exitLength?: number
   /**
@@ -285,6 +305,12 @@ export const PIECE_LIMITS = {
   sweep: { min: -90, max: 90, step: 1 },
   exitLength: { min: 10, max: 600, step: 1 },
   fillet: { min: 0, max: 120, step: 1 },
+  // Tighter than the bore is a turn the tube cannot be cut round; wider than
+  // this is not a hook any more but a run that happens to bend.
+  radius: { min: 20, max: 300, step: 1 },
+  // Half a turn of roll is every plane there is: past it the same planes come
+  // back round the other way about, which is what the sweep's own sign does.
+  roll: { min: 0, max: 180, step: 1 },
 } as const
 
 /**
@@ -333,7 +359,72 @@ export function cornerSpec(piece: Piece) {
   }
 }
 
+/**
+ * What a hook is when it lands on the stage: a half turn, which is the whole
+ * point of the part — the run leaves heading back the way it came, one turn
+ * width to the side and lower down. The legs either side are stubs rather than
+ * track, long enough to give the snap joint straight tube to sit on and no
+ * longer, so the part is the turn and nothing else.
+ */
+export const HOOK_DEFAULTS = {
+  length: 20,
+  radius: 60,
+  sweep: 180,
+  exitLength: 20,
+  /** Flat out of the library: the turn a run makes across a table. */
+  roll: 0,
+} as const
+
+/** How far the turn is rolled at each of the two the buttons offer. */
+export const HOOK_ROLL_FLAT = 0
+export const HOOK_ROLL_EDGE = 90
+
+/**
+ * The hook's own numbers, with anything unset filled in — everything the turn
+ * is solved from, which is why the entry slope travels with it.
+ */
+export function hookSpec(piece: Piece): HookTurn {
+  return {
+    entry: piece.length,
+    radius: piece.radius ?? HOOK_DEFAULTS.radius,
+    sweep: piece.sweep ?? HOOK_DEFAULTS.sweep,
+    exit: piece.exitLength ?? HOOK_DEFAULTS.exitLength,
+    slope: hookSlope(piece),
+    roll: piece.roll ?? HOOK_DEFAULTS.roll,
+  }
+}
+
+/**
+ * A hook may turn the run right round, either way — which is further than a
+ * corner's break is ever allowed to go, so it keeps limits of its own.
+ */
+export const HOOK_SWEEP_LIMITS = { min: -180, max: 180, step: 1 } as const
+
+/**
+ * The steepest a hook may come into its turn, degrees. Turning flat it falls
+ * all the way round, which stretches the arc by 1/cos(slope): past this the
+ * part is more drop than turn, and at vertical it would never come round at
+ * all. A turn stood on edge does not stretch — but a hook is one part with one
+ * limit, and a run falling at more than this has other problems.
+ */
+export const HOOK_SLOPE_LIMIT = 60
+
 const RAD = Math.PI / 180
+
+/** The fall a hook actually turns at, held inside what a helix can be built on. */
+export function hookSlope(piece: Piece): number {
+  return clamp(piece.slope, -HOOK_SLOPE_LIMIT, HOOK_SLOPE_LIMIT)
+}
+
+/** Centreline length of a hook, mm — both stubs and the turn between them. */
+export function hookLength(piece: Piece): number {
+  return hookRunLength(hookSpec(piece))
+}
+
+/** How far a hook's outlet sits below its inlet, mm. Negative climbs. */
+export function hookDrop(piece: Piece): number {
+  return hookFall(hookSpec(piece))
+}
 
 /**
  * The pitch a part hands on to whatever follows it. A plain tube leaves at the
@@ -343,9 +434,18 @@ const RAD = Math.PI / 180
  * the corner enters at, so the further it swings the shallower the run leaves:
  * a quarter turn puts the exit leg dead across the fall, and it comes out
  * level. That is what a flat elbow really does when you tilt it downhill.
+ *
+ * A hook turning flat is the answer to that: its turn is a helix about the
+ * upright rather than a tipped plane, so it falls at one steady angle the whole
+ * way round and hands on exactly what it was given — which is the only way a
+ * part can turn the run right round and still be running downhill when it lets
+ * go. Roll that turn onto its edge and it is a different part again: end over
+ * end, the fall comes out mirrored. Either way the answer is read off the turn
+ * itself rather than described here.
  */
 export function exitSlope(piece: Piece): number {
   if (piece.type === 'angle') return piece.slope + angleSpec(piece).bend
+  if (piece.type === 'hook') return tidy(hookExit(hookSpec(piece)).slope)
   if (piece.type === 'corner') {
     const drop = Math.sin(piece.slope * RAD) * Math.cos(cornerSpec(piece).sweep * RAD)
     return tidy(Math.asin(clamp(drop, -1, 1)) / RAD)
@@ -355,11 +455,18 @@ export function exitSlope(piece: Piece): number {
 
 /**
  * How far a part swings the run's heading between its inlet and its outlet,
- * degrees — the plan-view companion to {@link exitSlope}. Only a corner does,
- * and on a falling run it turns a little further than its own sweep: the swing
- * happens in the tipped plane, and heading is measured about the vertical.
+ * degrees — the plan-view companion to {@link exitSlope}. Two parts do.
+ *
+ * A hook turning flat turns about the upright itself, so the heading moves by
+ * exactly the turn it was given, however steeply the run is falling through it.
+ * Rolled onto its edge the same turn barely swings the heading at all until it
+ * is far enough round to come back the other way, so the turn is solved rather
+ * than assumed. A corner turns in the tipped plane instead, and on a falling
+ * run that swings the heading a little further than its own sweep: heading is
+ * measured about the vertical, and the corner's plane is not.
  */
 export function exitTurn(piece: Piece): number {
+  if (piece.type === 'hook') return tidy(hookExit(hookSpec(piece)).turn)
   if (piece.type !== 'corner') return 0
   const sweep = cornerSpec(piece).sweep * RAD
   return tidy(
@@ -403,9 +510,26 @@ export function headingAt(pieces: Piece[], index: number): number {
  */
 export function slopeLimitsFor(piece: Piece) {
   const S = PIECE_LIMITS.slope
+  if (piece.type === 'hook') return { ...S, ...slopeRange(piece) }
   if (piece.type !== 'angle') return S
   const { bend } = angleSpec(piece)
   return { ...S, min: Math.max(S.min, S.min - bend), max: Math.min(S.max, S.max - bend) }
+}
+
+/**
+ * How far a part's own slope may go, as the walks along a run read it. Only a
+ * hook narrows it — see {@link HOOK_SLOPE_LIMIT} — and an angle connector's
+ * extra room is the bend's business rather than the walk's, so it is not
+ * applied here.
+ */
+const slopeRange = (piece: Piece) =>
+  piece.type === 'hook'
+    ? { min: -HOOK_SLOPE_LIMIT, max: HOOK_SLOPE_LIMIT }
+    : PIECE_LIMITS.slope
+
+/** How far a part's break may swing — a hook turns much further than a corner. */
+export function sweepLimitsFor(piece: Piece) {
+  return piece.type === 'hook' ? HOOK_SWEEP_LIMITS : PIECE_LIMITS.sweep
 }
 
 export function bendLimitsFor(piece: Piece) {
@@ -555,13 +679,13 @@ function kinksOf(pieces: Piece[]): number[] {
  * that run ends, rather than dragging every other part on the stage with it.
  */
 function relink(pieces: Piece[], kinks: number[], from: number, to: number): Piece[] {
-  const S = PIECE_LIMITS.slope
   const next = pieces.slice()
   let changed = false
   for (let i = Math.max(1, from); i <= Math.min(to, next.length - 1); i++) {
     if (!next[i].joined) continue
     // Each part is relinked to the one already relinked before it, so a single
     // pass carries a correction all the way down the run.
+    const S = slopeRange(next[i])
     const slope = tidy(clamp(exitSlope(next[i - 1]) + kinks[i], S.min, S.max))
     if (slope === next[i].slope) continue
     next[i] = { ...next[i], slope }
@@ -603,7 +727,7 @@ function weldJoints(pieces: Piece[]): Piece[] {
  * than opening up somewhere in the middle.
  */
 function swingRun(pieces: Piece[], root: number, tail: number, delta: number): Piece[] {
-  const S = PIECE_LIMITS.slope
+  const S = slopeRange(pieces[root])
   const kinks = kinksOf(pieces)
   const next = pieces.slice()
   next[root] = { ...next[root], slope: clamp(tidy(next[root].slope + delta), S.min, S.max) }
@@ -612,7 +736,7 @@ function swingRun(pieces: Piece[], root: number, tail: number, delta: number): P
 
 /** How close a swing has to land on the angle it was aiming at, degrees. */
 const ALIGN_TOLERANCE = 1e-4
-/** Runs of corners are closed in on rather than solved; this is the give-up point. */
+/** Runs of turns are closed in on rather than solved; this is the give-up point. */
 const ALIGN_PASSES = 8
 
 /**
@@ -624,10 +748,13 @@ const ALIGN_PASSES = 8
  * bring two frames into line, and only one of the two runs can keep its own —
  * whichever end was picked second is the one that keeps it.
  *
- * A run with a corner in it cannot be swung in elevation exactly: a corner tipped
+ * A run with a turn in it cannot be swung in elevation exactly: a corner tipped
  * further over turns across a different amount of the fall, so the angle it hands
- * on does not move one for one with the swing. That is closed in on over a few
- * passes instead. A run of tubes and angle connectors lands on it first time.
+ * on does not move one for one with the swing — and a hook stood on edge hands
+ * on a fall that moves the *other* way, since end over end mirrors it. So each
+ * pass measures what the last one actually bought and takes the next step off
+ * that. A run of tubes and angle connectors moves one for one and lands first
+ * time, as it always did.
  */
 function alignRun(pieces: Piece[], outlet: Port, inlet: Port): Piece[] {
   const from = pieces.findIndex((p) => p.id === outlet.pieceId)
@@ -640,10 +767,22 @@ function alignRun(pieces: Piece[], outlet: Port, inlet: Port): Piece[] {
   const seat = placementOf(target)
   let next = pieces.slice()
 
-  for (let i = 0; i < ALIGN_PASSES; i++) {
-    const delta = tidy(target.slope - exitSlope(next[from]))
-    if (Math.abs(delta) < ALIGN_TOLERANCE) break
-    next = swingRun(next, root, from, delta)
+  // The first step assumes the run hands on whatever it is swung by, which is
+  // exactly true of tubes and angle connectors and the right opening guess for
+  // everything else.
+  let was = exitSlope(next[from])
+  let step = tidy(target.slope - was)
+  for (let i = 0; i < ALIGN_PASSES && Math.abs(step) >= ALIGN_TOLERANCE; i++) {
+    next = swingRun(next, root, from, step)
+    const now = exitSlope(next[from])
+    const left = tidy(target.slope - now)
+    if (Math.abs(left) < ALIGN_TOLERANCE) break
+    // How much of that swing the run actually handed on. Nothing at all means
+    // it is held at a stop somewhere and no further pass will shift it.
+    const bought = (now - was) / step
+    if (Math.abs(bought) < 1e-6) break
+    was = now
+    step = tidy(left / bought)
   }
 
   // Heading: a run's placement carries the whole swing round, so this is one
@@ -765,6 +904,7 @@ export const PART_LABEL: Record<PieceType, string> = {
   straight: 'Tube',
   angle: 'Angle',
   corner: 'Corner',
+  hook: 'Hook',
 }
 
 /** What the part is, by type and position — "Tube 2" and friends. */
@@ -799,6 +939,15 @@ const TYPE_DEFAULTS: Record<PieceType, Omit<Piece, 'id' | 'type'>> = {
     exitLength: CORNER_DEFAULTS.exitLength,
     fillet: CORNER_DEFAULTS.fillet,
   },
+  hook: {
+    length: HOOK_DEFAULTS.length,
+    slope: 6,
+    turn: 0,
+    radius: HOOK_DEFAULTS.radius,
+    sweep: HOOK_DEFAULTS.sweep,
+    exitLength: HOOK_DEFAULTS.exitLength,
+    roll: HOOK_DEFAULTS.roll,
+  },
 }
 
 export function makePiece(partial: Partial<Piece> = {}): Piece {
@@ -824,6 +973,7 @@ function dropOf(piece: Piece): number {
     const c = cornerSpec(piece)
     return c.entry * sin(piece.slope) + c.exit * sin(exitSlope(piece))
   }
+  if (piece.type === 'hook') return hookDrop(piece)
   return piece.length * sin(piece.slope)
 }
 
@@ -915,6 +1065,8 @@ const FIELD_LABEL: Record<string, string> = {
   sweep: 'sweep',
   exitLength: 'exit leg',
   fillet: 'corner radius',
+  radius: 'turn radius',
+  roll: 'turn plane',
 }
 /** How each field's value is written out — lengths follow the unit setting. */
 const FIELD_VALUE: Record<string, (v: number) => string> = {
@@ -925,6 +1077,8 @@ const FIELD_VALUE: Record<string, (v: number) => string> = {
   sweep: (v) => `${num(v)}°`,
   exitLength: len,
   fillet: len,
+  radius: len,
+  roll: (v) => `${num(v)}°`,
 }
 
 /** What a part is called right now, for a step label. */
@@ -1881,7 +2035,7 @@ export const useRun = create<RunState>((set, get) => {
             // behind it is free to open.
             const from = cur.keepConnected ? root : at
             for (let i = from; i <= at; i++) {
-              swing = narrow(swing, roomFor(pieces[i].slope, swing, S))
+              swing = narrow(swing, roomFor(pieces[i].slope, swing, slopeRange(pieces[i])))
               // A connector carried along swings what it hands on as well, and
               // that has to stay somewhere the next part can sit.
               if (pieces[i].type === 'angle' && !(holdExit && i === at)) {

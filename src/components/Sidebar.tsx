@@ -12,8 +12,14 @@ import {
   CORNER_DEFAULTS,
   angleSpec,
   cornerSpec,
+  hookSpec,
+  hookLength,
+  hookDrop as hookDropOf,
+  HOOK_ROLL_FLAT,
+  HOOK_ROLL_EDGE,
   bendLimitsFor,
   slopeLimitsFor,
+  sweepLimitsFor,
   degLabel,
   exitSlope,
   exitTurn,
@@ -70,6 +76,21 @@ export default function Sidebar() {
   const joint = jointSpec(spec, selectedLength)
   const angle = selected && selected.type === 'angle' ? angleSpec(selected) : null
   const corner = selected && selected.type === 'corner' ? cornerSpec(selected) : null
+  const hook = selected && selected.type === 'hook' ? hookSpec(selected) : null
+  const hookDrop = selected && hook ? hookDropOf(selected) : 0
+  /**
+   * A turn rolled right over is flat again, the other way about — so both ends
+   * of the range are the flat turn, and only the plane between them stands the
+   * part up on its edge.
+   */
+  const hookLevel = !!hook && (hook.roll === HOOK_ROLL_FLAT || hook.roll === PIECE_LIMITS.roll.max)
+  const hookPlane = !hook
+    ? ''
+    : hookLevel
+      ? 'lying flat'
+      : hook.roll === HOOK_ROLL_EDGE
+        ? 'stood on edge'
+        : `rolled ${degLabel(hook.roll)}° off level`
   // What the part before hands this one, if the two are actually joined. With
   // Keep connected off they can drift apart, and the joint is what opens up; an
   // unjoined part has no joint behind it at all.
@@ -367,6 +388,108 @@ export default function Sidebar() {
                       what the legs can give it.
                     </p>
                   </>
+                ) : hook ? (
+                  <>
+                    <NumberField
+                      label="Entry stub"
+                      hint="rigid — carries on from the part before"
+                      value={hook.entry}
+                      onChange={(v) => s.updatePiece(selected.id, { length: v })}
+                      {...PIECE_LIMITS.length}
+                    />
+                    <NumberField
+                      label="Turn radius"
+                      hint="how wide it swings, measured in plan"
+                      value={hook.radius}
+                      onChange={(v) => s.updatePiece(selected.id, { radius: v })}
+                      {...PIECE_LIMITS.radius}
+                    />
+                    <NumberField
+                      label="Turn"
+                      hint="how far round — 180° sends the run back the way it came"
+                      unit="°"
+                      value={hook.sweep}
+                      onChange={(v) => s.updatePiece(selected.id, { sweep: v })}
+                      {...sweepLimitsFor(selected)}
+                    />
+                    <NumberField
+                      label="Exit stub"
+                      hint="after the turn"
+                      value={hook.exit}
+                      onChange={(v) => s.updatePiece(selected.id, { exitLength: v })}
+                      {...PIECE_LIMITS.exitLength}
+                    />
+                    <span className="field-label">
+                      Turn plane
+                      <em>flat wanders across the table, on edge doubles back under itself</em>
+                    </span>
+                    <div className="segmented small">
+                      <button
+                        className={hook.roll === HOOK_ROLL_FLAT ? 'on' : ''}
+                        onClick={() => s.updatePiece(selected.id, { roll: HOOK_ROLL_FLAT })}
+                        title="Turn flat — the run comes back alongside itself, one turn width over"
+                      >
+                        Flat
+                      </button>
+                      <button
+                        className={hook.roll === HOOK_ROLL_EDGE ? 'on' : ''}
+                        onClick={() => s.updatePiece(selected.id, { roll: HOOK_ROLL_EDGE })}
+                        title="Stand the turn on edge — the run drops and comes back underneath itself"
+                      >
+                        On edge
+                      </button>
+                    </div>
+                    <NumberField
+                      label="Turn plane"
+                      hint="0° flat, 90° on edge, 180° flat the other way"
+                      unit="°"
+                      value={hook.roll}
+                      onChange={(v) => s.updatePiece(selected.id, { roll: v })}
+                      {...PIECE_LIMITS.roll}
+                    />
+                    <div className="readout">
+                      <div>
+                        <b>{lengthText(hook.radius * 2, s.units)}</b>
+                        <span>Turn Ø {UNIT_LABEL[s.units]}</span>
+                      </div>
+                      <div>
+                        <b>{coarseText(hookLength(selected), s.units)}</b>
+                        <span>Run length {UNIT_WORD[s.units]}</span>
+                      </div>
+                      <div>
+                        <b>{coarseText(Math.abs(hookDrop), s.units)}</b>
+                        <span>
+                          {hookDrop < 0 ? 'Climb' : 'Drop'} {UNIT_WORD[s.units]}
+                        </span>
+                      </div>
+                    </div>
+                    <p className="note">
+                      Turns {degLabel(Math.abs(hook.sweep))}° to the{' '}
+                      {hook.sweep < 0 ? 'left' : 'right'} on a plane {hookPlane}, and comes out{' '}
+                      {Math.abs(exitTurn(selected)) < 0.05
+                        ? 'still heading the way it went in'
+                        : `${degLabel(Math.abs(exitTurn(selected)))}° round to the ${
+                            exitTurn(selected) < 0 ? 'left' : 'right'
+                          }`}
+                      , {formatCoarse(Math.abs(hookDrop), s.units)}{' '}
+                      {hookDrop < 0 ? 'higher' : 'lower'}, at {degLabel(exitSlope(selected))}° where
+                      it entered at {degLabel(selected.slope)}°.{' '}
+                      {hookLevel
+                        ? 'Falling as it turns is what lets it come out on the slope it went in on.'
+                        : 'Turning end over end mirrors the fall, so a run that comes in falling leaves climbing — a level run into it, or an angle connector after it, is what settles that.'}
+                    </p>
+                    {/* Bending a channel out of the flat rolls it over as it
+                        goes, which is a thing about bent channels rather than
+                        about this part — but it is the marble that pays for it,
+                        so it is said here rather than left to be discovered. */}
+                    {!hookLevel && style !== 'closed' && (
+                      <p className="warn">
+                        Off the flat the tube rolls over as it turns — a quarter turn of it on
+                        edge — so the marble leaves an open trough partway round. Cut this part
+                        from a closed tube.
+                      </p>
+                    )}
+                  </>
                 ) : (
                   <NumberField
                     label="Length"
@@ -415,10 +538,10 @@ export default function Sidebar() {
             <span className="field-label">
               {pieceLabel(selected, selectedIndex)}
               <em>
-                {angle
+                {angle || corner
                   ? 'start, break, end'
-                  : corner
-                    ? 'start, break, end'
+                  : hook
+                    ? `start, turn, end — ${hookLevel ? 'a flat hook leaves at the angle it enters' : 'on edge it leaves at the mirror of it'}`
                     : 'a tube leaves at the angle it enters'}
               </em>
             </span>
@@ -428,7 +551,9 @@ export default function Sidebar() {
               hint={
                 angle || corner
                   ? 'the fall the entry leg arrives at'
-                  : 'the fall it runs at — negative climbs'
+                  : hook
+                    ? 'the fall it comes into the turn at'
+                    : 'the fall it runs at — negative climbs'
               }
               unit="°"
               value={selected.slope}
@@ -454,7 +579,17 @@ export default function Sidebar() {
                 unit="°"
                 value={corner.sweep}
                 onChange={(v) => s.updatePiece(selected.id, { sweep: v })}
-                {...PIECE_LIMITS.sweep}
+                {...sweepLimitsFor(selected)}
+              />
+            )}
+            {hook && (
+              <NumberField
+                label="Middle angle"
+                hint="the turn — positive swings the run right, 180° sends it back"
+                unit="°"
+                value={hook.sweep}
+                onChange={(v) => s.updatePiece(selected.id, { sweep: v })}
+                {...sweepLimitsFor(selected)}
               />
             )}
 
@@ -478,7 +613,9 @@ export default function Sidebar() {
                 hint={
                   corner
                     ? 'worked out — turning across the fall flattens it'
-                    : 'a straight part leaves at the angle it enters'
+                    : hook
+                      ? 'worked out — which way the turn is rolled says what it hands on'
+                      : 'a straight part leaves at the angle it enters'
                 }
                 unit="°"
                 readOnly
@@ -502,9 +639,9 @@ export default function Sidebar() {
                 <b>{degLabel(selected.slope)}°</b>
                 <span>Start</span>
               </div>
-              {(angle || corner) && (
+              {(angle || corner || hook) && (
                 <div>
-                  <b>{degLabel(angle ? angle.bend : corner!.sweep)}°</b>
+                  <b>{degLabel(angle ? angle.bend : corner ? corner.sweep : hook!.sweep)}°</b>
                   <span>Middle</span>
                 </div>
               )}

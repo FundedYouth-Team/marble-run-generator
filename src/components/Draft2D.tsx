@@ -22,6 +22,7 @@ import {
   tubeSpec,
   angleSpec,
   cornerSpec,
+  hookSpec,
   headingAt,
   isChainRoot,
   degLabel,
@@ -981,11 +982,13 @@ function AssemblyDraft({ shifted }: { shifted: boolean }) {
       const piece = p.piece
       const angle = piece.type === 'angle'
       const corner = piece.type === 'corner'
+      const hook = piece.type === 'hook'
       // A hidden part is still laid out — it holds the run's shape either side
       // of it — it is simply not drawn, and has no handles to grab.
       const shown = !piece.hidden
       const a = angleSpec(piece)
       const c = cornerSpec(piece)
+      const h = hookSpec(piece)
 
       const points: Pt[] = []
       for (const [i, seg] of p.segments.entries()) {
@@ -1019,6 +1022,11 @@ function AssemblyDraft({ shifted }: { shifted: boolean }) {
       // A part is dimensioned leg by leg, so a bend reads as two lengths meeting
       // at an angle rather than as one bar spanning a corner it never follows.
       const slope = `∠${degLabel(piece.slope)}°`
+      // A hook has no legs worth calling out — it is the turn, so that is what
+      // the one bar across it is labelled with.
+      const hookLabel = hook
+        ? `R${lengthText(h.radius, units)}  ↻${degLabel(h.sweep)}°${h.roll ? `  plane ${degLabel(h.roll)}°` : ''}  ${slope}`
+        : null
       parts.push({
         id: piece.id,
         index: p.index,
@@ -1031,7 +1039,8 @@ function AssemblyDraft({ shifted }: { shifted: boolean }) {
           bent && breakAt
             ? [`${formatLength(bent.entry, units)}  ${slope}`, formatLength(bent.exit, units)]
             : [
-                `${formatLength(bent ? bent.entry : piece.length, units)}  ${slope}${piece.turn ? `  ↻${degLabel(piece.turn)}°` : ''}`,
+                hookLabel ??
+                  `${formatLength(bent ? bent.entry : piece.length, units)}  ${slope}${piece.turn ? `  ↻${degLabel(piece.turn)}°` : ''}`,
               ],
         // The glyph the bar used to carry is the arc's job now.
         angle: bent
@@ -1060,6 +1069,12 @@ function AssemblyDraft({ shifted }: { shifted: boolean }) {
       }
 
       if (!shown) continue
+
+      // A hook doubles back on itself, so its two ends sit almost on top of one
+      // another: a handle on either would be dragging a line that says nothing
+      // about the turn under it. Its radius and how far round it goes are typed
+      // in the sidebar, where both are one figure rather than a guessed-at drag.
+      if (hook) continue
 
       if (proj.plan) {
         if (corner && breakAt) {

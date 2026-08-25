@@ -40,6 +40,22 @@ function CornerConnectorPreview() {
   )
 }
 
+/**
+ * The turn seen from above: in one side, round, and back out the other — with a
+ * dimension bar beside it for the one measurement the part is really about.
+ */
+function HookPreview() {
+  return (
+    <svg width="78" height="50" viewBox="0 0 46 30" aria-hidden="true">
+      <path className="pp-line" d="M5 7h12a8 8 0 0 1 0 16H5" />
+      <path
+        className="pp-arrow"
+        d="M35.3 6h1.4v20h-1.4z M33 6h6v1.2h-6z M33 24.8h6v1.2h-6z"
+      />
+    </svg>
+  )
+}
+
 function CurvePreview() {
   return (
     <svg width="78" height="50" viewBox="0 0 46 30" aria-hidden="true">
@@ -110,6 +126,16 @@ const PARTS: Part[] = [
       'Short two-leg connector that breaks the run left or right to a new heading. The inlet stays rigid; the leg past the break swings to one side of it. Rounded at the corner by default, so the marble carries its speed round the turn.',
     preview: CornerConnectorPreview,
     add: () => useRun.getState().addPiece('corner'),
+  },
+  {
+    id: 'hook',
+    name: 'Hook',
+    category: 'track',
+    axis: 'Turn Back',
+    blurb:
+      'Half-turn switchback that sends the run back the way it came. Flat, it comes back alongside itself one turn width over, falling the whole way round so it leaves on the slope it entered at; stood on edge, the same turn drops the run and brings it back underneath itself. Set how wide it swings, how far round it goes, and which plane it turns on.',
+    preview: HookPreview,
+    add: () => useRun.getState().addPiece('hook'),
   },
   {
     id: 'curve',

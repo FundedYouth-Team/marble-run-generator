@@ -1,5 +1,6 @@
 import * as THREE from 'three'
-import { angleSpec, cornerSpec, type Piece, type TubeSpec } from '../store'
+import { hookPath } from './hook'
+import { angleSpec, cornerSpec, hookSpec, type Piece, type TubeSpec } from '../store'
 
 /**
  * The centreline a part is built around, in the part's own frame: it starts at
@@ -26,6 +27,18 @@ export interface Centerline {
    * part that runs straight.
    */
   corner: THREE.Vector3 | null
+  /**
+   * Which way is up for each chord, when following the chords alone would get
+   * it wrong. One per chord, alongside {@link Centerline.dirs}.
+   *
+   * The sweep carries the section from chord to chord by the shortest turn,
+   * which is right for every bend that happens in one plane. A hook does not:
+   * its turn is a helix, and carrying the section round one of those rolls it
+   * steadily out of true — by the end the trough would be tipped on its side
+   * and would meet the next part rolled over. Naming the up axis outright is
+   * what keeps the opening facing the sky the whole way round.
+   */
+  ups?: THREE.Vector3[]
 }
 
 const LOCAL_X = new THREE.Vector3(1, 0, 0)
@@ -47,7 +60,11 @@ function dedupe(points: THREE.Vector3[]): THREE.Vector3[] {
   return points.filter((p, i) => i === 0 || p.distanceToSquared(points[i - 1]) > 1e-12)
 }
 
-function fromPoints(points: THREE.Vector3[], corner: THREE.Vector3 | null): Centerline {
+function fromPoints(
+  points: THREE.Vector3[],
+  corner: THREE.Vector3 | null,
+  ups?: THREE.Vector3[],
+): Centerline {
   const dirs: THREE.Vector3[] = []
   const distances = [0]
   for (let i = 1; i < points.length; i++) {
@@ -56,7 +73,7 @@ function fromPoints(points: THREE.Vector3[], corner: THREE.Vector3 | null): Cent
     dirs.push(len > 1e-9 ? d.divideScalar(len) : LOCAL_Z.clone())
     distances.push(distances[i - 1] + len)
   }
-  return { points, dirs, distances, length: distances[distances.length - 1], corner }
+  return { points, dirs, distances, length: distances[distances.length - 1], corner, ups }
 }
 
 /** Two legs meeting at a break, as both connectors are built. */
@@ -110,9 +127,23 @@ function bentLine({ entry, angle, exit, fillet }: Bent, axis: THREE.Vector3): Ce
 }
 
 /**
+ * A hook: two stub stubs with a turn between them, on a plane the part carries
+ * with it. The turn itself is solved in `lib/hook` — it is the one shape here
+ * that is worked out rather than described — and all this adds is the chopping
+ * policy the rest of the drawing uses.
+ *
+ * The stubs are what the snap joint sits on: both ends of the part have to be
+ * straight tube for the socket and spigot to mate with anything.
+ */
+function hookLine(piece: Piece): Centerline {
+  const { points, ups } = hookPath(hookSpec(piece), ARC_STEP_DEG, ARC_MIN_CHORDS)
+  return fromPoints(points, null, ups)
+}
+
+/**
  * The centreline of one part. A plain tube is a single chord; a connector is
  * two legs meeting at a break, with the break optionally rounded into an arc
- * tangent to both.
+ * tangent to both; a hook turns the run right round on a helix.
  */
 export function centerlineFor(piece: Piece): Centerline {
   // Falling is -Y, so a positive bend is a positive rotation about local +X.
@@ -125,6 +156,7 @@ export function centerlineFor(piece: Piece): Centerline {
     const { entry, sweep, exit, fillet } = cornerSpec(piece)
     return bentLine({ entry, angle: sweep, exit, fillet }, LOCAL_Y)
   }
+  if (piece.type === 'hook') return hookLine(piece)
   return fromPoints([new THREE.Vector3(), new THREE.Vector3(0, 0, piece.length)], null)
 }
 
@@ -144,6 +176,13 @@ export function shapeKey(piece: Piece, spec: TubeSpec): string {
   if (piece.type === 'corner') {
     const c = cornerSpec(piece)
     return `${tube}:corner:${c.entry}:${c.sweep}:${c.exit}:${c.fillet}`
+  }
+  // The one shape whose slope is part of the shape: a hook falls as it turns,
+  // so how steeply it falls is how tightly the turn winds — and which way the
+  // turn is rolled is the plane it winds on.
+  if (piece.type === 'hook') {
+    const h = hookSpec(piece)
+    return `${tube}:hook:${h.entry}:${h.radius}:${h.sweep}:${h.exit}:${h.slope}:${h.roll}`
   }
   return `${tube}:straight:${piece.length}`
 }

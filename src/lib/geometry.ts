@@ -152,10 +152,26 @@ interface Ring {
  * Section axes carried along the centreline. Each chord inherits the previous
  * chord's axes turned by the same rotation the direction took, so the section
  * follows the bend without spiralling round the tube as it goes.
+ *
+ * A centreline that names its own up axis is taken at its word instead: on a
+ * helix, carrying the section chord by chord rolls it steadily out of true —
+ * see {@link Centerline.ups}.
  */
 function chordFrames(line: Centerline) {
-  const xs = [new THREE.Vector3(1, 0, 0)]
-  const ys = [new THREE.Vector3(0, 1, 0)]
+  const xs: THREE.Vector3[] = []
+  const ys: THREE.Vector3[] = []
+  if (line.ups) {
+    for (const [i, dir] of line.dirs.entries()) {
+      // Squared up against the chord, so the section sits across the tube even
+      // where the named up axis leans out of true with it.
+      const y = line.ups[i].clone().addScaledVector(dir, -line.ups[i].dot(dir)).normalize()
+      ys.push(y)
+      xs.push(new THREE.Vector3().crossVectors(y, dir))
+    }
+    return { xs, ys }
+  }
+  xs.push(new THREE.Vector3(1, 0, 0))
+  ys.push(new THREE.Vector3(0, 1, 0))
   for (let i = 1; i < line.dirs.length; i++) {
     const q = new THREE.Quaternion().setFromUnitVectors(line.dirs[i - 1], line.dirs[i])
     xs.push(xs[i - 1].clone().applyQuaternion(q))

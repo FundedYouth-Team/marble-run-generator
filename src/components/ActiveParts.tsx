@@ -4,6 +4,7 @@ import {
   useRun,
   angleSpec,
   cornerSpec,
+  hookSpec,
   degLabel,
   exitSlope,
   pieceLabel,
@@ -32,6 +33,13 @@ function summarise(p: Piece, style: TubeVariant, units: Unit): string {
     } · ${degLabel(p.slope)}° in, ${degLabel(exitSlope(p))}° out · ${
       c.fillet > 0 ? `r${n(c.fillet)} corner` : 'sharp corner'
     } · ${tube}`
+  }
+  if (p.type === 'hook') {
+    const h = hookSpec(p)
+    const plane = h.roll === 0 || h.roll === 180 ? 'flat' : h.roll === 90 ? 'on edge' : `${degLabel(h.roll)}° plane`
+    return `${degLabel(Math.abs(h.sweep))}° ${h.sweep < 0 ? 'left' : 'right'} ${plane} · r${n(
+      h.radius,
+    )} · ${degLabel(p.slope)}° in, ${degLabel(exitSlope(p))}° out · ${tube}`
   }
   return `${formatLength(p.length, units)} · ${degLabel(p.slope)}° slope · ${degLabel(
     p.turn,

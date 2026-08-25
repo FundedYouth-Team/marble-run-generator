@@ -1,6 +1,9 @@
 import {
   ANGLE_DEFAULTS,
   CORNER_DEFAULTS,
+  HOOK_DEFAULTS,
+  HOOK_SLOPE_LIMIT,
+  HOOK_SWEEP_LIMITS,
   PART_LABEL,
   PIECE_LIMITS,
   TUBE_LIMITS,
@@ -50,8 +53,14 @@ export const PROJECT_FORMAT = 'marble-run-generator'
  * colour rode along inside v3: an older reader ignores them and keeps whatever
  * keys that machine is already using, which is only how it always behaved and
  * never touches the run.
+ * v7 added the hook, the same way v4 added the corner: a v6 reader would turn
+ * every hook into a straight tube and the run would come back with its
+ * turnarounds missing.
+ * Which plane a hook turns on rides along inside v7 without a bump: it arrived
+ * with the part, and a file written before it says nothing about the plane,
+ * which reads back as the flat turn every hook was until then.
  */
-export const PROJECT_VERSION = 6
+export const PROJECT_VERSION = 7
 
 /** Double-barrelled so a saved run reads as a project, not as loose data. */
 export const PROJECT_EXT = '.mrun.json'
@@ -146,6 +155,18 @@ function isType(v: unknown): v is PieceType {
 const PLACEMENT_LIMIT = 100_000
 
 /**
+ * The leg a saved part falls back to when its own is missing or junk. Every
+ * part that has two legs arrives with both the same length, so one figure per
+ * type stands for the entry and the exit alike; a straight tube has neither and
+ * falls back to its own full length.
+ */
+const LEG_DEFAULT: Partial<Record<PieceType, number>> = {
+  angle: ANGLE_DEFAULTS.length,
+  corner: CORNER_DEFAULTS.length,
+  hook: HOOK_DEFAULTS.length,
+}
+
+/**
  * Where a saved part was standing. Anything missing or unreadable puts it on the
  * origin, which is where a part with no placement of its own stands anyway.
  */
@@ -179,9 +200,16 @@ function readPiece(raw: unknown, joined: boolean): Piece {
       o.length,
       PIECE_LIMITS.length.min,
       PIECE_LIMITS.length.max,
-      type === 'angle' ? ANGLE_DEFAULTS.length : type === 'corner' ? CORNER_DEFAULTS.length : 120,
+      LEG_DEFAULT[type] ?? 120,
     ),
-    slope: num(o.slope, PIECE_LIMITS.slope.min, PIECE_LIMITS.slope.max, 6),
+    // A hook is held to a gentler fall than the rest: it turns as it drops, and
+    // past that limit it is more drop than turn.
+    slope: num(
+      o.slope,
+      type === 'hook' ? -HOOK_SLOPE_LIMIT : PIECE_LIMITS.slope.min,
+      type === 'hook' ? HOOK_SLOPE_LIMIT : PIECE_LIMITS.slope.max,
+      6,
+    ),
     turn: num(o.turn, PIECE_LIMITS.turn.min, PIECE_LIMITS.turn.max, 0),
     // Both connectors are two legs meeting at a break; only which way the break
     // goes — bend for the angle, sweep for the corner — tells them apart.
@@ -191,14 +219,38 @@ function readPiece(raw: unknown, joined: boolean): Piece {
     ...(type === 'corner'
       ? { sweep: num(o.sweep, PIECE_LIMITS.sweep.min, PIECE_LIMITS.sweep.max, CORNER_DEFAULTS.sweep) }
       : {}),
-    ...(type === 'angle' || type === 'corner'
+    // A hook carries its turn in the same field, and turns much further.
+    ...(type === 'hook'
+      ? {
+          sweep: num(
+            o.sweep,
+            HOOK_SWEEP_LIMITS.min,
+            HOOK_SWEEP_LIMITS.max,
+            HOOK_DEFAULTS.sweep,
+          ),
+          radius: num(
+            o.radius,
+            PIECE_LIMITS.radius.min,
+            PIECE_LIMITS.radius.max,
+            HOOK_DEFAULTS.radius,
+          ),
+          roll: num(o.roll, PIECE_LIMITS.roll.min, PIECE_LIMITS.roll.max, HOOK_DEFAULTS.roll),
+        }
+      : {}),
+    ...(type === 'angle' || type === 'corner' || type === 'hook'
       ? {
           exitLength: num(
             o.exitLength,
             PIECE_LIMITS.exitLength.min,
             PIECE_LIMITS.exitLength.max,
-            type === 'angle' ? ANGLE_DEFAULTS.exitLength : CORNER_DEFAULTS.exitLength,
+            LEG_DEFAULT[type] ?? PIECE_LIMITS.exitLength.min,
           ),
+        }
+      : {}),
+    // Only the two connectors round their break off; a hook is one continuous
+    // turn with nothing to round.
+    ...(type === 'angle' || type === 'corner'
+      ? {
           fillet: num(
             o.fillet,
             PIECE_LIMITS.fillet.min,
