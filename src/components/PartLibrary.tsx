@@ -161,7 +161,7 @@ const PARTS: Part[] = [
     category: 'feature',
     axis: 'Down',
     blurb:
-      'Coil about a dead vertical axis that loses height in a small footprint. Set how far it drops and how wide it is at the top and at the bottom; the rings are counted off the room the height leaves them, and the fall it runs at follows from those — the same way a real printed helix has only one angle it can sit at.',
+      'Coil about a dead vertical axis that loses height in a small footprint. Set how far it drops and how wide it is at the top and at the bottom, and it counts the rings off the room the height leaves them; hold the count by hand instead and the same height over fewer rings is a steeper coil. Either way the fall it runs at follows from those, the same way a real printed helix has only one angle it can sit at.',
     preview: CorkscrewPreview,
     add: () => useRun.getState().addPiece('corkscrew'),
   },

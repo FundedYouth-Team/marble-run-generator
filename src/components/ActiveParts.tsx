@@ -50,7 +50,9 @@ function summarise(p: Piece, style: TubeVariant, units: Unit): string {
   }
   if (p.type === 'corkscrew') {
     const k = corkscrewSpec(p)
-    return `${degLabel(Math.abs(k.turns))} rings ${k.turns < 0 ? 'left' : 'right'} · Ø${n(
+    return `${degLabel(Math.abs(k.turns))} rings${p.ringsSet ? '' : ' (counted)'} ${
+      k.turns < 0 ? 'left' : 'right'
+    } · Ø${n(
       k.topRadius * 2,
     )} to Ø${n(k.bottomRadius * 2)} · ${formatLength(k.height, units)} down at ${degLabel(
       exitSlope(p),

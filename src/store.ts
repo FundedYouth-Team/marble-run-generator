@@ -288,6 +288,17 @@ export interface Piece {
    * turns a corner the other way.
    */
   rings?: number
+  /**
+   * Corkscrew: whether the ring count above was set by hand rather than counted
+   * off the room the height leaves — see {@link corkscrewRingsFor}.
+   *
+   * Counting is the ordinary case, and it is what an unset field means: the
+   * coil packs its height as tightly as the tube allows and the fall follows.
+   * Set by hand, the count stands wherever the height goes, which is how a coil
+   * is given a fall of its own — fewer rings over the same height is a steeper
+   * one, more is gentler.
+   */
+  ringsSet?: boolean
   /** Connectors: length of the leg after the break, mm. */
   exitLength?: number
   /**
@@ -603,9 +614,14 @@ export function slopeIsFixed(piece: Piece): boolean {
 function settle(piece: Piece, outerR: number): Piece {
   if (!slopeIsFixed(piece)) return piece
   const height = piece.height ?? CORKSCREW_DEFAULTS.height
-  // Which way it winds is the one thing about the coil that is still a choice,
-  // so it is carried across rather than counted.
-  const rings = corkscrewRingsFor(height, outerR) * corkscrewHand(piece)
+  const R = PIECE_LIMITS.rings
+  // A count set by hand stands as it was given; otherwise it is counted off the
+  // room the height leaves. Which way the coil winds is a choice either way, so
+  // the sign is carried across rather than taken from the count.
+  const count = piece.ringsSet
+    ? clamp(Math.abs(piece.rings ?? 1), R.step, R.max)
+    : corkscrewRingsFor(height, outerR)
+  const rings = count * corkscrewHand(piece)
   const wound = piece.rings === rings ? piece : { ...piece, rings }
   const slope = corkscrewPitch(wound)
   return wound.slope === slope ? wound : { ...wound, slope }
@@ -1484,9 +1500,7 @@ const FIELD_LABEL: Record<string, string> = {
   height: 'height',
   topDiameter: 'top Ø',
   bottomDiameter: 'bottom Ø',
-  // How many rings there are is counted rather than set, so the only edit that
-  // ever reaches this field is which way they wind.
-  rings: 'wind',
+  rings: 'rings',
 }
 /** How each field's value is written out — lengths follow the unit setting. */
 const FIELD_VALUE: Record<string, (v: number) => string> = {
@@ -1502,7 +1516,8 @@ const FIELD_VALUE: Record<string, (v: number) => string> = {
   height: len,
   topDiameter: len,
   bottomDiameter: len,
-  rings: (v) => (v < 0 ? 'left' : 'right'),
+  // The count and which way it winds are one field, so a step says both.
+  rings: (v) => `${num(Math.abs(v))} ${v < 0 ? 'left' : 'right'}`,
 }
 
 /** What a part is called right now, for a step label. */

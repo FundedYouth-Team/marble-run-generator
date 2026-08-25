@@ -63,6 +63,10 @@ export const PROJECT_FORMAT = 'marble-run-generator'
  * v8 added the corkscrew, the same way v7 added the hook: a v7 reader would
  * turn every corkscrew into a straight tube, and the run would come back with
  * its towers missing — and with them the height they were carrying.
+ * A corkscrew's ring count being set by hand rides along inside v8 without a
+ * bump: a reader that has never heard of it counts the rings off the height
+ * instead, which is what every corkscrew did until then and is still a coil
+ * that fits — it only loses the count somebody chose over the counted one.
  */
 export const PROJECT_VERSION = 8
 
@@ -254,11 +258,12 @@ function readPiece(raw: unknown, joined: boolean): Piece {
           roll: num(o.roll, PIECE_LIMITS.roll.min, PIECE_LIMITS.roll.max, HOOK_DEFAULTS.roll),
         }
       : {}),
-    // A corkscrew is its coil: its height and its widths, with the ring count
-    // and the fall following from those and the tube it is cut from. So the
-    // saved rings are read only for which way they wound — the store counts
-    // them again on the way in, along with the slope — and a file saved against
-    // a thinner tube opens with the coil it can actually have here.
+    // A corkscrew is its coil: its height and its widths, with the fall
+    // following from those. Its ring count follows too unless it was set by
+    // hand, so the saved rings are read for which way they wound and for the
+    // count only where `ringsSet` says that count was somebody's choice — the
+    // store works the rest out again on the way in, along with the slope, and a
+    // file saved against a thinner tube opens with the coil it can have here.
     ...(type === 'corkscrew'
       ? {
           height: readHeight(o.height),
@@ -275,6 +280,9 @@ function readPiece(raw: unknown, joined: boolean): Piece {
             CORKSCREW_DEFAULTS.bottomDiameter,
           ),
           rings: num(o.rings, PIECE_LIMITS.rings.min, PIECE_LIMITS.rings.max, 1),
+          // Only a coil whose count was set by hand carries one; every other
+          // one has its rings counted again on the way in.
+          ...(o.ringsSet === true ? { ringsSet: true } : {}),
         }
       : {}),
     ...(type === 'angle' || type === 'corner' || type === 'hook' || type === 'corkscrew'

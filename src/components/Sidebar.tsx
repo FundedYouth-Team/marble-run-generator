@@ -21,6 +21,7 @@ import {
   corkscrewPlan,
   corkscrewRingPitch,
   corkscrewRingSpacing,
+  corkscrewRingsFor,
   COIL_RING_GAP,
   HOOK_ROLL_FLAT,
   HOOK_ROLL_EDGE,
@@ -90,6 +91,10 @@ export default function Sidebar() {
   const coilDrop = selected && coil ? corkscrewDropOf(selected) : 0
   /** A coil in a run that has been turned end for end goes up rather than down. */
   const coilClimbs = !!coil && coil.height < 0
+  /** Whether the rings are counted off the height or were set by hand. */
+  const coilCounted = !!coil && !selected?.ringsSet
+  /** What counting would give, which the By hand field starts from. */
+  const coilFits = coil ? corkscrewRingsFor(coil.height, spec.outerR) : 0
   /** The height one ring of this tube takes up — what the count is worked out of. */
   const coilNeeds = corkscrewRingSpacing(spec.outerR)
   /**
@@ -581,7 +586,9 @@ export default function Sidebar() {
                       hint={
                         coilClimbs
                           ? 'bottom ring to top ring — this coil climbs, its run having been turned round'
-                          : 'top ring to bottom ring — the room the rings are counted into'
+                          : coilCounted
+                            ? 'top ring to bottom ring — the room the rings are counted into'
+                            : 'top ring to bottom ring — the rings are held, so this sets the fall'
                       }
                       value={Math.abs(coil.height)}
                       onChange={(v) =>
@@ -602,6 +609,60 @@ export default function Sidebar() {
                       value={coil.bottomRadius * 2}
                       onChange={(v) => s.updatePiece(selected.id, { bottomDiameter: v })}
                       {...PIECE_LIMITS.bottomDiameter}
+                    />
+                    {/* Counted is the ordinary case; setting the count by hand
+                        is how a coil is given a fall of its own, since fewer
+                        rings over the same height is a steeper one. */}
+                    <span className="field-label">
+                      Rings
+                      <em>
+                        {coilCounted
+                          ? `counted — ${formatCoarse(Math.abs(coil.height), s.units)} has room for ${degLabel(coilFits)}`
+                          : `set by hand — counting would give ${degLabel(coilFits)}`}
+                      </em>
+                    </span>
+                    <div className="segmented small">
+                      <button
+                        className={coilCounted ? 'on' : ''}
+                        onClick={() =>
+                          s.updatePiece(selected.id, {
+                            ringsSet: false,
+                            rings: coilFits * (coil.turns < 0 ? -1 : 1),
+                          })
+                        }
+                        title="Count the rings off the room the height leaves them"
+                      >
+                        Counted
+                      </button>
+                      <button
+                        className={coilCounted ? '' : 'on'}
+                        onClick={() =>
+                          s.updatePiece(selected.id, { ringsSet: true, rings: coil.turns })
+                        }
+                        title="Set the ring count by hand and hold it wherever the height goes"
+                      >
+                        By hand
+                      </button>
+                    </div>
+                    <NumberField
+                      label="Ring count"
+                      hint={
+                        coilCounted
+                          ? 'counted off the height — switch to By hand to set it'
+                          : 'times round between the top and the bottom'
+                      }
+                      readOnly={coilCounted}
+                      value={Math.abs(coil.turns)}
+                      onChange={(v) =>
+                        s.updatePiece(selected.id, {
+                          ringsSet: true,
+                          rings: v * (coil.turns < 0 ? -1 : 1),
+                        })
+                      }
+                      unit=""
+                      min={PIECE_LIMITS.rings.step}
+                      max={PIECE_LIMITS.rings.max}
+                      step={PIECE_LIMITS.rings.step}
                     />
                     <span className="field-label">
                       Wind
@@ -668,14 +729,28 @@ export default function Sidebar() {
                       </div>
                     </div>
                     <p className="note">
-                      <b>The rings are counted, not set.</b> A ring needs{' '}
-                      {formatCoarse(coilNeeds, s.units)} of height — a whole Ø
-                      {formatLength(spec.outerR * 2, s.units)} tube across, and{' '}
-                      {formatLength(COIL_RING_GAP, s.units)} of air over it — so{' '}
-                      {formatCoarse(Math.abs(coil.height), s.units)} has room for{' '}
-                      {degLabel(Math.abs(coil.turns))} of them, counted down to whole quarter turns
-                      so the outlet lands square to the inlet. Raise the height and another ring
-                      goes in; cut the part from fatter tube and one comes out.
+                      {coilCounted ? (
+                        <>
+                          <b>The rings are counted.</b> One needs{' '}
+                          {formatCoarse(coilNeeds, s.units)} of height — a whole Ø
+                          {formatLength(spec.outerR * 2, s.units)} tube across, and{' '}
+                          {formatLength(COIL_RING_GAP, s.units)} of air over it — so{' '}
+                          {formatCoarse(Math.abs(coil.height), s.units)} has room for{' '}
+                          {degLabel(coilFits)} of them, counted down to whole quarter turns so the
+                          outlet lands square to the inlet. Raise the height and another ring goes
+                          in; cut the part from fatter tube and one comes out.
+                        </>
+                      ) : (
+                        <>
+                          <b>The rings are yours.</b> {degLabel(Math.abs(coil.turns))} of them over{' '}
+                          {formatCoarse(Math.abs(coil.height), s.units)} puts them{' '}
+                          {formatCoarse(corkscrewRingPitch(selected), s.units)} apart, where
+                          counting would have given {degLabel(coilFits)} at{' '}
+                          {formatCoarse(coilNeeds, s.units)}. The count stands wherever the height
+                          goes, so this is where a coil is given a fall of its own: fewer rings
+                          over the same height is a steeper one, more is gentler.
+                        </>
+                      )}
                     </p>
                     <p className="note">
                       Those {degLabel(Math.abs(coil.turns))} rings wind to the{' '}
@@ -698,16 +773,19 @@ export default function Sidebar() {
                         other way, or re-angle it from the head.
                       </p>
                     )}
-                    {/* The count is floored at a quarter turn, so a coil too
-                        short for even one ring is the one case that still
-                        clashes — and it is worth saying rather than leaving to
-                        be spotted in the viewport. */}
+                    {/* Counted, the only coil that still clashes is one too
+                        short for the quarter turn the count is floored at. Set
+                        by hand, any count past what fits will — which is the
+                        cost of holding the count, and worth saying rather than
+                        leaving to be spotted in the viewport. */}
                     {coilGap < 0 && (
                       <p className="warn">
-                        {formatCoarse(Math.abs(coil.height), s.units)} is not enough height for a
-                        single ring of Ø{formatLength(spec.outerR * 2, s.units)} tube — the quarter
-                        turn it is held to winds through itself. Raise it to at least{' '}
-                        {formatCoarse(coilNeeds / 4, s.units)}, or cut this part from thinner tube.
+                        The rings sit {formatLength(corkscrewRingPitch(selected), s.units)} apart
+                        and the tube is Ø{formatLength(spec.outerR * 2, s.units)} across — they
+                        wind through one another.{' '}
+                        {coilCounted
+                          ? `${formatCoarse(Math.abs(coil.height), s.units)} is not enough height for even the quarter turn the count is floored at: raise it to at least ${formatCoarse(coilNeeds / 4, s.units)}, or cut this part from thinner tube.`
+                          : `${degLabel(Math.abs(coil.turns))} rings is more than this height holds — drop to ${degLabel(coilFits)}, raise the height to ${formatCoarse(coilNeeds * Math.abs(coil.turns), s.units)}, or let the count be counted.`}
                       </p>
                     )}
                     {/* Bending a channel round a coil rolls it the same way it
