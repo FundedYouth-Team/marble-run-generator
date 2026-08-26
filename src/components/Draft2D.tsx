@@ -1097,9 +1097,9 @@ function AssemblyDraft({ shifted }: { shifted: boolean }) {
       // in the sidebar, where both are one figure rather than a guessed-at drag.
       // A corkscrew is the same again, and more so: its ends sit one above the
       // other, and its fall is not a free number to drag at — the coil sets it.
-      // A funnel is a corkscrew's case exactly: it comes in at the tilt its
-      // lead-in is set to and leaves dead vertical, and neither of those is a
-      // number to drag at — the sidebar sets the tilt, and the bowl the rest.
+      // A funnel is a corkscrew's case exactly: it comes in dead level and
+      // leaves dead vertical, and neither of those is a number to drag at —
+      // the bowl's own numbers are the sidebar's to set.
       if (hook || coil || bowl) continue
 
       if (proj.plan) {

@@ -171,7 +171,7 @@ function corkscrewLine(piece: Piece): Centerline {
 }
 
 /**
- * A funnel: a level feed stub, the whirl down the bowl, and the drop out of the
+ * A funnel: a level feed box, the whirl down the bowl, and the drop out of the
  * throat. The whirl is solved in `lib/funnel` and chopped as coarsely as a coil,
  * for the same reason — it goes round several times rather than part of once.
  *
@@ -241,15 +241,12 @@ export function shapeKey(piece: Piece, spec: TubeSpec): string {
     return `${tube}:coil:${k.entry}:${k.topRadius}:${k.bottomRadius}:${k.turns}:${k.height}:${k.exit}`
   }
   // A funnel's fall is not part of its key either, and for a blunter reason:
-  // the fall it runs at is its lead-in's tilt, which is in the key already —
-  // the bowl under it is level whatever that says. What is here besides is the
-  // bowl's own numbers and the two stubs' styles — the one part whose ends may
-  // be cut differently from each other, so the tube at the head of the key does
-  // not finish the job on its own.
+  // it has none. What is here besides is the bowl's own numbers and the drain's
+  // style — the feed box is enclosed whatever the part is cut in, so only one
+  // end of this part can differ from the tube at the head of the key.
   if (piece.type === 'funnel') {
     const f = funnelSpec(piece)
-    const ends = `${piece.leadInVariant ?? '-'}:${piece.leadOutVariant ?? '-'}`
-    return `${tube}:funnel:${f.entry}:${f.tilt}:${f.mouthRadius}:${f.depth}:${f.rim}:${f.turns}:${f.exit}:${f.lead}:${ends}`
+    return `${tube}:funnel:${f.entry}:${f.mouthRadius}:${f.depth}:${f.rim}:${f.turns}:${f.exit}:${f.lead}:${piece.leadOutVariant ?? '-'}`
   }
   return `${tube}:straight:${piece.length}`
 }

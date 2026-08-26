@@ -30,7 +30,6 @@ import {
 } from './lib/corkscrew'
 import {
   FUNNEL_EXIT_SLOPE,
-  FUNNEL_TILT_LIMIT,
   funnelExitTurn,
   funnelFall,
   funnelLength as funnelRunLength,
@@ -344,37 +343,25 @@ export interface Piece {
    */
   rim?: number
   /**
-   * Funnel: how steeply the lead-in falls into the mouth, degrees. Unset is
-   * level, which is what a funnel out of the library has.
-   *
-   * This is the fall the whole part is stood at — a funnel states its own, and
-   * the run comes to it — so tipping the feed tips the part, and the bowl is
-   * built back to level inside that. Held to a few degrees: the lead-in hangs on
-   * the collar it is let through, and a steep one climbs out of it. See
-   * {@link FUNNEL_TILT_LIMIT}.
-   */
-  tilt?: number
-  /**
-   * Funnel: whether the mouth is fed by a lead-in tube of its own. Unset is one,
+   * Funnel: whether the mouth is fed by a feed box of its own. Unset is one,
    * which is what a funnel out of the library has.
    *
    * Without it the part is a bare bowl and the mouth is the inlet — something
    * else stands over it and the marble is let go into it. It also settles what
-   * the bowl does with the marble: the whirl is the lead-in's doing, since it is
-   * the tube's opening through the collar that sets the marble off round the
-   * wall rather than into the middle.
+   * the bowl does with the marble: the box's bore comes out flush with the wall
+   * and tangent to it, so a marble fed through one goes round the bowl, and a
+   * marble let into a bare bowl goes down it.
    */
   leadIn?: boolean
   /**
-   * Funnel: the style its lead-in and lead-out tubes are each cut in. Unset
-   * follows the part's own style, which in turn follows the run's — the same
-   * fallback {@link Piece.variant} works on, one step further in.
+   * Funnel: the style its lead-out is cut in. Unset follows the part's own
+   * style, which in turn follows the run's — the same fallback
+   * {@link Piece.variant} works on, one step further in.
    *
-   * They are separate because the two ends of a funnel do different jobs: a
-   * lead-in aimed across the mouth wants a closed tube to hold the marble in as
-   * it whirls, while a lead-out is a plain drop anyone might want to see down.
+   * Only the drain has the choice. The feed is a box let into the bowl's wall
+   * rather than a length of tube, and a hole through a wall has no open side to
+   * give it, so it is enclosed whatever the rest of the part is cut in.
    */
-  leadInVariant?: TubeVariant
   leadOutVariant?: TubeVariant
   /**
    * Corkscrew: how many times round the run goes between the two, in quarters
@@ -382,8 +369,7 @@ export interface Piece {
    * turns a corner the other way.
    *
    * Funnel: how many times round the marble whirls on its way to the throat,
-   * counted the same way. Nought is allowed here and is a part of its own — the
-   * marble dropped straight in rather than fed round.
+   * counted the same way, and never nought — see {@link FUNNEL_TURN_LIMITS}.
    */
   rings?: number
   /**
@@ -469,20 +455,14 @@ export const PIECE_LIMITS = {
 } as const
 
 /**
- * How many times round a funnel whirls the marble. Its own, because nought is a
- * real answer here and is not one for a coil: a corkscrew wound no times round
- * is not a corkscrew, while a funnel wound no times round is a marble dropped
- * straight in — which is half of what the part is for.
+ * How many times round a funnel whirls the marble.
+ *
+ * The step is the floor as well as the increment: a funnel with a feed box
+ * whirls at least this far, because the box is built tangent to the wall and a
+ * marble leaving it has nowhere to go but round. Dropping one straight in is
+ * done by taking the box off, not by winding the count down to nought.
  */
 export const FUNNEL_TURN_LIMITS = { min: -6, max: 6, step: 0.25 } as const
-
-/**
- * How far a funnel's lead-in may be tipped, degrees. Downhill only, and only a
- * little of it: a feed that climbs would be a marble asked to roll uphill into
- * the bowl, and a steep one leaves the tube hanging off the collar it is let
- * through — which is what {@link FUNNEL_TILT_LIMIT} is about.
- */
-export const FUNNEL_TILT_LIMITS = { min: 0, max: FUNNEL_TILT_LIMIT, step: 0.5 } as const
 
 /**
  * What an angle connector is when it lands on the stage. Both legs are short
@@ -720,43 +700,37 @@ export const FUNNEL_DEFAULTS = {
   exitLength: 30,
 } as const
 
-/** How many times round a funnel whirls out of the library, and dropped straight in. */
+/** How many times round a funnel whirls out of the library. */
 export const FUNNEL_TURNS_SPIRAL = FUNNEL_DEFAULTS.turns
-export const FUNNEL_TURNS_DROP = 0
 
-/** Whether a funnel is fed by a lead-in of its own. Unset is one. */
+/** Whether a funnel is fed by a feed box of its own. Unset is one. */
 export function funnelHasLead(piece: Piece): boolean {
   return piece.leadIn ?? true
-}
-
-/**
- * How steeply a funnel's lead-in falls into the mouth, degrees — its own fall,
- * and so the fall the whole run has to meet it at. A bare bowl has no lead-in to
- * tip, so it takes the marble level however it was left.
- */
-export function funnelTilt(piece: Piece): number {
-  if (!funnelHasLead(piece)) return 0
-  return clamp(piece.tilt ?? 0, FUNNEL_TILT_LIMITS.min, FUNNEL_TILT_LIMITS.max)
 }
 
 /** The funnel's own numbers, with anything unset filled in. */
 export function funnelSpec(piece: Piece): FunnelBowl {
   const depth = piece.height ?? FUNNEL_DEFAULTS.height
   const lead = funnelHasLead(piece)
+  const turns = piece.rings ?? FUNNEL_DEFAULTS.turns
   return {
-    // No lead-in, no stub: the mouth is the inlet, and the part starts there.
+    // No feed box, no stub: the mouth is the inlet, and the part starts there.
     entry: lead ? piece.length : 0,
-    tilt: funnelTilt(piece),
     mouthRadius: (piece.topDiameter ?? FUNNEL_DEFAULTS.mouthDiameter) / 2,
     depth,
     // Held under the depth it is carved out of, so a collar dragged past the
     // bowl leaves a cone rather than a bottomless cup.
     rim: clamp(piece.rim ?? FUNNEL_DEFAULTS.rim, 0, Math.max(0, depth)),
-    // The whirl is the lead-in's doing — it is the tube's opening through the
-    // collar that points the marble round the wall — so a bare bowl takes it
-    // straight in whatever the count says. The count itself is kept, so putting
-    // the lead-in back puts the whirl back with it.
-    turns: lead ? (piece.rings ?? FUNNEL_DEFAULTS.turns) : 0,
+    // A fed funnel always whirls and a bare bowl never does, and neither is a
+    // choice: the box is built into the wall tangentially, so the marble leaves
+    // it running round the bowl and there is no other way out of it, while a
+    // bare bowl has nothing aimed across the mouth at all. So the count is held
+    // clear of nought while there is a box, and taken to nought when there is
+    // not — kept on the part either way, so taking the box off and putting it
+    // back puts the whirl back with it.
+    turns: lead
+      ? Math.sign(turns || 1) * clamp(Math.abs(turns), FUNNEL_TURN_LIMITS.step, FUNNEL_TURN_LIMITS.max)
+      : 0,
     exit: piece.exitLength ?? FUNNEL_DEFAULTS.exitLength,
     lead,
   }
@@ -768,34 +742,34 @@ export function funnelSpec(piece: Piece): FunnelBowl {
  * is styled on its own. Bore and wall are always the part's, since both stubs
  * carry the same marble through the same bowl.
  *
+ * Only the drain is ever asked for. The feed is a box let into the bowl's wall
+ * rather than a length of tube, and a hole through a wall has no open side to
+ * give it, so it is enclosed whatever the rest of the part is cut in.
+ *
  * `base` doubles as the fallback, so a stub with no style of its own hands back
  * the very spec it was given — same object, so a mesh keyed on it is not rebuilt.
  */
-export function funnelStubSpec(base: TubeSpec, piece: Piece, end: 'lead' | 'drain'): TubeSpec {
-  const own = end === 'lead' ? piece.leadInVariant : piece.leadOutVariant
+export function funnelDrainSpec(base: TubeSpec, piece: Piece): TubeSpec {
+  const own = piece.leadOutVariant
   if (!own || own === base.variant) return base
   return tubeSpec(base.innerR * 2, base.wall, own)
 }
 
-/** The style one of a funnel's stubs is actually cut in. */
-export function funnelStubVariant(
-  piece: Piece,
-  runVariant: TubeVariant,
-  end: 'lead' | 'drain',
-): TubeVariant {
-  const own = end === 'lead' ? piece.leadInVariant : piece.leadOutVariant
-  return own ?? variantOf(piece, runVariant)
+/** The style a funnel's drain is actually cut in. */
+export function funnelDrainVariant(piece: Piece, runVariant: TubeVariant): TubeVariant {
+  return piece.leadOutVariant ?? variantOf(piece, runVariant)
 }
 
 /**
  * Whether a funnel whirls the marble round rather than taking it straight in.
  *
- * It takes both: the turns say how far round, and the lead-in is what points the
- * marble round in the first place. A bare bowl has nothing aimed across it, so
- * whatever its turns say, the marble goes in and down.
+ * Which is the same question as whether it has a feed box, and no longer a
+ * separate one: the box is tangent to the wall, so a marble leaving it goes
+ * round; a bare bowl has nothing aimed across the mouth, so a marble let into it
+ * goes down. See {@link funnelSpec}.
  */
 export function funnelWhirls(piece: Piece): boolean {
-  return funnelHasLead(piece) && Math.abs(funnelSpec(piece).turns) >= FUNNEL_TURN_LIMITS.step
+  return funnelHasLead(piece)
 }
 
 /** Which way a funnel whirls: -1 to the left, +1 to the right. */
@@ -838,9 +812,10 @@ export function funnelReach(piece: Piece, innerR: number, wall: number): number 
  * Every other part takes whatever angle the part before it hands on. Two
  * cannot. A corkscrew's four numbers already fix how far it goes round and how
  * far it drops doing it, and those two between them leave exactly one angle the
- * coil can run at. A funnel is simpler about it: its bowl is level whatever
- * happens, so the only fall it can run at is the one its lead-in is tipped to —
- * nought for a feed that comes in level, and whatever it is set to otherwise.
+ * coil can run at. A funnel is blunter about it: its bowl is only a bowl while
+ * it is level, and its feed is a box built flush into the bowl's own side wall,
+ * which a feed tipped even a few degrees would lift off that wall. So the only
+ * fall a funnel runs at is none.
  *
  * Either way the part states its fall and the run has to meet it — a printed
  * part is a fixed thing, and this is what makes it behave like one.
@@ -851,12 +826,12 @@ export function slopeIsFixed(piece: Piece): boolean {
 
 /** The one fall a part with a fall of its own may sit at, degrees. */
 function fixedSlopeOf(piece: Piece): number {
-  return piece.type === 'funnel' ? funnelTilt(piece) : corkscrewPitch(piece)
+  return piece.type === 'funnel' ? 0 : corkscrewPitch(piece)
 }
 
 /**
  * A part put back on the shape its own numbers demand: a coil's rings and the
- * fall they leave it running at, a funnel's feed stub and the tilt it is fed at.
+ * fall they leave it running at, a funnel's feed box and the level it is fed at.
  * Everything else is handed its fall by the run and is left alone.
  *
  * `innerR` and `wall` are the tube this part is actually cut from, which is what
@@ -887,13 +862,13 @@ function wind(piece: Piece, outerR: number): Piece {
 }
 
 /**
- * A funnel with a feed stub long enough to stand on. Held up to the reach rather
- * than clamped both ways: a longer stub is a run of track into the mouth and is
- * nobody's business but the user's, while a shorter one is a spout hanging over
- * the bowl attached to nothing.
+ * A funnel with a feed box long enough to stand clear of the bowl. Held up to
+ * the reach rather than clamped both ways: a longer box is a run of track into
+ * the mouth and is nobody's business but the user's, while a shorter one has its
+ * socket half swallowed by the bowl it is feeding.
  */
 function reach(piece: Piece, innerR: number, wall: number): Piece {
-  // A bare bowl has no lead-in to hold up, so its stub is nobody's business.
+  // A bare bowl has no feed box to hold up, so its stub is nobody's business.
   if (!funnelHasLead(piece)) return piece
   const least = funnelReach(piece, innerR, wall)
   return piece.length >= least ? piece : { ...piece, length: least }
@@ -1675,15 +1650,14 @@ const TYPE_DEFAULTS: Record<PieceType, Omit<Piece, 'id' | 'type'>> = {
     rings: 1,
     exitLength: CORKSCREW_DEFAULTS.exitLength,
   },
-  // The lead-in states the fall and it arrives level — see {@link slopeIsFixed}
-  // — so unlike every other part this one starts on nought rather than on the
-  // gentle fall a new part is set down at. The stub is put right by
-  // {@link settle}, which knows the tube it has to reach out over and this far
-  // out cannot.
+  // A funnel is fed dead level and states that fall itself — see
+  // {@link slopeIsFixed} — so unlike every other part this one starts on nought
+  // rather than on the gentle fall a new part is set down at. The feed box is
+  // put right by {@link settle}, which knows the tube it has to stand clear of
+  // and this far out cannot.
   funnel: {
     length: FUNNEL_DEFAULTS.length,
     slope: 0,
-    tilt: 0,
     turn: 0,
     height: FUNNEL_DEFAULTS.height,
     topDiameter: FUNNEL_DEFAULTS.mouthDiameter,
@@ -1816,8 +1790,7 @@ const FIELD_LABEL: Record<string, string> = {
   topDiameter: 'top Ø',
   bottomDiameter: 'bottom Ø',
   rim: 'rim wall',
-  leadIn: 'lead-in',
-  tilt: 'feed tilt',
+  leadIn: 'feed box',
   rings: 'rings',
 }
 /** How each field's value is written out — lengths follow the unit setting. */
@@ -1835,9 +1808,8 @@ const FIELD_VALUE: Record<string, (v: number) => string> = {
   topDiameter: len,
   bottomDiameter: len,
   rim: len,
-  tilt: (v) => `${num(v)}°`,
-  // The count and which way it winds are one field, so a step says both. A
-  // funnel is allowed nought of them, and nought has no hand to report.
+  // The count and which way it winds are one field, so a step says both. A coil
+  // is allowed nought of them, and nought has no hand to report.
   rings: (v) => (v ? `${num(Math.abs(v))} ${v < 0 ? 'left' : 'right'}` : 'straight in'),
 }
 

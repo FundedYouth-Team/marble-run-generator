@@ -5,7 +5,7 @@ import { buildPartGeometry } from './geometry'
 import { centerlineFor, shapeKey } from './centerline'
 import { buildThreeMF } from './threemf'
 import type { PlacedPiece } from './layout'
-import { angleSpec, funnelTilt, pieceSpec, type Piece, type TubeSpec } from '../store'
+import { angleSpec, pieceSpec, type Piece, type TubeSpec } from '../store'
 
 /**
  * All three formats are written at 1 unit = 1 mm, which is already this app's
@@ -59,15 +59,10 @@ const LAY_FLAT = new THREE.Matrix4()
  * both legs the same height off the plate instead of standing one of them up.
  *
  * A funnel prints mouth-up or not at all, and standing the part's own up axis on
- * the plate is exactly what this does — for a funnel fed level. One fed downhill
- * is stood at that fall, bowl and all, so it is tipped back by the tilt first
- * and the mouth comes level again.
+ * the plate is exactly what this does — a funnel is fed dead level, so its own
+ * up axis and the world's are already the same one.
  */
 function layFlat(piece: Piece): THREE.Matrix4 {
-  if (piece.type === 'funnel') {
-    const tilt = THREE.MathUtils.degToRad(funnelTilt(piece))
-    return tilt ? LAY_FLAT.clone().multiply(new THREE.Matrix4().makeRotationX(tilt)) : LAY_FLAT
-  }
   if (piece.type !== 'angle') return LAY_FLAT
   const half = THREE.MathUtils.degToRad(angleSpec(piece).bend) / 2
   return LAY_FLAT.clone().multiply(new THREE.Matrix4().makeRotationX(-half))

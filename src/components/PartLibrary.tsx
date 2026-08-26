@@ -91,8 +91,8 @@ function FunnelPreview() {
         <path d="M10.6 15.4 21 24v4M35.4 15.4 25 24v4" />
         <path d="M21 28h4" />
       </g>
-      {/* The feed, riding in over the rim — drawn level, which is how it arrives
-          until it is given a tilt of its own. */}
+      {/* The feed box, let into the side of the bowl and running in dead level,
+          which is the only way a funnel is ever fed. */}
       <path className="pp-arrow" d="M2 7.6h9v2.8H2z" />
     </svg>
   )
@@ -171,7 +171,7 @@ const PARTS: Part[] = [
     category: 'feature',
     axis: 'Down',
     blurb:
-      'Open bowl fed over the rim and drained down the throat. Whirl the marble in and its own speed holds it out against the collar while the cone winds it down to the middle; drop it in instead and it slides straight down the wall. Set how wide the mouth is, how deep the bowl goes, how high the collar stands and how many times round it whirls. The lead-in may be tipped a few degrees to be fed downhill, and the bowl stays level under whatever it is set to; the spout is dead vertical. Neither of those is the run’s to set, so the run has to be brought to the tilt and whatever hangs under the funnel starts by falling straight down.',
+      'Open bowl fed through the side and drained down the throat. The feed is a square box let into the bowl’s wall — flush outside, round inside — with its bore coming out level with the inside of that wall, so the marble arrives already running round the collar and its own speed holds it there while the cone winds it down to the middle. Set how wide the mouth is, how deep the bowl goes, how high the collar stands and how many times round it whirls; or take the box off altogether for a bare bowl, and drop the marble in from above. A funnel is fed dead level and leaves dead vertical, and neither is the run’s to set — so the run has to be brought to it, and whatever hangs under the funnel starts by falling straight down.',
     preview: FunnelPreview,
     add: () => useRun.getState().addPiece('funnel'),
   },

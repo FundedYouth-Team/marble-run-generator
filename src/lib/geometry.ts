@@ -1,13 +1,7 @@
 import * as THREE from 'three'
 import { centerlineFor, type Centerline } from './centerline'
-import {
-  funnelForward,
-  funnelShell,
-  funnelSpoutUp,
-  funnelUp,
-  type FunnelBowl,
-} from './funnel'
-import { funnelSpec, funnelStubSpec, jointSpec, type Piece, type TubeSpec } from '../store'
+import { FUNNEL_SOCKET_KEEP, funnelShell, funnelSpoutUp, type FunnelBowl } from './funnel'
+import { funnelDrainSpec, funnelSpec, jointSpec, type Piece, type TubeSpec } from '../store'
 
 /**
  * A station is a cross-section of the extrusion at axial position `z`,
@@ -26,7 +20,7 @@ export interface Station {
  *
  * A part on its own has both: a socket to be fed through and a spigot to plug
  * into whatever comes next. A length that runs into something else inside the
- * same part has neither at that end — a funnel's feed tube meets its own bowl
+ * same part has neither at that end — a funnel's feed box meets its own bowl
  * there, and a joint would be a joint with itself.
  */
 export interface TubeEnds {
@@ -361,14 +355,9 @@ export function buildPieceGeometry(
  */
 export function buildPartGeometry(spec: TubeSpec, piece: Piece): THREE.BufferGeometry {
   if (piece.type === 'funnel') {
-    // The bowl is cut to the part's own tube; the two stubs may each be styled
-    // on their own, so they are asked for separately.
-    return buildFunnelGeometry(
-      spec,
-      funnelSpec(piece),
-      funnelStubSpec(spec, piece, 'lead'),
-      funnelStubSpec(spec, piece, 'drain'),
-    )
+    // The bowl and the feed box are cut to the part's own tube; the spout may be
+    // styled on its own, so it is asked for separately.
+    return buildFunnelGeometry(spec, funnelSpec(piece), funnelDrainSpec(spec, piece))
   }
   return buildPieceGeometry(spec, centerlineFor(piece))
 }
@@ -410,21 +399,21 @@ export function buildEndBandGeometry(
 const BOWL_DIVISIONS = 72
 
 /**
- * How finely the collar is gridded where the lead-in breaks through it — round,
- * and up its height. A whole multiple of the divisions the rest of the bowl is
- * spun at, so the facets line up where the collar meets the cone.
+ * How finely the collar is gridded where the feed box's bore breaks through it —
+ * round it, and up its height. A whole multiple of the divisions the rest of the
+ * bowl is spun at, so the facets line up where the collar meets the cone.
  *
  * A cell the bore touches at all is dropped, so a coarser grid only ever makes
  * the hole a shade wider than the bore — never narrower. That is the right way
  * to be wrong: the marble is never pinched, and the difference is a millimetre
- * or two of clearance round an opening the tube itself lines.
+ * or two of clearance round an opening the box itself lines.
  */
 const PIERCE_COLUMNS = BOWL_DIVISIONS * 3
 const PIERCE_ROWS = 12
 
 /**
  * The straight collar round the mouth, with a hole poked through it where the
- * lead-in's bore comes in — and nothing else taken out of it.
+ * feed box's bore comes in — and nothing else taken out of it.
  *
  * The wall is closed. That is the whole point of building this band as a grid
  * rather than as a lathe spun part of the way round: a lathe can only leave a
@@ -573,115 +562,141 @@ interface BowlFrame {
 }
 
 /**
- * The lead-in, cut off against the inside of the bowl.
+ * How finely the feed box is sampled round its section. A multiple of eight, so
+ * that a sample lands on each corner of the square and the four faces come out
+ * dead flat rather than faceted.
+ */
+const BOX_SAMPLES = 64
+
+/**
+ * How many steps the box's far end is stepped across in, bore out to corner.
  *
- * This is what makes the tube part of the funnel rather than a thing laid
- * through it. The tube is swept as any straight length is, but every line along
- * its surface stops where it would break the bowl's inner wall — so what is left
- * is enclosed on the outside, where the tube stands proud of the collar and is
- * grown into it, and smooth on the inside, where there is nothing but the wall
- * and the opening through it.
+ * That end is not a flat face: most of it lies on the bowl's inner wall, which
+ * is curved, so walking across it in one step would chord the curve and push a
+ * millimetre of box into the marble's way. Stepped, every point on it is put
+ * back on the wall.
+ */
+const BOX_CAP_STEPS = 8
+
+/** One point of the feed box's section: how far round, and how far out. */
+interface BoxPoint {
+  /** Where along the box it sits, mm. */
+  z: number
+  /** Radius of the bore there, mm — what the section is when `square` is nought. */
+  r: number
+  /** How far the section has been drawn out to the square, 0 for the bore, 1 for the box. */
+  square: number
+}
+
+/**
+ * The feed box, cut off against the inside of the bowl.
  *
- * Running in on the tangent, a tube's near flank meets the wall long before its
- * far one does, so the cut takes the roof off it over that stretch and the last
- * of the lead-in becomes an open trough running along the inside of the mouth.
- * That is not a special case bolted on — it is the same cut, and it is exactly
- * how a marble fed round the wall is delivered.
+ * This is the part the marble is actually delivered by, and it is a box rather
+ * than a tube for one reason: a round tube laid against a round bowl touches it
+ * along a line, so there is no way to bring the two together without either
+ * notching the rim or leaving the tube standing off it. A square outboard face
+ * lies flat on the flat the collar presents it, and the join disappears.
  *
- * Solved rather than sampled: a line along the tube is straight, the wall is a
+ * Outside it is square, half a box being a bore and a wall — see
+ * {@link FunnelShell.crown} — which puts its outboard face exactly on the
+ * outside of the collar and its bore's far side exactly on the inside. Inside it
+ * is round, with the same socket every other part is fed through, so whatever
+ * comes before it plugs into it in the ordinary way.
+ *
+ * Where it meets the bowl it is cut off against the bowl's own inner wall: every
+ * line along it stops where it would break through, and the end it is left with
+ * is put back on that wall step by step rather than chorded across. So nothing
+ * of the box stands inside the mouth, the wall reads as unbroken all the way
+ * round, and the only daylight in it is the bore coming out flush — which is
+ * exactly the opening a marble has to leave through to go round the bowl rather
+ * than at the throat.
+ *
+ * Solved rather than sampled: a line along the box is straight and the wall is a
  * cylinder, so where the two meet is a quadratic and the near root is the answer.
  */
-function leadInGeometry(
+function feedBoxGeometry(
   spec: TubeSpec,
   f: FunnelBowl,
   centre: THREE.Vector3,
-  frame: BowlFrame,
   mouthR: number,
+  half: number,
 ): THREE.BufferGeometry {
-  const profile = profilePolygon(spec, f.entry, { socket: true, spigot: false })
-  const poly = profile.points
-  const div = radialDivisions(spec)
-  // A closed tube wraps, so the last angular sample *is* the first one.
-  const samples = spec.closed ? div : div + 1
-  // The bowl's axis, on the mouth's own pair of level axes. The tube runs down
-  // local +Z whatever the lead-in is tipped to, so the tilt shows up here as the
-  // share of its length and of its section that lies along the mouth's heading.
-  const cx = centre.dot(frame.x)
-  const cz = centre.dot(frame.forward)
-  const lean = frame.forward.y
-  const along = frame.forward.z
-  // Never cut back into the socket: a lead-in that meets the wall that early is
-  // one the reach should have stopped, and a stub with no socket is worse than a
-  // stub that pokes in.
-  const floor = jointSpec(spec, f.entry).depth * 1.25
+  // The box is always enclosed, whatever style the rest of the part is cut in:
+  // it is a hole through a wall, and a hole has no open side to give it.
+  const stations = stationsFor(spec, f.entry, { socket: true, spigot: false })
+  // A funnel is fed dead level, so the bowl's axis is a plain vertical line and
+  // how far a point is across it is the one coordinate the cut depends on.
+  const cx = centre.x
+  const cz = centre.z
+  // Never cut back into the socket: a box that meets the wall that early is one
+  // the reach should have stopped, and a stub with no socket is worse than a
+  // stub that pokes in. See {@link FUNNEL_SOCKET_KEEP}.
+  const floor = FUNNEL_SOCKET_KEEP
 
-  /** How far a line along the tube may run before it is inside the bowl. */
-  const stopAt = (r: number, ca: number, sa: number) => {
-    const across = r * ca - cx
+  /** How far a line along the box may run before it is inside the bowl. */
+  const stopAt = (x: number) => {
+    const across = x - cx
     const room = mouthR * mouthR - across * across
     // This line passes outside the mouth altogether — it never breaks through.
-    if (room <= 0 || Math.abs(along) < 1e-9) return Infinity
-    const base = r * sa * lean - cz
-    return Math.max(floor, (-base - Math.sqrt(room)) / along)
+    if (room <= 0) return Infinity
+    return Math.max(floor, cz - Math.sqrt(room))
+  }
+
+  // The section, walked out along the box and back down the bore. The two ends
+  // are bands rather than single edges: the far one is the cut against the wall,
+  // stepped so it lands on the curve, and the near one is the socket's end face.
+  const L = f.entry
+  const poly: BoxPoint[] = [{ z: 0, r: stations[0].ri, square: 1 }, { z: L, r: 0, square: 1 }]
+  for (let i = 1; i < BOX_CAP_STEPS; i++) {
+    poly.push({ z: L, r: spec.innerR, square: 1 - i / BOX_CAP_STEPS })
+  }
+  for (let i = stations.length - 1; i >= 0; i--) poly.push({ z: stations[i].z, r: stations[i].ri, square: 0 })
+
+  // Which way round the loop was walked, so the surface comes out facing
+  // outward. Measured on how far out each point sits, the square standing
+  // furthest — the same test a swept profile is oriented by.
+  const flip =
+    signedArea(poly.map((p) => ({ z: p.z, r: p.r + (half * 1.2 - p.r) * p.square }))) < 0
+
+  // Where round the section each sample sits. The four corners are sampled
+  // twice, so the faces meeting there are not shaded into one rounded lump —
+  // the strip between a corner and its double is empty, and costs nothing.
+  const angles: number[] = []
+  for (let i = 0; i < BOX_SAMPLES; i++) {
+    const a = (Math.PI * 2 * i) / BOX_SAMPLES
+    angles.push(a)
+    if (i % (BOX_SAMPLES / 4) === BOX_SAMPLES / 8) angles.push(a)
   }
 
   const positions: number[] = []
   const indices: number[] = []
-  const flip = signedArea(poly) < 0
   const ring: number[][] = []
-  for (const [e, p] of poly.entries()) {
+  for (const p of poly) {
     const at: number[] = []
-    for (let i = 0; i < samples; i++) {
-      const a = spec.startAngle + (spec.sweep * i) / div
+    for (const a of angles) {
       const ca = Math.cos(a)
       const sa = Math.sin(a)
+      // Out to the square along this ray: whichever face the ray leaves by is
+      // the one that fixes how far it has to go.
+      const reach = half / Math.max(Math.abs(ca), Math.abs(sa))
+      const r = p.r + (reach - p.r) * p.square
+      const x = r * ca
       at.push(positions.length / 3)
-      positions.push(p.r * ca, p.r * sa, Math.min(p.z, stopAt(p.r, ca, sa)))
+      positions.push(x, r * sa, Math.min(p.z, stopAt(x)))
     }
     ring.push(at)
-    void e
   }
 
-  // The lateral surface: one strip per edge of the profile.
   for (let e = 0; e < poly.length; e++) {
-    const f2 = (e + 1) % poly.length
-    for (let j = 0; j < div; j++) {
-      const k = (j + 1) % samples
+    const g = (e + 1) % poly.length
+    for (let j = 0; j < angles.length; j++) {
+      const k = (j + 1) % angles.length
       const a0 = ring[e][j]
       const a1 = ring[e][k]
-      const b0 = ring[f2][j]
-      const b1 = ring[f2][k]
+      const b0 = ring[g][j]
+      const b1 = ring[g][k]
       if (flip) indices.push(a0, b1, b0, a0, a1, b1)
       else indices.push(a0, b0, b1, a0, b1, a1)
-    }
-  }
-
-  // The cut edges of an open tube, closed off across the wall.
-  if (!spec.closed) {
-    const faces = bandTriangles(profile)
-    const v = (at: number) => new THREE.Vector3().fromArray(positions, at * 3)
-    for (const [i, outward] of [
-      [0, -1],
-      [samples - 1, 1],
-    ] as const) {
-      const a = spec.startAngle + (spec.sweep * i) / div
-      const away = new THREE.Vector3(-Math.sin(a), Math.cos(a), 0).multiplyScalar(outward)
-      let best = -1
-      let normal = new THREE.Vector3()
-      for (const t of faces) {
-        const n = new THREE.Vector3()
-          .subVectors(v(ring[t[1]][i]), v(ring[t[0]][i]))
-          .cross(new THREE.Vector3().subVectors(v(ring[t[2]][i]), v(ring[t[0]][i])))
-        if (n.lengthSq() > best) {
-          best = n.lengthSq()
-          normal = n
-        }
-      }
-      const reverse = normal.dot(away) < 0
-      for (const [x, y, z] of faces) {
-        if (reverse) indices.push(ring[x][i], ring[z][i], ring[y][i])
-        else indices.push(ring[x][i], ring[y][i], ring[z][i])
-      }
     }
   }
 
@@ -692,7 +707,7 @@ function leadInGeometry(
 }
 
 /**
- * Whether a point is inside the lead-in's bore — the test the collar is pierced
+ * Whether a point is inside the feed box's bore — the test the collar is pierced
  * by. The tube runs from the origin down local +Z, so this is its distance off
  * that axis and how far along it has got, and nothing more.
  *
@@ -729,7 +744,7 @@ function straightLine(from: THREE.Vector3, to: THREE.Vector3, up?: THREE.Vector3
  * surface pointing outward.
  *
  * `arc` spins it part of the way round instead, and closes the two ends off with
- * flat faces — which is how the collar is given the opening the lead-in's bore
+ * flat faces — which is how the collar is given the opening the feed box's bore
  * comes out through.
  */
 function bowlGeometry(
@@ -859,33 +874,32 @@ function mergeSolids(parts: THREE.BufferGeometry[]): THREE.BufferGeometry {
 }
 
 /**
- * A funnel as a solid: the lead-in that feeds the mouth, the bowl, and the
+ * A funnel as a solid: the feed box that fills the mouth, the bowl, and the
  * lead-out under the throat.
  *
  * They are built apart and laid together, because the part is genuinely several
  * things rather than one section carried along a line.
  *
- * The lead-in runs level from its socket in to the mouth, aimed across the bowl
- * rather than at it, which is what sets the marble whirling. The collar's crown
- * band is spun through everything but the tube's *bore* — see
- * {@link FunnelShell.gate} — so the band runs straight through the tube's wall
- * and closes on the opening from every side: what shows in the rim is the hole
- * the marble comes out of and nothing else, and the tube reads as the wall
- * carrying on rather than as a cylinder dropped into a notch. Under it the band
- * starts again right the way round, so there is nothing to escape by.
+ * The feed box runs level from its socket to the side of the bowl, flush with
+ * the outside of it, with its bore's far side on the inside of the wall — so the
+ * marble comes out already running along that wall and goes round the bowl
+ * rather than at the throat. See {@link feedBoxGeometry}. The collar it is let
+ * into is a closed wall with nothing taken out of it but that bore, so what
+ * shows in the mouth is the opening the marble comes out of and nothing else,
+ * and the wall reads as unbroken over it and under it.
  *
  * The bowl proper is a shell spun about its own axis, collar then cone, open
  * right through at the throat. The lead-out picks that bore up a wall's
  * thickness inside the cone, so the two are properly grown together rather than
  * left touching at a single plane, and carries it down to the spigot.
  *
- * The two tubes are cut to their own specs, which is how a funnel can be fed
- * through a closed tube and drain into an open one, or the other way about.
+ * The drain is cut to its own spec, which is how a funnel can be drained into an
+ * open tube. The feed box is always enclosed — it is a hole through a wall, and
+ * a hole has no open side to give it.
  */
 export function buildFunnelGeometry(
   spec: TubeSpec,
   f: FunnelBowl,
-  lead: TubeSpec = spec,
   drain: TubeSpec = spec,
 ): THREE.BufferGeometry {
   const shell = funnelShell(f, spec.innerR, spec.wall)
@@ -893,26 +907,26 @@ export function buildFunnelGeometry(
   const sill = crown - shell.sill
   const waist = crown - shell.rim
   const throat = -f.depth
+  // The cone is walled radially, so its wall lies further out than the plain
+  // one; the collar above it is upright, where the two are the same thing. The
+  // outside runs from one to the other over the straight of the collar, which is
+  // what leaves the box a flat, plain-walled flank to lie against.
   const out = shell.offset
-  // The bowl is level whatever the lead-in is tipped to, so it is spun in its
-  // own frame rather than in the part's — which are the same frame only on a
-  // funnel fed dead level. See {@link funnelUp}.
+  const band = shell.wall
+  // A funnel is fed dead level, so the bowl's own frame and the part's are the
+  // same frame — which is the whole reason the feed box can be built flush.
   const frame: BowlFrame = {
     x: new THREE.Vector3(1, 0, 0),
-    up: funnelUp(f.tilt),
-    forward: funnelForward(f.tilt),
+    up: new THREE.Vector3(0, 1, 0),
+    forward: new THREE.Vector3(0, 0, 1),
   }
   const parts: THREE.BufferGeometry[] = []
 
   if (f.lead && f.entry > 0) {
-    // Cut off against the inside of the bowl rather than run to a flat end — see
-    // {@link leadInGeometry}. Nothing of it is left standing inside the mouth,
-    // and the roof comes off the last stretch of its own accord where the tube
-    // runs in along the wall.
-    parts.push(leadInGeometry(lead, f, shell.centre, frame, shell.mouthR))
+    parts.push(feedBoxGeometry(spec, f, shell.centre, shell.mouthR, crown))
   }
 
-  // The collar: a closed wall with a hole poked through it where the lead-in's
+  // The collar: a closed wall with a hole poked through it where the feed box's
   // bore comes in, and nothing else taken out of it — see {@link collarGeometry}.
   // It reaches a wall's thickness below the sill so it and the bowl under it are
   // grown together rather than left touching at a plane.
@@ -921,7 +935,7 @@ export function buildFunnelGeometry(
       shell.centre,
       frame,
       shell.mouthR,
-      shell.mouthR + out,
+      shell.mouthR + band,
       sill - spec.wall,
       crown,
       f.lead && f.entry > 0 ? boreOf(f, spec.innerR) : null,
@@ -937,7 +951,7 @@ export function buildFunnelGeometry(
         { r: shell.throatR, y: throat },
         { r: shell.throatR + out, y: throat },
         { r: shell.mouthR + out, y: waist },
-        { r: shell.mouthR + out, y: sill },
+        { r: shell.mouthR + band, y: sill },
       ],
       shell.centre,
       frame,
