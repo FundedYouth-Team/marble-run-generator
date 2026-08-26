@@ -171,7 +171,7 @@ function corkscrewLine(piece: Piece): Centerline {
 }
 
 /**
- * A funnel: a level feed box, the whirl down the bowl, and the drop out of the
+ * A funnel: a level feed tube, the whirl down the bowl, and the drop out of the
  * throat. The whirl is solved in `lib/funnel` and chopped as coarsely as a coil,
  * for the same reason — it goes round several times rather than part of once.
  *
@@ -242,7 +242,7 @@ export function shapeKey(piece: Piece, spec: TubeSpec): string {
   }
   // A funnel's fall is not part of its key either, and for a blunter reason:
   // it has none. What is here besides is the bowl's own numbers and the drain's
-  // style — the feed box is enclosed whatever the part is cut in, so only one
+  // style — the feed tube is enclosed whatever the part is cut in, so only one
   // end of this part can differ from the tube at the head of the key.
   if (piece.type === 'funnel') {
     const f = funnelSpec(piece)

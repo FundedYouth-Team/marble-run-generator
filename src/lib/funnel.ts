@@ -7,19 +7,19 @@ import * as THREE from 'three'
  *
  * That last point is the one thing to know about this part. Every other part
  * takes whatever fall the run hands it; a funnel cannot, because a bowl is only
- * a bowl while it is level and its feed is built flush into the bowl's own side
- * wall. A feed tipped even a few degrees lifts one edge of that flush face off
- * the wall and leaves a wedge of daylight down the join, so the fall a funnel
- * states is nought, and the run has to come to it — exactly as a corkscrew's
- * coil states the fall its rings leave it at.
+ * a bowl while it is level, and its feed is let in through the bowl's own side
+ * wall square across the fall. A feed tipped even a few degrees runs its bore
+ * out through the rim before it reaches the mouth, so the fall a funnel states
+ * is nought, and the run has to come to it — exactly as a corkscrew's coil
+ * states the fall its rings leave it at.
  *
- * The feed is a square box let into the side of the bowl rather than a round
- * tube laid through it. Its outboard face is flush with the outside of the
- * bowl's wall and its bore is round, which puts the far side of that bore
- * exactly on the inside of the wall: the marble comes out of the box already
- * running along the wall, and goes round rather than straight at the throat.
- * Everything about that is settled in {@link FunnelShell}, since it is measured
- * off the tube the part is cut from rather than off the bowl's own numbers.
+ * The feed is a plain round pipe, run in past the side of the bowl and stopped
+ * dead where it breaks through the wall. It is not laid on the wall but set in
+ * from it — see {@link FUNNEL_FEED_SKEW} — which is the difference between a
+ * pipe that grazes the wall down a long thin slot and one that goes through it
+ * cleanly. Nothing of the pipe stands past the wall, so the mouth is smooth all
+ * the way round but for the hole itself, and the marble comes out travelling
+ * along the wall rather than at the throat.
  *
  * What happens inside is a conical spiral: the marble is delivered onto the
  * mouth travelling the way the run was already travelling, whirls round the
@@ -36,14 +36,19 @@ import * as THREE from 'three'
  */
 export interface FunnelBowl {
   /**
-   * Rigid lead-in up to the mouth, mm — measured along the box, which runs dead
-   * level. Nought on a funnel built without one — see {@link FunnelBowl.lead}.
+   * Rigid lead-in up to the mouth, mm — measured along the pipe, which runs
+   * dead level. Nought on a funnel built without one — see
+   * {@link FunnelBowl.lead}.
    */
   entry: number
   /**
-   * Radius the marble is delivered onto the mouth at, mm — measured across the
-   * centreline, the way a corkscrew's widths are, so the bowl's own wall stands
-   * one bore further out than this.
+   * Inside radius of the bowl at the mouth, mm — the wall itself, which is what
+   * anyone measuring a funnel would measure.
+   *
+   * Not where the marble runs: the feed is set in from the wall, so the marble
+   * arrives on the smaller circle {@link funnelFeedRadius} works out. That is a
+   * plain fraction of this and needs nothing else to know it, which is what lets
+   * the centreline place the whirl without knowing the tube the part is cut from.
    */
   mouthRadius: number
   /**
@@ -56,30 +61,32 @@ export interface FunnelBowl {
    * marble whirls against before the bowl starts closing in under it, measured
    * from its top edge down to where the cone begins.
    *
-   * It is never shorter than the box is tall: the box is let into this band, and
-   * a band too short to hold it would drop the box into the cone, where there is
-   * no straight wall for its bore to come out flush with.
+   * It is never shorter than the feed pipe is thick: the pipe is let through
+   * this band, and a band too short to hold it would drop the pipe into the
+   * cone, where the wall is already leaning away under it.
    */
   rim: number
   /**
    * How many times round the marble goes between the two. The sign picks which
    * way it whirls.
    *
-   * A funnel with a feed box always whirls, because the box is tangent to the
-   * wall and there is no other way for the marble to leave it. A bare bowl never
-   * does, because nothing is aimed across it. So this is only ever read for the
-   * first of those, and the store holds it clear of nought there.
+   * A funnel with a feed pipe always whirls, because the pipe runs in square
+   * across the bowl's radius and there is no way for the marble to leave it but
+   * round. A plain funnel
+   * never does, because nothing is aimed across it. So this is only ever read for
+   * the first of those, and the store holds it clear of nought there.
    */
   turns: number
   /** Straight drop out of the throat, mm. */
   exit: number
   /**
-   * Whether the mouth is fed by a box of its own.
+   * Whether the mouth is fed by a pipe of its own.
    *
-   * Without one the part is a bare bowl and the mouth is its inlet: something
+   * Without one the part is a plain funnel and the mouth is its inlet: something
    * else is stood over it and the marble is let go into it. The whirl needs the
-   * box — it is the bore coming out flush with the wall that sets the marble off
-   * round it rather than into the middle — so a bowl with no box is a catch.
+   * pipe — it is the bore coming out square across the bowl's radius that sets
+   * the marble off round rather than into the middle — so a funnel with no pipe
+   * is a catch.
    */
   lead: boolean
 }
@@ -104,30 +111,73 @@ export const FUNNEL_LEAST_CONE = 8
 export const FUNNEL_EXIT_SLOPE = 90
 
 /**
- * How much of the feed box's near end is kept back from the cut against the
+ * How much of the feed pipe's near end is kept back from the cut against the
  * bowl, mm — a quarter more than the deepest socket the app joints anything
  * with, so the cut never eats into the joint the marble arrives through.
  *
  * It is the floor on the cut as well as a term in the reach: the reach holds the
- * box long enough that the cut lands past it of its own accord, and the floor is
- * what a box shortened some other way falls back on. A box that pokes a
+ * pipe long enough that the cut lands past it of its own accord, and the floor
+ * is what a pipe shortened some other way falls back on. A pipe that pokes a
  * fraction into the bowl is a blemish; one with half its socket cut away is not
  * a joint at all.
  */
 export const FUNNEL_SOCKET_KEEP = 10
 
 /**
+ * How obliquely the feed crosses the bowl's wall, degrees off square.
+ *
+ * This is the one number that says how far in from the wall the feed is set, and
+ * it is stated as an angle rather than as a distance because the angle is what
+ * the shape of the opening depends on. A pipe laid right on the wall crosses it
+ * at ninety degrees off square — that is, not crossing it at all, but grazing —
+ * and the hole it makes is a long thin slot with a knife edge each side, which
+ * is a poor thing to print and a poor thing to look at. Pull the pipe in and the
+ * hole shortens and fattens into a proper opening with material all round it.
+ *
+ * Forty degrees is a hole about half again as long as it is wide, which is about
+ * as clean as it gets without pointing the feed at the middle of the bowl.
+ *
+ * Stated this way it also costs nothing to use: the offset it works out to is a
+ * plain fraction of the bowl's radius, needing nothing about the tube the part
+ * is cut from — which is what lets the centreline place the whirl on its own.
+ * See {@link funnelFeedRadius}.
+ */
+export const FUNNEL_FEED_SKEW = 40
+
+/**
+ * The circle the marble is delivered onto, mm — where the feed's bore runs.
+ *
+ * Set in from the wall by the skew above: the feed's axis stands this far off
+ * the bowl's, so the pipe crosses the wall at that angle rather than grazing it.
+ */
+export function funnelFeedRadius(f: FunnelBowl): number {
+  return Math.max(f.mouthRadius, 0) * Math.sin(FUNNEL_FEED_SKEW * RAD)
+}
+
+/**
+ * The least bowl a given tube can be fed into, mm across the inside.
+ *
+ * The feed stands {@link funnelFeedRadius} off the axis and is a whole tube
+ * wide, so a bowl narrower than that has its wall broken through from the far
+ * side — the pipe comes out of the back of it. The store holds every funnel to
+ * this the same way it holds the feed to its reach.
+ */
+export function funnelMouthLeast(innerR: number, wall: number): number {
+  return (2 * (innerR + wall)) / (1 - Math.sin(FUNNEL_FEED_SKEW * RAD))
+}
+
+/**
  * The whirl itself, solved once — a conical spiral about the upright, from the
  * mouth in to the throat.
  *
- * The marble arrives running along the wall, because that is what a bore built
- * flush into the wall can deliver and nothing else, so the spiral has to set off
- * along the wall too: its radius closes in at nought to begin with and quickens
- * as it goes, which is the whole of why the radius is squared below rather than
- * run down in a straight line. A straight-line taper would have the marble
- * cutting in off the wall from the first millimetre, and at a quarter turn it
- * would leave the box pointing a good twenty degrees at the throat — which is
- * the marble dropping through the funnel rather than going round it.
+ * The marble arrives running round rather than in, because a pipe set square
+ * across the bowl's radius can deliver it no other way, so the spiral has to set
+ * off round too: its radius closes in at nought to begin with and quickens as it
+ * goes, which is the whole of why the radius is squared below rather than run
+ * down in a straight line. A straight-line taper would have the marble cutting
+ * inward from the first millimetre, and at a quarter turn it would leave the
+ * pipe pointing a good twenty degrees at the throat — which is the marble
+ * dropping through the funnel rather than going round it.
  */
 interface Whirl {
   /** The axis, wound so that turning about it by `phi` always goes forward. */
@@ -146,16 +196,18 @@ interface Whirl {
 
 function solve(f: FunnelBowl): Whirl | null {
   const angle = Math.abs(f.turns) * TAU
-  const r0 = Math.max(f.mouthRadius, 0)
+  // The marble sets off on the feed's own circle, not on the wall — the feed is
+  // set in from it. See {@link funnelFeedRadius}.
+  const r0 = funnelFeedRadius(f)
   // No width to go round, or no going round at all: what is left is the straight
-  // slide down the wall, which a bare bowl does instead.
+  // slide down the wall, which a plain funnel does instead.
   if (angle < 1e-6 || r0 < 1e-6) return null
 
   const hand = f.turns < 0 ? -1 : 1
-  // Dead across the run, with no cant in it at all. The feed is tangent to the
-  // wall by construction — its bore is built into that wall — so the spoke out
-  // to where the marble lands is square to the way the run is travelling, and
-  // the bowl's axis stands directly off to one side of the feed.
+  // Dead across the run, with no cant in it at all. The bowl's axis stands
+  // directly off to one side of the feed, so the spoke out to where the marble
+  // lands is square to the way the run is travelling and the marble sets off
+  // along its circle rather than across it.
   const spoke = LOCAL_X.clone().multiplyScalar(-hand)
   const mouth = mouthPoint(f)
   return {
@@ -174,11 +226,11 @@ function mouthPoint(f: FunnelBowl): THREE.Vector3 {
 }
 
 /**
- * Where the bowl's axis stands, for a bare bowl — dead ahead of the inlet, so
+ * Where the bowl's axis stands, for a plain funnel — dead ahead of the inlet, so
  * the marble carries on the way it was going and slides down the far wall.
  */
 function slideCentre(f: FunnelBowl): THREE.Vector3 {
-  return mouthPoint(f).addScaledVector(LOCAL_Z, Math.max(f.mouthRadius, 0))
+  return mouthPoint(f).addScaledVector(LOCAL_Z, funnelFeedRadius(f))
 }
 
 /** How wide the whirl is, `phi` radians in — see {@link Whirl}. */
@@ -216,7 +268,7 @@ export function funnelThroat(f: FunnelBowl): THREE.Vector3 {
  * turns, because the two are not the same: the spiral does not leave the mouth
  * going round and arrive at the throat still going round — by the end it is
  * heading almost straight in at the axis, and that is the heading the spout
- * hands on. A bare bowl hands on nothing at all, which is exactly right for a
+ * hands on. A plain funnel hands on nothing at all, which is exactly right for a
  * marble that went straight in.
  *
  * Whole turns fold away of their own accord, the same way they do everywhere
@@ -241,7 +293,7 @@ const ARC_STEPS = 512
 export function funnelLength(f: FunnelBowl): number {
   const W = solve(f)
   // Straight down the wall: one chord, as long as the wall is steep.
-  if (!W) return f.entry + Math.hypot(Math.max(f.mouthRadius, 0), f.depth) + f.exit
+  if (!W) return f.entry + Math.hypot(funnelFeedRadius(f), f.depth) + f.exit
   // The squared taper puts the arc past anything with a closed form, so it is
   // integrated instead — Simpson over a smooth, well behaved integrand, which
   // lands well inside the millimetre this is ever read to.
@@ -264,34 +316,28 @@ export function funnelFall(f: FunnelBowl): number {
  * rather than carried in {@link FunnelBowl} — the same funnel cut from fatter
  * tube is a slightly different bowl.
  *
- * Heights run downward from the run's own level, which is where the feed box
+ * Heights run downward from the run's own level, which is where the feed pipe
  * sits and where the marble is let go.
  */
 export interface FunnelShell {
   /** Where the axis stands, level with the run that feeds it. */
   centre: THREE.Vector3
-  /**
-   * Inner radius of the mouth — the collar the marble whirls against.
-   *
-   * One bore outside the circle the marble runs on, because the marble runs
-   * against this wall rather than along it: {@link FunnelBowl.mouthRadius} is
-   * where its centre goes, and this is where its skin does.
-   */
+  /** Inner radius of the mouth — the collar the marble whirls against. */
   mouthR: number
   /** Inner radius of the throat — the bore the spout carries on with. */
   throatR: number
   /**
    * How far the collar's top edge stands above the run's own level, mm.
    *
-   * This is also the feed box's half-side, and the two are equal for a reason
-   * rather than by luck: the box is square, its bore is centred on the run, and
-   * its top face is flush with the rim. So half a box is a bore and a wall, and
-   * that is exactly how far the rim stands over the run.
+   * This is also the feed pipe's outer radius, and the two are equal for a
+   * reason rather than by luck: the pipe's bore is centred on the run and its
+   * crown is set to graze the rim. So the rim stands a bore and a wall over the
+   * run, which is exactly how thick half a pipe is.
    */
   crown: number
   /**
    * How far below the crown the collar's crown band reaches, mm — the band the
-   * feed box is let into, and so exactly as deep as the box is tall.
+   * feed pipe is let through, and so exactly as deep as the pipe is thick.
    */
   sill: number
   /** Height of the straight collar in all, crown down to the cone, mm. */
@@ -307,12 +353,12 @@ export interface FunnelShell {
    * the same thing, so that is walled at the plain {@link FunnelShell.wall} and
    * the outside runs out from one to the other over the straight of the collar.
    *
-   * Which is what lets the feed box be square: the box is walled to match the
-   * collar it lies against, and a collar carrying the cone's offset instead
-   * would put a two-centimetre wall round a bore on a steep bowl.
+   * Which is what keeps the wall the feed goes through an honest thickness: a
+   * collar carrying the cone's offset instead would be two centimetres thick on
+   * a steep bowl, and the feed would be tunnelling rather than passing through.
    */
   offset: number
-  /** The plain wall the collar and the feed box are both built to, mm. */
+  /** The plain wall the collar and the feed pipe are both built to, mm. */
   wall: number
 }
 
@@ -320,8 +366,7 @@ export function funnelShell(f: FunnelBowl, innerR: number, wall: number): Funnel
   const W = solve(f)
   const centre = W ? W.centre.clone() : slideCentre(f)
   const depth = Math.max(0, f.depth)
-  // The bowl's own wall stands one bore outside the circle the marble runs on.
-  const mouthR = Math.max(f.mouthRadius, 0) + innerR
+  const mouthR = Math.max(f.mouthRadius, 0)
 
   // Half a box: a bore and a wall. See {@link FunnelShell.crown}.
   const crown = innerR + wall
@@ -339,37 +384,33 @@ export function funnelShell(f: FunnelBowl, innerR: number, wall: number): Funnel
 }
 
 /**
- * The least feed box a funnel can be built with, mm — how far it has to run for
- * its outer end to be clear of the bowl.
+ * The least feed pipe a funnel can be built with, mm — how far it has to run
+ * for its outer end to be clear of the bowl.
  *
  * A shorter one has its socket buried in the collar, where the marble would
- * arrive at a joint half swallowed by the bowl it is feeding. So the box is held
- * to this, and its end face stands proud.
+ * arrive at a joint half swallowed by the bowl it is feeding. So the pipe is
+ * held to this, and its end face stands proud.
  *
- * Solved rather than searched, because the tangent geometry makes it one line.
- * The box runs down the outside of the collar with its bore's far side on the
- * inside of the wall, which puts its outboard face on the collar's outer surface
- * and its inboard face the same distance the other side of the bore. Call the
- * marble's circle `r` and half the box `h`: the bowl's axis stands `r` off the
- * bore, the collar's outer surface is `r + h` from that axis, and the near
- * corner of the end face is `r - h` across from it. Pythagoras on those three
- * leaves `2√(rh)`, and everything else cancels.
+ * Solved rather than searched. The pipe runs in parallel to nothing and square
+ * to nothing, but its near flank — the one that meets the bowl first — stands a
+ * fixed distance across from the bowl's axis, and a right angle on that distance
+ * and the bowl's radius gives how far along the pipe the two meet.
  *
- * Held clear of the socket besides, because a box cut back into its own socket
+ * Held clear of the socket besides, because a pipe cut back into its own socket
  * is worse than one that stands a little proud — see the cut in
- * `feedBoxGeometry`.
+ * `feedTubeGeometry`.
  */
 export function funnelReach(f: FunnelBowl, innerR: number, wall: number): number {
   if (!f.lead) return 0
   const shell = funnelShell(f, innerR, wall)
-  const r = Math.max(f.mouthRadius, 0)
-  const h = shell.crown
+  // How far the pipe's near flank — the one that meets the bowl first — stands
+  // across from the bowl's axis. Everything below is Pythagoras on that.
+  const across = Math.abs(funnelFeedRadius(f) - shell.crown)
   // Far enough for the end face to be clear of the collar altogether...
-  const clear = 2 * Math.sqrt(Math.max(0, r * h))
+  const clear = Math.sqrt(Math.max(0, (shell.mouthR + shell.wall) ** 2 - across ** 2))
   // ...and far enough that the cut against the bowl's wall — which bites first
-  // on the inboard face, the one nearest the bowl's axis — lands past the
-  // socket rather than in it.
-  const socket = FUNNEL_SOCKET_KEEP + Math.sqrt(Math.max(0, shell.mouthR ** 2 - (r - h) ** 2))
+  // on that same flank — lands past the socket rather than in it.
+  const socket = FUNNEL_SOCKET_KEEP + Math.sqrt(Math.max(0, shell.mouthR ** 2 - across ** 2))
   return Math.max(clear, socket)
 }
 
@@ -384,10 +425,10 @@ export function funnelReach(f: FunnelBowl, innerR: number, wall: number): number
  * which is the frame the part hanging under it will be stood in.
  */
 export function funnelPath(f: FunnelBowl, step: number, least: number) {
-  // With no feed box the mouth is the inlet, so the part starts there and there
+  // With no feed pipe the mouth is the inlet, so the part starts there and there
   // is no stub to draw — one point, not two on top of one another.
   const points = f.entry > 0 ? [new THREE.Vector3(), mouthPoint(f)] : [mouthPoint(f)]
-  // The box is a length of level track like any other, so its up is the frame's:
+  // The pipe is a length of level track like any other, so its up is the frame's:
   // that is the way its bore faces, and the way the part before it left off.
   const ups = f.entry > 0 ? [LOCAL_Y.clone()] : []
   const W = solve(f)

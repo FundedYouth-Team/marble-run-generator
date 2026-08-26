@@ -73,10 +73,11 @@ export const PROJECT_FORMAT = 'marble-run-generator'
  * turn every funnel into a straight tube — and worse than the others, because a
  * funnel is the part that hands the run on dead vertical, so everything bonded
  * under one would come back pointing somewhere else entirely.
- * The funnel's feed becoming a box let into the bowl's wall rides along inside
- * v9 without a bump too, and in the other direction: nothing was added to the
- * file, a field was dropped from it. A funnel saved with a feed tilt reads back
- * level, because a box built flush into a wall cannot be tipped off it, and the
+ * The funnel's feed becoming a pipe let through the bowl's wall rides along
+ * inside v9 without a bump too, and in the other direction: nothing was added to
+ * the file, a field was dropped from it. A funnel saved with a feed tilt reads
+ * back level, because a pipe let through a wall runs its bore out through the
+ * rim the moment it is tipped, and the
  * run comes back with its mouth a little higher than it was left. Everything
  * else about such a file — how wide the bowl is, how deep, how far round —
  * still says exactly what it always said.
@@ -330,13 +331,13 @@ function readPiece(raw: unknown, joined: boolean): Piece {
             FUNNEL_TURN_LIMITS.max,
             FUNNEL_DEFAULTS.turns,
           ),
-          // Only a funnel built without a feed box carries the flag; anything
-          // missing or unreadable reads as the box every funnel has.
+          // Only a funnel built without a feed tube carries the flag; anything
+          // missing or unreadable reads as the tube every funnel has.
           ...(o.leadIn === false ? { leadIn: false } : {}),
           // A drain with no style of its own follows the part, the same way the
           // part follows the run — so an unreadable one drops back to that
           // rather than pinning the stub to something nobody asked for. A feed
-          // box has no style to read: it is enclosed, so anything an older file
+          // tube has no style to read: it is enclosed, so anything an older file
           // holds for it is dropped on the way in.
           ...(isVariant(o.leadOutVariant) ? { leadOutVariant: o.leadOutVariant } : {}),
         }

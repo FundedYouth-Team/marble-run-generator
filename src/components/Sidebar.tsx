@@ -3,7 +3,7 @@ import ColorField from './ColorField'
 import CollapsiblePanel from './CollapsiblePanel'
 import HoverHint from './HoverHint'
 import { pieceAxisLength } from '../lib/centerline'
-import { FUNNEL_LEAST_CONE } from '../lib/funnel'
+import { FUNNEL_LEAST_CONE, funnelFeedRadius } from '../lib/funnel'
 import {
   useRun,
   VARIANT_LABEL,
@@ -119,11 +119,11 @@ export default function Sidebar() {
   const funnelFall = selected && funnel ? funnelDropOf(selected) : 0
   /** The bowl as it is actually cut, off this part's own tube. */
   const bowl = selected && funnel ? funnelBowlOf(selected, spec.innerR, spec.wall) : null
-  /** How far the feed box has to run to stand clear of the bowl. */
+  /** How far the feed tube has to run to stand clear of the bowl. */
   const funnelLeast = selected && funnel ? funnelReach(selected, spec.innerR, spec.wall) : 0
   /** Whether the marble is whirled round the bowl rather than dropped straight in. */
   const whirls = !!selected && !!funnel && funnelWhirls(selected)
-  /** Whether the funnel is fed by a box of its own, or is a bare bowl. */
+  /** Whether the funnel is fed by a tube of its own, or is a plain funnel. */
   const hasLead = !!selected && !!funnel && funnelHasLead(selected)
   /** What the drain is actually cut in — its own style, or the part's. */
   const leadOutStyle = selected && funnel ? funnelDrainVariant(selected, s.variant) : style
@@ -832,39 +832,39 @@ export default function Sidebar() {
                   </>
                 ) : funnel && bowl ? (
                   <>
-                    {/* The feed box is what makes a funnel a whirl rather than a
-                        catch, so it is the first thing settled here — and it is
-                        the whole of that choice, since a box can only deliver
-                        the marble round the wall and a bare bowl can only drop
-                        it. */}
+                    {/* The feed tube is what makes a funnel a whirl rather than
+                        a catch, so it is the first thing settled here — and it
+                        is the whole of that choice, since a tube set square
+                        across the bowl can only deliver the marble round it, and
+                        a plain funnel can only drop it. */}
                     <span className="field-label">
                       Feed
                       <em>
                         {hasLead
-                          ? 'a box let into the side of the bowl, flush with the wall — the marble comes out running round it'
-                          : 'a bare bowl — stand something over the mouth and let the marble go into it'}
+                          ? 'a pipe let in through the side of the bowl, square across its radius — the marble comes out going round'
+                          : 'a plain funnel — stand something over the mouth and let the marble go into it'}
                       </em>
                     </span>
                     <div className="segmented small">
                       <button
                         className={hasLead ? 'on' : ''}
                         onClick={() => s.updatePiece(selected.id, { leadIn: true })}
-                        title="Feed the mouth through a box of the funnel's own, built flush into the bowl's side wall"
+                        title="Feed the mouth through a pipe of the funnel's own, let in through the bowl's side wall"
                       >
-                        Box
+                        Tube
                       </button>
                       <button
                         className={hasLead ? '' : 'on'}
                         onClick={() => s.updatePiece(selected.id, { leadIn: false })}
-                        title="Leave the feed off — a bare bowl, with the mouth for an inlet"
+                        title="Leave the feed off — a plain funnel, with the mouth for an inlet"
                       >
                         None
                       </button>
                     </div>
                     {hasLead && (
                       /* The one length here that is not a free choice at the
-                         bottom end: the box has to run far enough for its socket
-                         to be clear of the bowl it feeds. */
+                         bottom end: the tube has to run far enough for its
+                         socket to be clear of the bowl it feeds. */
                       <NumberField
                         label="Feed length"
                         hint={`in to the mouth — at least ${formatLength(funnelLeast, s.units)} to stand clear of the bowl`}
@@ -876,7 +876,7 @@ export default function Sidebar() {
                     )}
                     <NumberField
                       label="Mouth width"
-                      hint={`the circle the marble runs on — the wall itself stands a bore outside it, Ø${lengthText(bowl.mouthR * 2, s.units)}`}
+                      hint={`the bowl's opening, inside the wall — the marble runs a smaller circle than this, Ø${lengthText(funnelFeedRadius(funnel) * 2, s.units)}`}
                       value={funnel.mouthRadius * 2}
                       onChange={(v) => s.updatePiece(selected.id, { topDiameter: v })}
                       {...PIECE_LIMITS.topDiameter}
@@ -890,7 +890,7 @@ export default function Sidebar() {
                     />
                     <NumberField
                       label="Rim wall"
-                      hint={`the band the marble whirls against — at least ${formatLength(bowl.sill, s.units)}, to hold the feed box's opening`}
+                      hint={`the band the marble whirls against — at least ${formatLength(bowl.sill, s.units)}, to hold the feed tube's opening`}
                       value={bowl.rim}
                       onChange={(v) => s.updatePiece(selected.id, { rim: v })}
                       {...PIECE_LIMITS.rim}
@@ -1005,22 +1005,24 @@ export default function Sidebar() {
                     <p className="note">
                       {hasLead ? (
                         <>
-                          <b>The marble is whirled.</b> The feed is a square box let into the side
-                          of the bowl: its outboard face is flush with the outside of the wall and
-                          its bore is Ø{lengthText(spec.innerR * 2, s.units)} round, which lands the
-                          far side of that bore exactly on the inside of the wall. So the marble
-                          comes out already running along the collar rather than pointed at the
-                          middle, goes {degLabel(Math.abs(funnel.turns))} times round to the{' '}
-                          {funnel.turns < 0 ? 'left' : 'right'} against it, and closes in on the
-                          throat as it drops — held out against the wall by its own speed the whole
-                          way, which is what a funnel is really for. There is no aiming it anywhere
-                          else: a bore built into a wall can only deliver along it.
+                          <b>The marble is whirled.</b> The feed is a plain Ø
+                          {lengthText(spec.innerR * 2, s.units)} pipe let in through the side of the
+                          bowl, square across its radius and set in from the wall so it goes through
+                          cleanly rather than grazing down a long slot. So the marble comes out
+                          going round rather than at the middle, on a Ø
+                          {lengthText(funnelFeedRadius(funnel) * 2, s.units)} circle, and takes{' '}
+                          {degLabel(Math.abs(funnel.turns))} turns to the{' '}
+                          {funnel.turns < 0 ? 'left' : 'right'} closing in on the throat as it
+                          drops. There is no aiming it anywhere else: a bore square across the
+                          radius can deliver it no other way. Inside, nothing of the pipe stands
+                          past the wall — the mouth is smooth all the way round but for the hole.
                         </>
                       ) : (
                         <>
-                          <b>This is a bare bowl.</b> With no feed box there is nothing aimed across
-                          the mouth to set the marble whirling, so it goes in and down — the mouth
-                          itself is the inlet. The count is kept for when the box comes back.
+                          <b>This is a plain funnel.</b> With no feed tube there is nothing aimed
+                          across the mouth to set the marble whirling, so it goes in and down — the
+                          mouth itself is the inlet. The count is kept for when the tube comes
+                          back.
                         </>
                       )}{' '}
                       Either way it leaves down the lead-out, dead vertical: that is the only way
@@ -1028,24 +1030,24 @@ export default function Sidebar() {
                     </p>
                     <p className="note">
                       <b>The bowl is level, and so is the feed.</b> A bowl only holds what is level,
-                      and a box built flush into the bowl's own side wall cannot be tipped off it —
-                      lift one edge and there is a wedge of daylight down the join. So the one fall
-                      this part runs at is none, stated the way a corkscrew states its own, and the
-                      run in front has to be brought to it.{' '}
+                      and a pipe let in through the bowl's own side wall runs its bore out through
+                      the rim the moment it is tipped. So the one fall this part runs at is none,
+                      stated the way a corkscrew states its own, and the run in front has to be
+                      brought to it.{' '}
                       {!hasLead
-                        ? 'Nothing mates at the inlet on a bare bowl — stand it under whatever is feeding it, or put the box back.'
+                        ? 'Nothing mates at the inlet on a plain funnel — stand it under whatever is feeding it, or put the tube back.'
                         : funnel.entry <= funnelLeast
-                          ? `The feed is at its shortest here: ${formatLength(funnelLeast, s.units)} is what it takes for the box's end to stand clear of a Ø${lengthText(bowl.mouthR * 2, s.units)} bowl, and a shorter one would have its socket half swallowed by it.`
+                          ? `The feed is at its shortest here: ${formatLength(funnelLeast, s.units)} is what it takes for the pipe's end to stand clear of a Ø${lengthText(bowl.mouthR * 2, s.units)} bowl, and a shorter one would have its socket half swallowed by it.`
                           : `Anything past ${formatLength(funnelLeast, s.units)} of feed is track into the mouth, and yours.`}
                     </p>
-                    {whirls && funnel.mouthRadius < s.marbleDiameter && (
+                    {whirls && funnelFeedRadius(funnel) < s.marbleDiameter && (
                       <p className="warn">
-                        The marble runs Ø{formatLength(funnel.mouthRadius * 2, s.units)} round a
-                        mouth barely wider than the marble itself — there is nothing here to whirl
-                        round. Widen the mouth, or take the feed box off and drop the marble in.
+                        The marble runs Ø{formatLength(funnelFeedRadius(funnel) * 2, s.units)} round
+                        a mouth barely wider than the marble itself — there is nothing here to whirl
+                        round. Widen the mouth, or take the feed tube off and drop the marble in.
                       </p>
                     )}
-                    {whirls && funnel.depth / Math.abs(funnel.turns) > funnel.mouthRadius && (
+                    {whirls && funnel.depth / Math.abs(funnel.turns) > funnelFeedRadius(funnel) && (
                       <p className="warn">
                         {formatCoarse(funnel.depth, s.units)} of bowl in{' '}
                         {degLabel(Math.abs(funnel.turns))} times round is more drop than whirl — the
@@ -1056,7 +1058,7 @@ export default function Sidebar() {
                     <p className="note">
                       The bowl itself is a bowl whatever the run is cut as — closed all the way
                       round, because an open one would let the marble out sideways at the first
-                      turn. The feed box is closed for the same reason and has no style to choose:
+                      turn. The feed tube is closed for the same reason and has no style to choose:
                       it is a hole through that wall, and a hole has no open side. Only the drain
                       carries one.
                     </p>
@@ -1133,7 +1135,7 @@ export default function Sidebar() {
                     : coil
                       ? 'worked out — the coil has one fall it can run at'
                       : funnel
-                        ? 'a funnel is fed dead level — its feed box is flush with the bowl wall and cannot be tipped off it'
+                        ? 'a funnel is fed dead level — tip the feed and its bore runs out through the rim'
                         : 'the fall it runs at — negative climbs'
               }
               unit="°"

@@ -64,11 +64,11 @@ function summarise(p: Piece, style: TubeVariant, units: Unit): string {
     const f = funnelSpec(p)
     const feed = f.lead
       ? `${degLabel(Math.abs(f.turns))} round ${f.turns < 0 ? 'left' : 'right'}`
-      : 'bare bowl'
-    // The feed box is enclosed whatever the part is cut in, so only the drain is
-    // ever worth naming on its own.
+      : 'plain funnel'
+    // The feed tube is enclosed whatever the part is cut in, so only the drain
+    // is ever worth naming on its own.
     const stubs = p.leadOutVariant
-      ? `box in / ${VARIANT_LABEL[funnelDrainVariant(p, style)]} out`
+      ? `closed in / ${VARIANT_LABEL[funnelDrainVariant(p, style)]} out`
       : tube
     return `Ø${n(f.mouthRadius * 2)} mouth · ${feed} · ${formatLength(
       f.depth,

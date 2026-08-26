@@ -1218,6 +1218,9 @@ input[type='range'] {
   gap: 10px;
 }
 
+/* A box holding the part's own button and its Details link, rather than being
+   the button itself — one cannot nest inside the other. The frame the button
+   used to bring with it is spelled out here instead. */
 .lib-card {
   display: flex;
   flex-direction: column;
@@ -1226,7 +1229,34 @@ input[type='range'] {
   padding: 12px;
   text-align: left;
   background: var(--card-bg);
+  border: 1px solid var(--line);
   border-radius: 9px;
+  /* Each card its own height, rather than stretched to the tallest in its row:
+     one card opened up would otherwise drag every card beside it down with it. */
+  align-self: start;
+}
+
+/* Everything but the Details link: the whole of it is the hit target, so the
+   card still adds the part wherever it is clicked. */
+.lib-card-pick {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  width: 100%;
+  padding: 0;
+  text-align: left;
+  background: none;
+  border: none;
+  border-radius: 6px;
+}
+
+.lib-card-pick:hover:not(:disabled) {
+  background: none;
+}
+
+.lib-card:has(.lib-card-pick:hover:not(:disabled)) {
+  border-color: var(--btn-border-hover);
 }
 
 .lib-card-art {
@@ -1291,6 +1321,23 @@ input[type='range'] {
   color: var(--ink-dim);
 }
 
+/* Straight under the blurb it belongs to. Pushing it to the foot of the card
+   instead would line the links up across a row, at the price of a hand's width
+   of empty card above each one. */
+.lib-card-more {
+  align-self: flex-start;
+}
+
+.lib-card-detail {
+  align-self: stretch;
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--ink-dim);
+  padding-top: 6px;
+  border-top: 1px solid var(--line);
+}
+
 .lib-foot {
   padding: 10px 14px;
   border-top: 1px solid var(--line);
@@ -1299,12 +1346,6 @@ input[type='range'] {
 
 .lib-foot .note {
   margin: 0;
-}
-
-.lib-card .pp-body {
-  fill: var(--input-bg);
-  stroke: var(--ink-faint);
-  stroke-width: 1.4;
 }
 
 .lib-card .pp-line {
@@ -1321,12 +1362,11 @@ input[type='range'] {
   stroke: none;
 }
 
-.lib-card:hover:not(:disabled) .pp-body,
-.lib-card:hover:not(:disabled) .pp-line {
+.lib-card-pick:hover:not(:disabled) .pp-line {
   stroke: var(--accent);
 }
 
-.lib-card:hover:not(:disabled) .pp-arrow {
+.lib-card-pick:hover:not(:disabled) .pp-arrow {
   fill: var(--accent);
 }
 

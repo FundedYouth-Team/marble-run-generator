@@ -1,11 +1,22 @@
 import { useEffect, useMemo, useState, type ReactElement } from 'react'
 import { useRun } from '../store'
 
-/** A plain length of pipe, drawn side-on as a simple outlined bar. */
+/**
+ * A plain length of pipe seen side-on, with a dimension bar under it for the
+ * one measurement the part is really about.
+ *
+ * Drawn in the same weight as every other preview rather than as an outlined
+ * bar of its own: a card that draws its part differently from the rest reads as
+ * a different kind of thing, and this is the plainest part there is.
+ */
 function StraightLinePreview() {
   return (
     <svg width="78" height="50" viewBox="0 0 46 30" aria-hidden="true">
-      <rect className="pp-body" x="2" y="12" width="42" height="7" />
+      <path className="pp-line" d="M4 9h38" />
+      <path
+        className="pp-arrow"
+        d="M4 19.4h38v1.2H4z M3.4 16.5h1.2v7H3.4z M41.4 16.5h1.2v7h-1.2z"
+      />
     </svg>
   )
 }
@@ -77,8 +88,9 @@ function CorkscrewPreview() {
 
 /**
  * The bowl seen from a little above: the collar round the mouth, the cone
- * closing in under it, and the spout out of the throat — with the feed tube
- * coming in over the rim, which is the whole of how the part is fed.
+ * closing in under it, the spout out of the throat, and the feed coming in at
+ * the side. Drawn fed, because that is what one lands as; the feed comes off in
+ * the sidebar rather than from a tile of its own.
  */
 function FunnelPreview() {
   return (
@@ -91,8 +103,8 @@ function FunnelPreview() {
         <path d="M10.6 15.4 21 24v4M35.4 15.4 25 24v4" />
         <path d="M21 28h4" />
       </g>
-      {/* The feed box, let into the side of the bowl and running in dead level,
-          which is the only way a funnel is ever fed. */}
+      {/* The feed pipe, let in through the side of the collar and running dead
+          level, which is the only way a funnel is ever fed. */}
       <path className="pp-arrow" d="M2 7.6h9v2.8H2z" />
     </svg>
   )
@@ -110,7 +122,18 @@ interface Part {
    * still matches what a piece is called once it is on the stage.
    */
   axis?: string
+  /** One line: what the part is. Every card shows this and nothing more. */
   blurb: string
+  /**
+   * The rest of it, for the parts that have a rest — behind a Details link
+   * rather than on the card, so a grid of cards stays a grid of cards and the
+   * eye can run down the names.
+   *
+   * Left off where the blurb already says the whole of it, and the card then
+   * shows no link at all. A part with nothing more to say should not look as
+   * though it is hiding something.
+   */
+  detail?: string
   preview: () => ReactElement
   /** Undefined while the generator for this part is still to be written. */
   add?: () => void
@@ -121,7 +144,7 @@ const PARTS: Part[] = [
     id: 'tube',
     name: 'Straight Line',
     category: 'track',
-    blurb: 'Straight run of pipe. Length, slope and turn are set per piece once it is on the stage.',
+    blurb: 'Straight run of pipe — length, slope and turn set per piece.',
     preview: StraightLinePreview,
     add: () => useRun.getState().addPiece(),
   },
@@ -130,8 +153,9 @@ const PARTS: Part[] = [
     name: 'Angle Connector',
     category: 'track',
     axis: 'Up / Down',
-    blurb:
-      'Short two-leg connector that breaks the run up or down to a new slope. The inlet stays rigid; the leg past the break tips above or below it. Rounded at the corner by default, so the marble rolls through the change.',
+    blurb: 'Breaks the run up or down to a new slope.',
+    detail:
+      'Two short legs meeting at the break. The inlet stays rigid; the leg past it tips above or below. Rounded at the corner by default, so the marble rolls through the change rather than hitting it.',
     preview: AngleConnectorPreview,
     add: () => useRun.getState().addPiece('angle'),
   },
@@ -140,8 +164,9 @@ const PARTS: Part[] = [
     name: 'Corner Connector',
     category: 'track',
     axis: 'Left / Right',
-    blurb:
-      'Short two-leg connector that breaks the run left or right to a new heading. The inlet stays rigid; the leg past the break swings to one side of it. Rounded at the corner by default, so the marble carries its speed round the turn.',
+    blurb: 'Breaks the run left or right to a new heading.',
+    detail:
+      'Two short legs meeting at the break. The inlet stays rigid; the leg past it swings to one side. Rounded at the corner by default, so the marble carries its speed round the turn.',
     preview: CornerConnectorPreview,
     add: () => useRun.getState().addPiece('corner'),
   },
@@ -150,8 +175,9 @@ const PARTS: Part[] = [
     name: 'Hook',
     category: 'track',
     axis: 'Turn Back',
-    blurb:
-      'Half-turn switchback that sends the run back the way it came. Flat, it comes back alongside itself one turn width over, falling the whole way round so it leaves on the slope it entered at; stood on edge, the same turn drops the run and brings it back underneath itself. Set how wide it swings, how far round it goes, and which plane it turns on.',
+    blurb: 'Half-turn switchback that sends the run back the way it came.',
+    detail:
+      'Flat, it comes back alongside itself one turn width over, falling the whole way round so it leaves on the slope it entered at. Stood on edge, the same turn drops the run and brings it back underneath itself. Set how wide it swings, how far round it goes, and which plane it turns on.',
     preview: HookPreview,
     add: () => useRun.getState().addPiece('hook'),
   },
@@ -160,8 +186,9 @@ const PARTS: Part[] = [
     name: 'Corkscrew',
     category: 'feature',
     axis: 'Down',
-    blurb:
-      'Coil about a dead vertical axis that loses height in a small footprint. Set how far it drops and how wide it is at the top and at the bottom, and it counts the rings off the room the height leaves them; hold the count by hand instead and the same height over fewer rings is a steeper coil. Either way the fall it runs at follows from those, the same way a real printed helix has only one angle it can sit at.',
+    blurb: 'Coil about a dead vertical axis that loses height in a small footprint.',
+    detail:
+      'Set how far it drops and how wide it is at the top and at the bottom, and it counts the rings off the room the height leaves them; hold the count by hand instead and the same height over fewer rings is a steeper coil. Either way the fall it runs at follows from those, the same way a real printed helix has only one angle it can sit at.',
     preview: CorkscrewPreview,
     add: () => useRun.getState().addPiece('corkscrew'),
   },
@@ -170,8 +197,9 @@ const PARTS: Part[] = [
     name: 'Funnel',
     category: 'feature',
     axis: 'Down',
-    blurb:
-      'Open bowl fed through the side and drained down the throat. The feed is a square box let into the bowl’s wall — flush outside, round inside — with its bore coming out level with the inside of that wall, so the marble arrives already running round the collar and its own speed holds it there while the cone winds it down to the middle. Set how wide the mouth is, how deep the bowl goes, how high the collar stands and how many times round it whirls; or take the box off altogether for a bare bowl, and drop the marble in from above. A funnel is fed dead level and leaves dead vertical, and neither is the run’s to set — so the run has to be brought to it, and whatever hangs under the funnel starts by falling straight down.',
+    blurb: 'Open bowl fed through the side and drained down the throat.',
+    detail:
+      'The feed is a plain round pipe let in through the bowl’s wall, square across its radius and set in a little from the wall so it goes through cleanly rather than grazing down a long slot. The marble comes out going round rather than at the middle, and its own speed carries it out onto the collar while the cone winds it down to the throat. Nothing of the pipe stands past the wall: inside, the mouth is smooth all the way round but for the hole. Set how wide the mouth is, how deep the bowl goes, how high the collar stands and how many times round it whirls — or take the feed off in the sidebar for a plain funnel, and let the marble go into the mouth from above. A funnel is fed dead level and leaves dead vertical, and neither is the run’s to set: the run has to be brought to it, and whatever hangs under the funnel starts by falling straight down.',
     preview: FunnelPreview,
     add: () => useRun.getState().addPiece('funnel'),
   },
@@ -190,6 +218,12 @@ export default function PartLibrary() {
   const [open, setOpen] = useState(false)
   const [category, setCategory] = useState<Category | 'all'>('all')
   const [query, setQuery] = useState('')
+  /**
+   * Which card has its details showing — one at a time, because a card grows
+   * when it opens and two of them growing at once pushes the rest about the
+   * grid for no gain.
+   */
+  const [detailId, setDetailId] = useState<string | null>(null)
   const { pieces, setTool } = useRun()
 
   useEffect(() => {
@@ -206,8 +240,13 @@ export default function PartLibrary() {
     if (!open) {
       setQuery('')
       setCategory('all')
+      setDetailId(null)
     }
   }, [open])
+
+  // A card that has been filtered away cannot be closed again, so it is closed
+  // for the user rather than left open behind the search.
+  useEffect(() => setDetailId(null), [category, query])
 
   const shown = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -217,6 +256,9 @@ export default function PartLibrary() {
         (!q ||
           p.name.toLowerCase().includes(q) ||
           p.blurb.toLowerCase().includes(q) ||
+          // Searched even though it is folded away: a part is still the part
+          // that mentions the word, whether or not the card is showing it.
+          !!p.detail?.toLowerCase().includes(q) ||
           !!p.axis?.toLowerCase().includes(q)),
     )
   }, [category, query])
@@ -274,24 +316,43 @@ export default function PartLibrary() {
                 <div className="lib-grid">
                   {shown.map((p) => {
                     const Preview = p.preview
+                    const showing = detailId === p.id
                     return (
-                      <button
-                        key={p.id}
-                        className="lib-card"
-                        disabled={!p.add}
-                        onClick={() => pick(p)}
-                        title={p.add ? `Add a ${p.name.toLowerCase()} to the stage` : 'Not available yet'}
-                      >
-                        <div className="lib-card-art">
-                          <Preview />
-                        </div>
-                        <span className="lib-card-name">
-                          <b>{p.name}</b>
-                          {p.axis && <i className="lib-card-axis">{p.axis}</i>}
-                          {!p.add && <em>soon</em>}
-                        </span>
-                        <span className="lib-card-blurb">{p.blurb}</span>
-                      </button>
+                      /* The card is a box holding two controls rather than one
+                         big button: a button cannot have another button inside
+                         it, and Details has to be its own. */
+                      <div key={p.id} className="lib-card">
+                        <button
+                          className="lib-card-pick"
+                          disabled={!p.add}
+                          onClick={() => pick(p)}
+                          title={
+                            p.add ? `Add a ${p.name.toLowerCase()} to the stage` : 'Not available yet'
+                          }
+                        >
+                          <span className="lib-card-art">
+                            <Preview />
+                          </span>
+                          <span className="lib-card-name">
+                            <b>{p.name}</b>
+                            {p.axis && <i className="lib-card-axis">{p.axis}</i>}
+                            {!p.add && <em>soon</em>}
+                          </span>
+                          <span className="lib-card-blurb">{p.blurb}</span>
+                        </button>
+                        {p.detail && (
+                          <>
+                            <button
+                              className="link-btn lib-card-more"
+                              aria-expanded={showing}
+                              onClick={() => setDetailId(showing ? null : p.id)}
+                            >
+                              {showing ? 'Less' : 'Details'}
+                            </button>
+                            {showing && <p className="lib-card-detail">{p.detail}</p>}
+                          </>
+                        )}
+                      </div>
                     )
                   })}
                 </div>

@@ -31,6 +31,7 @@ import {
 import {
   FUNNEL_EXIT_SLOPE,
   funnelExitTurn,
+  funnelMouthLeast,
   funnelFall,
   funnelLength as funnelRunLength,
   funnelReach as funnelStubReach,
@@ -331,8 +332,9 @@ export interface Piece {
   /**
    * Corkscrew: how wide the coil is where the run comes into it, mm.
    *
-   * Funnel: how wide the mouth is, measured the same way — across the path the
-   * marble runs on rather than across the wall outside it.
+   * Funnel: how wide the bowl's mouth is, measured inside the wall — what
+   * anyone measuring a funnel would measure. The marble runs on a smaller
+   * circle than this, because the feed is set in from the wall.
    */
   topDiameter?: number
   /** Corkscrew: how wide it is where the run leaves it, mm. */
@@ -343,14 +345,14 @@ export interface Piece {
    */
   rim?: number
   /**
-   * Funnel: whether the mouth is fed by a feed box of its own. Unset is one,
+   * Funnel: whether the mouth is fed by a feed tube of its own. Unset is one,
    * which is what a funnel out of the library has.
    *
-   * Without it the part is a bare bowl and the mouth is the inlet — something
+   * Without it the part is a plain funnel and the mouth is the inlet — something
    * else stands over it and the marble is let go into it. It also settles what
-   * the bowl does with the marble: the box's bore comes out flush with the wall
-   * and tangent to it, so a marble fed through one goes round the bowl, and a
-   * marble let into a bare bowl goes down it.
+   * the bowl does with the marble: the tube's bore comes out square across the
+   * bowl's radius, so a marble fed through one goes round the bowl, and a marble
+   * let into a plain funnel goes down it.
    */
   leadIn?: boolean
   /**
@@ -358,9 +360,9 @@ export interface Piece {
    * style, which in turn follows the run's — the same fallback
    * {@link Piece.variant} works on, one step further in.
    *
-   * Only the drain has the choice. The feed is a box let into the bowl's wall
-   * rather than a length of tube, and a hole through a wall has no open side to
-   * give it, so it is enclosed whatever the rest of the part is cut in.
+   * Only the drain has the choice. The feed is a pipe let through the bowl's
+   * wall, and a hole through a wall has no open side to give it, so it is
+   * enclosed whatever the rest of the part is cut in.
    */
   leadOutVariant?: TubeVariant
   /**
@@ -457,10 +459,10 @@ export const PIECE_LIMITS = {
 /**
  * How many times round a funnel whirls the marble.
  *
- * The step is the floor as well as the increment: a funnel with a feed box
- * whirls at least this far, because the box is built tangent to the wall and a
+ * The step is the floor as well as the increment: a funnel with a feed tube
+ * whirls at least this far, because the tube runs in square across the bowl and a
  * marble leaving it has nowhere to go but round. Dropping one straight in is
- * done by taking the box off, not by winding the count down to nought.
+ * done by taking the tube off, not by winding the count down to nought.
  */
 export const FUNNEL_TURN_LIMITS = { min: -6, max: 6, step: 0.25 } as const
 
@@ -693,7 +695,7 @@ export function corkscrewRingPitch(piece: Piece): number {
  */
 export const FUNNEL_DEFAULTS = {
   length: 60,
-  mouthDiameter: 120,
+  mouthDiameter: 140,
   height: 90,
   rim: 18,
   turns: 2,
@@ -703,7 +705,7 @@ export const FUNNEL_DEFAULTS = {
 /** How many times round a funnel whirls out of the library. */
 export const FUNNEL_TURNS_SPIRAL = FUNNEL_DEFAULTS.turns
 
-/** Whether a funnel is fed by a feed box of its own. Unset is one. */
+/** Whether a funnel is fed by a feed tube of its own. Unset is one. */
 export function funnelHasLead(piece: Piece): boolean {
   return piece.leadIn ?? true
 }
@@ -714,20 +716,20 @@ export function funnelSpec(piece: Piece): FunnelBowl {
   const lead = funnelHasLead(piece)
   const turns = piece.rings ?? FUNNEL_DEFAULTS.turns
   return {
-    // No feed box, no stub: the mouth is the inlet, and the part starts there.
+    // No feed tube, no stub: the mouth is the inlet, and the part starts there.
     entry: lead ? piece.length : 0,
     mouthRadius: (piece.topDiameter ?? FUNNEL_DEFAULTS.mouthDiameter) / 2,
     depth,
     // Held under the depth it is carved out of, so a collar dragged past the
     // bowl leaves a cone rather than a bottomless cup.
     rim: clamp(piece.rim ?? FUNNEL_DEFAULTS.rim, 0, Math.max(0, depth)),
-    // A fed funnel always whirls and a bare bowl never does, and neither is a
-    // choice: the box is built into the wall tangentially, so the marble leaves
-    // it running round the bowl and there is no other way out of it, while a
-    // bare bowl has nothing aimed across the mouth at all. So the count is held
-    // clear of nought while there is a box, and taken to nought when there is
-    // not — kept on the part either way, so taking the box off and putting it
-    // back puts the whirl back with it.
+    // A fed funnel always whirls and a plain funnel never does, and neither is a
+    // choice: the tube runs in square across the bowl, so the marble leaves it
+    // running round the bowl and there is no other way out of it, while a bare
+    // bowl has nothing aimed across the mouth at all. So the count is held clear
+    // of nought while there is a tube, and taken to nought when there is not —
+    // kept on the part either way, so taking the tube off and putting it back
+    // puts the whirl back with it.
     turns: lead
       ? Math.sign(turns || 1) * clamp(Math.abs(turns), FUNNEL_TURN_LIMITS.step, FUNNEL_TURN_LIMITS.max)
       : 0,
@@ -742,9 +744,9 @@ export function funnelSpec(piece: Piece): FunnelBowl {
  * is styled on its own. Bore and wall are always the part's, since both stubs
  * carry the same marble through the same bowl.
  *
- * Only the drain is ever asked for. The feed is a box let into the bowl's wall
- * rather than a length of tube, and a hole through a wall has no open side to
- * give it, so it is enclosed whatever the rest of the part is cut in.
+ * Only the drain is ever asked for. The feed is a pipe let through the bowl's
+ * wall, and a hole through a wall has no open side to give it, so it is
+ * enclosed whatever the rest of the part is cut in.
  *
  * `base` doubles as the fallback, so a stub with no style of its own hands back
  * the very spec it was given — same object, so a mesh keyed on it is not rebuilt.
@@ -763,10 +765,10 @@ export function funnelDrainVariant(piece: Piece, runVariant: TubeVariant): TubeV
 /**
  * Whether a funnel whirls the marble round rather than taking it straight in.
  *
- * Which is the same question as whether it has a feed box, and no longer a
- * separate one: the box is tangent to the wall, so a marble leaving it goes
- * round; a bare bowl has nothing aimed across the mouth, so a marble let into it
- * goes down. See {@link funnelSpec}.
+ * Which is the same question as whether it has a feed tube, and no longer a
+ * separate one: the tube runs in square across the bowl, so a marble leaving it
+ * goes round; a plain funnel has nothing aimed across the mouth, so a marble let
+ * into it goes down. See {@link funnelSpec}.
  */
 export function funnelWhirls(piece: Piece): boolean {
   return funnelHasLead(piece)
@@ -796,6 +798,15 @@ export function funnelBowlOf(piece: Piece, innerR: number, wall: number): Funnel
   return funnelShell(funnelSpec(piece), innerR, wall)
 }
 
+/**
+ * The least bowl a funnel can be built with, mm across the inside — narrower
+ * than this and the feed comes out of the back of it. See
+ * {@link funnelMouthLeast}.
+ */
+export function funnelMouth(innerR: number, wall: number): number {
+  return Math.min(PIECE_LIMITS.topDiameter.max, Math.ceil(funnelMouthLeast(innerR, wall)))
+}
+
 /** The least feed stub a funnel can be built with, mm. See {@link funnelStubReach}. */
 export function funnelReach(piece: Piece, innerR: number, wall: number): number {
   // Whole millimetres, because the stub is a length the user types and a stop
@@ -813,9 +824,9 @@ export function funnelReach(piece: Piece, innerR: number, wall: number): number 
  * cannot. A corkscrew's four numbers already fix how far it goes round and how
  * far it drops doing it, and those two between them leave exactly one angle the
  * coil can run at. A funnel is blunter about it: its bowl is only a bowl while
- * it is level, and its feed is a box built flush into the bowl's own side wall,
- * which a feed tipped even a few degrees would lift off that wall. So the only
- * fall a funnel runs at is none.
+ * it is level, and its feed is a pipe let in through the bowl's own side wall,
+ * which a feed tipped even a few degrees would run out through the rim. So the
+ * only fall a funnel runs at is none.
  *
  * Either way the part states its fall and the run has to meet it — a printed
  * part is a fixed thing, and this is what makes it behave like one.
@@ -831,7 +842,7 @@ function fixedSlopeOf(piece: Piece): number {
 
 /**
  * A part put back on the shape its own numbers demand: a coil's rings and the
- * fall they leave it running at, a funnel's feed box and the level it is fed at.
+ * fall they leave it running at, a funnel's feed tube and the level it is fed at.
  * Everything else is handed its fall by the run and is left alone.
  *
  * `innerR` and `wall` are the tube this part is actually cut from, which is what
@@ -862,16 +873,25 @@ function wind(piece: Piece, outerR: number): Piece {
 }
 
 /**
- * A funnel with a feed box long enough to stand clear of the bowl. Held up to
- * the reach rather than clamped both ways: a longer box is a run of track into
+ * A funnel with a feed tube long enough to stand clear of the bowl. Held up to
+ * the reach rather than clamped both ways: a longer tube is a run of track into
  * the mouth and is nobody's business but the user's, while a shorter one has its
  * socket half swallowed by the bowl it is feeding.
  */
 function reach(piece: Piece, innerR: number, wall: number): Piece {
-  // A bare bowl has no feed box to hold up, so its stub is nobody's business.
-  if (!funnelHasLead(piece)) return piece
-  const least = funnelReach(piece, innerR, wall)
-  return piece.length >= least ? piece : { ...piece, length: least }
+  // The bowl comes first: how far the feed has to run is measured off it, so a
+  // bowl too narrow for the tube would be sizing the feed against a shape that
+  // cannot be built. Held up rather than clamped both ways — a wider bowl is
+  // nobody's business but the user's.
+  const mouth = funnelMouth(innerR, wall)
+  const wide =
+    (piece.topDiameter ?? FUNNEL_DEFAULTS.mouthDiameter) >= mouth
+      ? piece
+      : { ...piece, topDiameter: mouth }
+  // A plain funnel has no feed tube to hold up, so its stub is nobody's business.
+  if (!funnelHasLead(wide)) return wide
+  const least = funnelReach(wide, innerR, wall)
+  return wide.length >= least ? wide : { ...wide, length: least }
 }
 
 /**
@@ -1652,7 +1672,7 @@ const TYPE_DEFAULTS: Record<PieceType, Omit<Piece, 'id' | 'type'>> = {
   },
   // A funnel is fed dead level and states that fall itself — see
   // {@link slopeIsFixed} — so unlike every other part this one starts on nought
-  // rather than on the gentle fall a new part is set down at. The feed box is
+  // rather than on the gentle fall a new part is set down at. The feed tube is
   // put right by {@link settle}, which knows the tube it has to stand clear of
   // and this far out cannot.
   funnel: {
@@ -1790,7 +1810,7 @@ const FIELD_LABEL: Record<string, string> = {
   topDiameter: 'top Ø',
   bottomDiameter: 'bottom Ø',
   rim: 'rim wall',
-  leadIn: 'feed box',
+  leadIn: 'feed tube',
   rings: 'rings',
 }
 /** How each field's value is written out — lengths follow the unit setting. */
