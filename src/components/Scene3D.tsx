@@ -15,7 +15,7 @@ import Toolbar from './Toolbar'
 import ActiveParts from './ActiveParts'
 import PartContextMenu, { type MenuTarget } from './PartContextMenu'
 import { FitIcon, HomeIcon } from './icons'
-import { buildEndBandGeometry, buildPieceGeometry } from '../lib/geometry'
+import { buildEndBandGeometry, buildPartGeometry } from '../lib/geometry'
 import { centerlineFor, shapeKey } from '../lib/centerline'
 import { buildAssembly, chainBox, type Assembly } from '../lib/layout'
 import { createMarble, resetMarble, seekMarble, stepMarble } from '../lib/sim'
@@ -54,9 +54,11 @@ const PORT_IDLE = '#8aa0b4'
 const PORT_JOINED = '#3fb87f'
 const PORT_BREAK = '#e2574c'
 
-/** Scene colours live in JS, so they get their own light/dark palette. */
+/**
+ * Scene colours live in JS, so they get their own light/dark palette. The sky is
+ * not among them — that one is the user's, and lives in the store.
+ */
 interface ScenePalette {
-  background: string
   skyLight: string
   groundLight: string
   fillLight: string
@@ -69,15 +71,19 @@ interface ScenePalette {
 }
 
 /**
- * Selection reads as a brighter, self-lit version of whatever colour the user
- * picked, so it stays legible against any hue.
+ * Selection reads as the full-strength colour against washed-out neighbours: the
+ * parts you have not picked sit lightened toward white, the picked one deepens.
+ * Works against any hue the user chooses.
  */
 function shades(hex: string) {
   const base = new THREE.Color(hex)
   return {
     base,
-    selected: base.clone().lerp(new THREE.Color('#ffffff'), 0.32),
-    emissive: base.clone().multiplyScalar(0.42),
+    /** Every part you have not picked, washed out so the picked one carries the eye. */
+    idle: base.clone().lerp(new THREE.Color('#ffffff'), 0.45),
+    selected: base.clone().lerp(new THREE.Color('#000000'), 0.22),
+    /** Just enough self-lit colour to keep the deepened part from reading as black. */
+    emissive: base.clone().multiplyScalar(0.12),
     /** Faint self-lit sheen, so the marble keeps its glassy look at any hue. */
     sheen: base.clone().multiplyScalar(0.22),
     black: new THREE.Color('#000000'),
@@ -86,7 +92,6 @@ function shades(hex: string) {
 
 const PALETTE: Record<Theme, ScenePalette> = {
   light: {
-    background: '#e3eaf1',
     skyLight: '#ffffff',
     groundLight: '#b9c8d6',
     fillLight: '#cfe0ff',
@@ -98,7 +103,6 @@ const PALETTE: Record<Theme, ScenePalette> = {
     cube: { face: '#f7fafc', text: '#2c3d4f', line: '#aebfd0', hover: '#7fb2f5' },
   },
   dark: {
-    background: '#0d141d',
     skyLight: '#cfe6ff',
     groundLight: '#20303f',
     fillLight: '#7fb6ff',
@@ -144,7 +148,7 @@ function PieceMesh({
   // in the run — or renaming it — never rebuilds the solid.
   const shape = shapeKey(piece, spec)
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const geom = useMemo(() => buildPieceGeometry(spec, centerlineFor(piece)), [spec, shape])
+  const geom = useMemo(() => buildPartGeometry(spec, piece), [spec, shape])
   useEffect(() => () => geom.dispose(), [geom])
 
   return (
@@ -173,7 +177,7 @@ function PieceMesh({
       <meshStandardMaterial
         // Rebuilt on mode change — flipping `transparent` in place needs a shader recompile.
         key={xray ? 'xray' : 'solid'}
-        color={selected ? tint.selected : tint.base}
+        color={selected ? tint.selected : tint.idle}
         emissive={selected ? tint.emissive : tint.black}
         metalness={xray ? 0 : 0.15}
         roughness={xray ? 0.25 : 0.45}
@@ -1233,8 +1237,44 @@ const TOOLBAR_HEIGHT = 62
 /** How far the pointer may wander between press and release and still count as a click, in px. */
 const CLICK_SLOP = 4
 
+/**
+ * The land the grid is ruled on — everything below the horizon, as against the
+ * sky the canvas is cleared to.
+ *
+ * It is held under the camera rather than pinned to the origin, so however far
+ * the view travels there is always ground out to where the eye stops, and it is
+ * painted flat: no fog on it, so the horizon reads as the line it is instead of
+ * dissolving into the sky a little way out. Drawn first and writing no depth,
+ * it is a backdrop rather than a surface — the grid, the shadow and the parts
+ * all land on top of it without any of them fighting it for the same pixels.
+ *
+ * Two-sided, so orbiting under the workplane shows the land overhead rather than
+ * open sky: from below, the ground you were standing on is a ceiling.
+ */
+function Land({ color, y }: { color: string; y: number }) {
+  const mesh = useRef<THREE.Mesh>(null)
+  useFrame(({ camera }) => {
+    if (mesh.current) mesh.current.position.set(camera.position.x, y, camera.position.z)
+  })
+  return (
+    <mesh ref={mesh} position={[0, y, 0]} rotation={[-Math.PI / 2, 0, 0]} renderOrder={-1}>
+      <planeGeometry args={[100000, 100000]} />
+      {/* Left out of the tone mapping as well as the fog: this is the colour the
+          user picked, and it has the sky — which the canvas is simply cleared to
+          — right beside it to be told apart from. */}
+      <meshBasicMaterial
+        color={color}
+        fog={false}
+        toneMapped={false}
+        depthWrite={false}
+        side={THREE.DoubleSide}
+      />
+    </mesh>
+  )
+}
+
 export default function Scene3D() {
-  const { pieces, innerDiameter, wallThickness, variant, selectedId, select, theme, pieceColor, shading, rightPanel, simStarted, tool, overlays } =
+  const { pieces, innerDiameter, wallThickness, variant, selectedId, select, theme, pieceColor, shading, rightPanel, simStarted, tool, overlays, workplane } =
     useRun()
   // Either slide-out takes the same gutter, so the corner controls step aside for both.
   const docked = rightPanel !== null
@@ -1243,6 +1283,7 @@ export default function Scene3D() {
   const picking = tool === 'select' || tool === 'move' || tool === 'rotate'
   const xray = shading === 'transparent'
   const palette = PALETTE[theme]
+  const { sky: skyColor, land: landColor } = workplane[theme]
   // One set of shades per colour in play, so parts painted alike share theirs
   // and nothing is rebuilt while the run is only being moved around.
   const tints = useMemo(() => {
@@ -1388,8 +1429,13 @@ export default function Scene3D() {
         // selection — and only while the left button is still ours to pick with.
         onPointerMissed={(e) => e.button === 0 && picking && select(null)}
       >
-        <color attach="background" args={[palette.background]} />
-        <fog attach="fog" args={[palette.background, 1200, 4200]} />
+        {/* The sky is the user's, so the haze the run recedes into follows it —
+            otherwise the far end of a long run would fade out into a colour that
+            is no longer up there. The land is drawn rather than cleared to, and
+            is left out of the fog on purpose — see {@link Land}. */}
+        <color attach="background" args={[skyColor]} />
+        <fog attach="fog" args={[skyColor, 1200, 4200]} />
+        <Land color={landColor} y={groundY - 0.5} />
 
         <hemisphereLight args={[palette.skyLight, palette.groundLight, palette.hemiIntensity]} />
         {/* Key and fill are mirrored in X along with the home camera, so the run
@@ -1413,6 +1459,9 @@ export default function Scene3D() {
           sectionColor={palette.sectionColor}
           fadeDistance={3000}
           fadeStrength={1.2}
+          // Ruled on both faces, so orbiting under the workplane shows it
+          // overhead — the grid goes with the land it is ruled on.
+          side={THREE.DoubleSide}
           infiniteGrid
           followCamera={false}
         />

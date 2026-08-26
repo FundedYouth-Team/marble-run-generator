@@ -56,14 +56,6 @@ function HookPreview() {
   )
 }
 
-function CurvePreview() {
-  return (
-    <svg width="78" height="50" viewBox="0 0 46 30" aria-hidden="true">
-      <path className="pp-line" d="M6 24c0-9 8-16 17-16 9 0 17 4 17 9" />
-    </svg>
-  )
-}
-
 /**
  * The tower seen from a little above: rings stacked and closing in, with a
  * dimension bar down the side for the height it is really there to lose.
@@ -83,10 +75,25 @@ function CorkscrewPreview() {
   )
 }
 
+/**
+ * The bowl seen from a little above: the collar round the mouth, the cone
+ * closing in under it, and the spout out of the throat — with the feed tube
+ * coming in over the rim, which is the whole of how the part is fed.
+ */
 function FunnelPreview() {
   return (
     <svg width="78" height="50" viewBox="0 0 46 30" aria-hidden="true">
-      <path className="pp-line" d="M7 6h32l-13 9v10" />
+      <g className="pp-line" strokeWidth="2.4">
+        {/* The mouth, and the collar's far side dropping away behind it. */}
+        <ellipse cx="23" cy="9" rx="13" ry="4.6" />
+        <path d="M10 9v4a13 4.6 0 0 0 26 0V9" />
+        {/* The cone in to the throat, and the spout under it. */}
+        <path d="M10.6 15.4 21 24v4M35.4 15.4 25 24v4" />
+        <path d="M21 28h4" />
+      </g>
+      {/* The feed, riding in over the rim — drawn level, which is how it arrives
+          until it is given a tilt of its own. */}
+      <path className="pp-arrow" d="M2 7.6h9v2.8H2z" />
     </svg>
   )
 }
@@ -149,13 +156,6 @@ const PARTS: Part[] = [
     add: () => useRun.getState().addPiece('hook'),
   },
   {
-    id: 'curve',
-    name: 'Curve',
-    category: 'track',
-    blurb: 'Constant-radius bend that sweeps the run round without breaking the bore.',
-    preview: CurvePreview,
-  },
-  {
     id: 'corkscrew',
     name: 'Corkscrew',
     category: 'feature',
@@ -169,8 +169,11 @@ const PARTS: Part[] = [
     id: 'funnel',
     name: 'Funnel',
     category: 'feature',
-    blurb: 'Wide catch mouth that gathers the marble back into the bore.',
+    axis: 'Down',
+    blurb:
+      'Open bowl fed over the rim and drained down the throat. Whirl the marble in and its own speed holds it out against the collar while the cone winds it down to the middle; drop it in instead and it slides straight down the wall. Set how wide the mouth is, how deep the bowl goes, how high the collar stands and how many times round it whirls. The lead-in may be tipped a few degrees to be fed downhill, and the bowl stays level under whatever it is set to; the spout is dead vertical. Neither of those is the run’s to set, so the run has to be brought to the tilt and whatever hangs under the funnel starts by falling straight down.',
     preview: FunnelPreview,
+    add: () => useRun.getState().addPiece('funnel'),
   },
 ]
 

@@ -28,13 +28,24 @@ import {
   corkscrewSlope as coilSlope,
   type CorkscrewCoil,
 } from './lib/corkscrew'
+import {
+  FUNNEL_EXIT_SLOPE,
+  FUNNEL_TILT_LIMIT,
+  funnelExitTurn,
+  funnelFall,
+  funnelLength as funnelRunLength,
+  funnelReach as funnelStubReach,
+  funnelShell,
+  type FunnelBowl,
+  type FunnelShell,
+} from './lib/funnel'
 
 /**
  * All dimensions in this app are millimetres. The unit setting only changes how
  * they are written and read on screen — see `lib/units`.
  */
 export type TubeVariant = 'half' | 'threequarter' | 'closed'
-export type PieceType = 'straight' | 'angle' | 'corner' | 'hook' | 'corkscrew'
+export type PieceType = 'straight' | 'angle' | 'corner' | 'hook' | 'corkscrew' | 'funnel'
 export type Mode = '2d' | '3d'
 /**
  * What the left button does on the 3D stage. Picking a part is the resting
@@ -83,6 +94,7 @@ export const OVERLAYS: { id: Overlay; label: string; hint: string }[] = [
 const THEME_KEY = 'mrg.theme'
 const PIECE_COLOR_KEY = 'mrg.pieceColor'
 const MARBLE_COLOR_KEY = 'mrg.marbleColor'
+const WORKPLANE_KEY = 'mrg.workplane'
 const SHADING_KEY = 'mrg.shading'
 const SCREEN_KEY = 'mrg.screenPxPerMm'
 const KEEP_CONNECTED_KEY = 'mrg.keepConnected'
@@ -128,6 +140,23 @@ function applyTheme(theme: Theme) {
 export const DEFAULT_PIECE_COLOR = '#8497aa'
 export const DEFAULT_MARBLE_COLOR = '#ff7a45'
 
+/**
+ * What the workplane is made of in 3D: the sky above the horizon, and the land
+ * the grid is ruled on below it. Two colours, so the horizon is a line between
+ * them rather than the one flat field the stage used to be.
+ */
+export type WorkplaneColor = 'sky' | 'land'
+
+/**
+ * The stock pair, one per theme — a sky that reads right in daylight is glare at
+ * night, and the same goes for the ground under it. Settings edits whichever
+ * theme is on.
+ */
+export const DEFAULT_WORKPLANE: Record<Theme, Record<WorkplaneColor, string>> = {
+  light: { sky: '#cfe4f7', land: '#e8edf3' },
+  dark: { sky: '#0d141d', land: '#1c2734' },
+}
+
 const clamp = (v: number, min: number, max: number) => Math.min(max, Math.max(min, v))
 
 const HEX = /^#[0-9a-f]{6}$/i
@@ -141,6 +170,25 @@ export function isHexColor(v: unknown): v is string {
 function initialColor(key: string, fallback: string): string {
   const saved = typeof localStorage !== 'undefined' ? localStorage.getItem(key) : null
   return isHexColor(saved) ? saved : fallback
+}
+
+/** Either theme keeps its own pair; anything missing or junk falls back to stock. */
+function initialWorkplane(): Record<Theme, Record<WorkplaneColor, string>> {
+  const w = { light: { ...DEFAULT_WORKPLANE.light }, dark: { ...DEFAULT_WORKPLANE.dark } }
+  const saved = typeof localStorage !== 'undefined' ? localStorage.getItem(WORKPLANE_KEY) : null
+  if (!saved) return w
+  try {
+    const stored = JSON.parse(saved) as Partial<Record<Theme, Partial<Record<WorkplaneColor, unknown>>>>
+    for (const t of ['light', 'dark'] as Theme[]) {
+      for (const c of ['sky', 'land'] as WorkplaneColor[]) {
+        const hex = stored[t]?.[c]
+        if (isHexColor(hex)) w[t][c] = hex
+      }
+    }
+  } catch {
+    // Unreadable storage just means the stock workplane.
+  }
+  return w
 }
 
 /**
@@ -276,16 +324,66 @@ export interface Piece {
    * Corkscrew: how far the coil drops from its top ring to its bottom one, mm.
    * The stubs either end of it fall as well, so the part as a whole loses a
    * little more than this.
+   *
+   * Funnel: how far the marble descends between the mouth and the throat — the
+   * depth of the bowl, with the spout under it extra.
    */
   height?: number
-  /** Corkscrew: how wide the coil is where the run comes into it, mm. */
+  /**
+   * Corkscrew: how wide the coil is where the run comes into it, mm.
+   *
+   * Funnel: how wide the mouth is, measured the same way — across the path the
+   * marble runs on rather than across the wall outside it.
+   */
   topDiameter?: number
   /** Corkscrew: how wide it is where the run leaves it, mm. */
   bottomDiameter?: number
   /**
+   * Funnel: how high the straight collar round the mouth stands, mm — the band
+   * the marble whirls against before the bowl starts closing in under it.
+   */
+  rim?: number
+  /**
+   * Funnel: how steeply the lead-in falls into the mouth, degrees. Unset is
+   * level, which is what a funnel out of the library has.
+   *
+   * This is the fall the whole part is stood at — a funnel states its own, and
+   * the run comes to it — so tipping the feed tips the part, and the bowl is
+   * built back to level inside that. Held to a few degrees: the lead-in hangs on
+   * the collar it is let through, and a steep one climbs out of it. See
+   * {@link FUNNEL_TILT_LIMIT}.
+   */
+  tilt?: number
+  /**
+   * Funnel: whether the mouth is fed by a lead-in tube of its own. Unset is one,
+   * which is what a funnel out of the library has.
+   *
+   * Without it the part is a bare bowl and the mouth is the inlet — something
+   * else stands over it and the marble is let go into it. It also settles what
+   * the bowl does with the marble: the whirl is the lead-in's doing, since it is
+   * the tube's opening through the collar that sets the marble off round the
+   * wall rather than into the middle.
+   */
+  leadIn?: boolean
+  /**
+   * Funnel: the style its lead-in and lead-out tubes are each cut in. Unset
+   * follows the part's own style, which in turn follows the run's — the same
+   * fallback {@link Piece.variant} works on, one step further in.
+   *
+   * They are separate because the two ends of a funnel do different jobs: a
+   * lead-in aimed across the mouth wants a closed tube to hold the marble in as
+   * it whirls, while a lead-out is a plain drop anyone might want to see down.
+   */
+  leadInVariant?: TubeVariant
+  leadOutVariant?: TubeVariant
+  /**
    * Corkscrew: how many times round the run goes between the two, in quarters
    * of a turn. Negative winds the other way about, the way a negative sweep
    * turns a corner the other way.
+   *
+   * Funnel: how many times round the marble whirls on its way to the throat,
+   * counted the same way. Nought is allowed here and is a part of its own — the
+   * marble dropped straight in rather than fed round.
    */
   rings?: number
   /**
@@ -364,7 +462,27 @@ export const PIECE_LIMITS = {
   // than any plate it could be printed on. Quarter rings, so the outlet lands
   // on a heading square to the inlet rather than wherever it happens to.
   rings: { min: -8, max: 8, step: 0.25 },
+  // A funnel's collar. Nought is a plain cone with no lip on it at all; past
+  // this the bowl is a cup rather than a funnel, and there is a floor under it
+  // anyway — the last of the depth is always left as cone.
+  rim: { min: 0, max: 120, step: 1 },
 } as const
+
+/**
+ * How many times round a funnel whirls the marble. Its own, because nought is a
+ * real answer here and is not one for a coil: a corkscrew wound no times round
+ * is not a corkscrew, while a funnel wound no times round is a marble dropped
+ * straight in — which is half of what the part is for.
+ */
+export const FUNNEL_TURN_LIMITS = { min: -6, max: 6, step: 0.25 } as const
+
+/**
+ * How far a funnel's lead-in may be tipped, degrees. Downhill only, and only a
+ * little of it: a feed that climbs would be a marble asked to roll uphill into
+ * the bowl, and a steep one leaves the tube hanging off the collar it is let
+ * through — which is what {@link FUNNEL_TILT_LIMIT} is about.
+ */
+export const FUNNEL_TILT_LIMITS = { min: 0, max: FUNNEL_TILT_LIMIT, step: 0.5 } as const
 
 /**
  * What an angle connector is when it lands on the stage. Both legs are short
@@ -588,31 +706,174 @@ export function corkscrewRingPitch(piece: Piece): number {
 }
 
 /**
- * Whether a part's fall is its own to keep rather than the run's to set.
- *
- * Every other part takes whatever angle the part before it hands on. A
- * corkscrew cannot: its four numbers already fix how far it goes round and how
- * far it drops doing it, and those two between them leave exactly one angle the
- * coil can run at. So the part states its fall and the run has to meet it — a
- * printed helix is a fixed thing, and this is what makes it behave like one.
+ * What a funnel is when it lands on the stage: a wide level mouth, a collar to
+ * whirl against, and two turns of bowl down to a short spout. The feed stub is
+ * long because it has to reach out over the collar to be attached to it — see
+ * {@link funnelReach} — rather than because the part needs the track.
  */
-export function slopeIsFixed(piece: Piece): boolean {
-  return piece.type === 'corkscrew'
+export const FUNNEL_DEFAULTS = {
+  length: 60,
+  mouthDiameter: 120,
+  height: 90,
+  rim: 18,
+  turns: 2,
+  exitLength: 30,
+} as const
+
+/** How many times round a funnel whirls out of the library, and dropped straight in. */
+export const FUNNEL_TURNS_SPIRAL = FUNNEL_DEFAULTS.turns
+export const FUNNEL_TURNS_DROP = 0
+
+/** Whether a funnel is fed by a lead-in of its own. Unset is one. */
+export function funnelHasLead(piece: Piece): boolean {
+  return piece.leadIn ?? true
 }
 
 /**
- * A part put back on the shape its own numbers demand: the rings its height has
- * room for, and the fall those rings leave it running at. Only a corkscrew has
- * either; everything else is handed its fall by the run and is left alone.
- *
- * `outerR` is the tube this part is actually cut from, which is what says how
- * much room a ring takes up. The count is worked out here and then *stored*
- * rather than derived on demand, because the centreline — the one description
- * of a part's shape — is given nothing but the part, and knows nothing about
- * the tube the run is set to.
+ * How steeply a funnel's lead-in falls into the mouth, degrees — its own fall,
+ * and so the fall the whole run has to meet it at. A bare bowl has no lead-in to
+ * tip, so it takes the marble level however it was left.
  */
-function settle(piece: Piece, outerR: number): Piece {
+export function funnelTilt(piece: Piece): number {
+  if (!funnelHasLead(piece)) return 0
+  return clamp(piece.tilt ?? 0, FUNNEL_TILT_LIMITS.min, FUNNEL_TILT_LIMITS.max)
+}
+
+/** The funnel's own numbers, with anything unset filled in. */
+export function funnelSpec(piece: Piece): FunnelBowl {
+  const depth = piece.height ?? FUNNEL_DEFAULTS.height
+  const lead = funnelHasLead(piece)
+  return {
+    // No lead-in, no stub: the mouth is the inlet, and the part starts there.
+    entry: lead ? piece.length : 0,
+    tilt: funnelTilt(piece),
+    mouthRadius: (piece.topDiameter ?? FUNNEL_DEFAULTS.mouthDiameter) / 2,
+    depth,
+    // Held under the depth it is carved out of, so a collar dragged past the
+    // bowl leaves a cone rather than a bottomless cup.
+    rim: clamp(piece.rim ?? FUNNEL_DEFAULTS.rim, 0, Math.max(0, depth)),
+    // The whirl is the lead-in's doing — it is the tube's opening through the
+    // collar that points the marble round the wall — so a bare bowl takes it
+    // straight in whatever the count says. The count itself is kept, so putting
+    // the lead-in back puts the whirl back with it.
+    turns: lead ? (piece.rings ?? FUNNEL_DEFAULTS.turns) : 0,
+    exit: piece.exitLength ?? FUNNEL_DEFAULTS.exitLength,
+    lead,
+  }
+}
+
+/**
+ * The tube one of a funnel's two stubs is cut from: its own style if it has been
+ * given one, and otherwise the part's — which is itself the run's until the part
+ * is styled on its own. Bore and wall are always the part's, since both stubs
+ * carry the same marble through the same bowl.
+ *
+ * `base` doubles as the fallback, so a stub with no style of its own hands back
+ * the very spec it was given — same object, so a mesh keyed on it is not rebuilt.
+ */
+export function funnelStubSpec(base: TubeSpec, piece: Piece, end: 'lead' | 'drain'): TubeSpec {
+  const own = end === 'lead' ? piece.leadInVariant : piece.leadOutVariant
+  if (!own || own === base.variant) return base
+  return tubeSpec(base.innerR * 2, base.wall, own)
+}
+
+/** The style one of a funnel's stubs is actually cut in. */
+export function funnelStubVariant(
+  piece: Piece,
+  runVariant: TubeVariant,
+  end: 'lead' | 'drain',
+): TubeVariant {
+  const own = end === 'lead' ? piece.leadInVariant : piece.leadOutVariant
+  return own ?? variantOf(piece, runVariant)
+}
+
+/**
+ * Whether a funnel whirls the marble round rather than taking it straight in.
+ *
+ * It takes both: the turns say how far round, and the lead-in is what points the
+ * marble round in the first place. A bare bowl has nothing aimed across it, so
+ * whatever its turns say, the marble goes in and down.
+ */
+export function funnelWhirls(piece: Piece): boolean {
+  return funnelHasLead(piece) && Math.abs(funnelSpec(piece).turns) >= FUNNEL_TURN_LIMITS.step
+}
+
+/** Which way a funnel whirls: -1 to the left, +1 to the right. */
+export function funnelHand(piece: Piece): number {
+  return (piece.rings ?? FUNNEL_DEFAULTS.turns) < 0 ? -1 : 1
+}
+
+/** Centreline length of a funnel, mm — both stubs and the whirl between them. */
+export function funnelLength(piece: Piece): number {
+  return funnelRunLength(funnelSpec(piece))
+}
+
+/** How far a funnel's outlet sits below its inlet, mm — the bowl and the spout. */
+export function funnelDrop(piece: Piece): number {
+  return funnelFall(funnelSpec(piece))
+}
+
+/**
+ * The bowl a funnel is actually cut as, off the tube it is cut from. Everything
+ * about the solid that the sidebar reads out — how deep the collar really is,
+ * how far the feed has to reach — comes through here.
+ */
+export function funnelBowlOf(piece: Piece, innerR: number, wall: number): FunnelShell {
+  return funnelShell(funnelSpec(piece), innerR, wall)
+}
+
+/** The least feed stub a funnel can be built with, mm. See {@link funnelStubReach}. */
+export function funnelReach(piece: Piece, innerR: number, wall: number): number {
+  // Whole millimetres, because the stub is a length the user types and a stop
+  // that lands on 38.6274 would fight the stepper every time it is nudged.
+  return Math.min(
+    PIECE_LIMITS.length.max,
+    Math.max(PIECE_LIMITS.length.min, Math.ceil(funnelStubReach(funnelSpec(piece), innerR, wall))),
+  )
+}
+
+/**
+ * Whether a part's fall is its own to keep rather than the run's to set.
+ *
+ * Every other part takes whatever angle the part before it hands on. Two
+ * cannot. A corkscrew's four numbers already fix how far it goes round and how
+ * far it drops doing it, and those two between them leave exactly one angle the
+ * coil can run at. A funnel is simpler about it: its bowl is level whatever
+ * happens, so the only fall it can run at is the one its lead-in is tipped to —
+ * nought for a feed that comes in level, and whatever it is set to otherwise.
+ *
+ * Either way the part states its fall and the run has to meet it — a printed
+ * part is a fixed thing, and this is what makes it behave like one.
+ */
+export function slopeIsFixed(piece: Piece): boolean {
+  return piece.type === 'corkscrew' || piece.type === 'funnel'
+}
+
+/** The one fall a part with a fall of its own may sit at, degrees. */
+function fixedSlopeOf(piece: Piece): number {
+  return piece.type === 'funnel' ? funnelTilt(piece) : corkscrewPitch(piece)
+}
+
+/**
+ * A part put back on the shape its own numbers demand: a coil's rings and the
+ * fall they leave it running at, a funnel's feed stub and the tilt it is fed at.
+ * Everything else is handed its fall by the run and is left alone.
+ *
+ * `innerR` and `wall` are the tube this part is actually cut from, which is what
+ * says how much room a ring takes up and how far a feed has to reach. Both
+ * answers are worked out here and then *stored* rather than derived on demand,
+ * because the centreline — the one description of a part's shape — is given
+ * nothing but the part, and knows nothing about the tube the run is set to.
+ */
+function settle(piece: Piece, innerR: number, wall: number): Piece {
   if (!slopeIsFixed(piece)) return piece
+  const wound = piece.type === 'funnel' ? reach(piece, innerR, wall) : wind(piece, innerR + wall)
+  const slope = fixedSlopeOf(wound)
+  return wound.slope === slope ? wound : { ...wound, slope }
+}
+
+/** A coil on the ring count its height and its tube leave it. */
+function wind(piece: Piece, outerR: number): Piece {
   const height = piece.height ?? CORKSCREW_DEFAULTS.height
   const R = PIECE_LIMITS.rings
   // A count set by hand stands as it was given; otherwise it is counted off the
@@ -622,9 +883,20 @@ function settle(piece: Piece, outerR: number): Piece {
     ? clamp(Math.abs(piece.rings ?? 1), R.step, R.max)
     : corkscrewRingsFor(height, outerR)
   const rings = count * corkscrewHand(piece)
-  const wound = piece.rings === rings ? piece : { ...piece, rings }
-  const slope = corkscrewPitch(wound)
-  return wound.slope === slope ? wound : { ...wound, slope }
+  return piece.rings === rings ? piece : { ...piece, rings }
+}
+
+/**
+ * A funnel with a feed stub long enough to stand on. Held up to the reach rather
+ * than clamped both ways: a longer stub is a run of track into the mouth and is
+ * nobody's business but the user's, while a shorter one is a spout hanging over
+ * the bowl attached to nothing.
+ */
+function reach(piece: Piece, innerR: number, wall: number): Piece {
+  // A bare bowl has no lead-in to hold up, so its stub is nobody's business.
+  if (!funnelHasLead(piece)) return piece
+  const least = funnelReach(piece, innerR, wall)
+  return piece.length >= least ? piece : { ...piece, length: least }
 }
 
 /**
@@ -632,14 +904,14 @@ function settle(piece: Piece, outerR: number): Piece {
  * it has been sized on its own, and otherwise the run's.
  *
  * This runs on the way out of every edit, so nothing has to remember which
- * fields a coil watches: changing its height settles it, and so does changing
- * the tube under it from the other side of the sidebar.
+ * fields a coil or a bowl watches: changing a height settles it, and so does
+ * changing the tube under it from the other side of the sidebar.
  */
 function settleAll(pieces: Piece[], runBore: number, runWall: number): Piece[] {
   if (!pieces.some(slopeIsFixed)) return pieces
   let changed = false
   const next = pieces.map((p) => {
-    const settled = settle(p, boreOf(p, runBore) / 2 + wallOf(p, runWall))
+    const settled = settle(p, boreOf(p, runBore) / 2, wallOf(p, runWall))
     if (settled !== p) changed = true
     return settled
   })
@@ -669,6 +941,8 @@ export function exitSlope(piece: Piece): number {
   // A coil holds one fall the whole way down, so it hands on the one it runs
   // at — which is its own rather than whatever it was handed.
   if (piece.type === 'corkscrew') return corkscrewPitch(piece)
+  // The way out of a funnel is straight down the throat, and there is no other.
+  if (piece.type === 'funnel') return FUNNEL_EXIT_SLOPE
   if (piece.type === 'corner') {
     const drop = Math.sin(piece.slope * RAD) * Math.cos(cornerSpec(piece).sweep * RAD)
     return tidy(Math.asin(clamp(drop, -1, 1)) / RAD)
@@ -693,6 +967,9 @@ export function exitTurn(piece: Piece): number {
   // Very nearly the rings turned into degrees, and only nearly: a coil that
   // narrows meets its own radius at a different angle top and bottom.
   if (piece.type === 'corkscrew') return tidy(corkscrewExit(corkscrewSpec(piece)).turn)
+  // A funnel hands on the way the marble was last travelling as it fell into
+  // the throat, which is nothing at all when it went straight in.
+  if (piece.type === 'funnel') return tidy(funnelExitTurn(funnelSpec(piece)))
   if (piece.type !== 'corner') return 0
   const sweep = cornerSpec(piece).sweep * RAD
   return tidy(
@@ -736,7 +1013,7 @@ export function headingAt(pieces: Piece[], index: number): number {
  */
 export function slopeLimitsFor(piece: Piece) {
   const S = PIECE_LIMITS.slope
-  if (piece.type === 'hook' || piece.type === 'corkscrew') return { ...S, ...slopeRange(piece) }
+  if (piece.type === 'hook' || slopeIsFixed(piece)) return { ...S, ...slopeRange(piece) }
   if (piece.type !== 'angle') return S
   const { bend } = angleSpec(piece)
   return { ...S, min: Math.max(S.min, S.min - bend), max: Math.min(S.max, S.max - bend) }
@@ -744,16 +1021,16 @@ export function slopeLimitsFor(piece: Piece) {
 
 /**
  * How far a part's own slope may go, as the walks along a run read it. A hook
- * narrows it — see {@link HOOK_SLOPE_LIMIT} — and a corkscrew closes it to the
- * single angle its coil runs at, which is what pins the part to its own fall
- * wherever the run tries to swing it. An angle connector's extra room is the
- * bend's business rather than the walk's, so it is not applied here.
+ * narrows it — see {@link HOOK_SLOPE_LIMIT} — and a part on a fall of its own
+ * closes it to that one angle, which is what pins a coil or a bowl wherever the
+ * run tries to swing it. An angle connector's extra room is the bend's business
+ * rather than the walk's, so it is not applied here.
  */
 const slopeRange = (piece: Piece) =>
   piece.type === 'hook'
     ? { min: -HOOK_SLOPE_LIMIT, max: HOOK_SLOPE_LIMIT }
-    : piece.type === 'corkscrew'
-      ? { min: corkscrewPitch(piece), max: corkscrewPitch(piece) }
+    : slopeIsFixed(piece)
+      ? { min: fixedSlopeOf(piece), max: fixedSlopeOf(piece) }
       : PIECE_LIMITS.slope
 
 /** How far a part's break may swing — a hook turns much further than a corner. */
@@ -904,16 +1181,21 @@ function reverseShape(piece: Piece): Partial<Piece> {
 /**
  * Whether a part can be described from its far end at all.
  *
- * Only a hook cannot, and only when it is rolled off both the flat and the
- * edge. A hook's turn runs about an axis the part is only able to name in the
- * plane square to the way it came in — and turned round, the way it came in is
- * somewhere else. On the quarter planes that works out: the axis is either dead
- * upright or dead across, and both of those still lie in the new plane. Rolled
- * between them it does not, and there is no hook that lies on the same ground
- * backwards. Measured, not argued: off the quarters the nearest hook to the
- * mirror is tens of millimetres from it.
+ * Two cannot. A hook rolled off both the flat and the edge is the awkward one:
+ * its turn runs about an axis the part is only able to name in the plane square
+ * to the way it came in — and turned round, the way it came in is somewhere
+ * else. On the quarter planes that works out: the axis is either dead upright or
+ * dead across, and both of those still lie in the new plane. Rolled between them
+ * it does not, and there is no hook that lies on the same ground backwards.
+ * Measured, not argued: off the quarters the nearest hook to the mirror is tens
+ * of millimetres from it.
+ *
+ * A funnel is the plain one: it is a bowl. A bowl travelled backwards is a
+ * marble climbing out of a throat and being flung up a wall, and there is no
+ * shape to describe that with — the part is not symmetrical about anything.
  */
 export function canReverse(piece: Piece): boolean {
+  if (piece.type === 'funnel') return false
   return piece.type !== 'hook' || (piece.roll ?? HOOK_DEFAULTS.roll) % 90 === 0
 }
 
@@ -1138,14 +1420,20 @@ function swingBehind(pieces: Piece[], at: number, delta: number, connected: bool
   // tubes and angle connectors moves one for one and lands on the first pass.
   let step = tidy(target - was)
   for (let i = 0; i < ALIGN_PASSES && Math.abs(step) >= ALIGN_TOLERANCE; i++) {
+    const before = next
     next = swingRun(next, from, at - 1, step)
     const now = exitSlope(next[at - 1])
     const left = tidy(target - now)
     if (Math.abs(left) < ALIGN_TOLERANCE) break
     // Nothing bought means the run is held at a stop somewhere and no further
     // pass will shift it: the joint opens rather than the run turning for ever.
+    // The pass that bought nothing is put back as well — it moved parts and got
+    // nothing for it, which is not what closing a joint was asked to do.
     const bought = (now - was) / step
-    if (Math.abs(bought) < 1e-6) break
+    if (Math.abs(bought) < 1e-6) {
+      next = before
+      break
+    }
     was = now
     step = tidy(left / bought)
   }
@@ -1186,14 +1474,23 @@ function alignRun(pieces: Piece[], outlet: Port, inlet: Port): Piece[] {
   let was = exitSlope(next[from])
   let step = tidy(target.slope - was)
   for (let i = 0; i < ALIGN_PASSES && Math.abs(step) >= ALIGN_TOLERANCE; i++) {
+    const before = next
     next = swingRun(next, root, from, step)
     const now = exitSlope(next[from])
     const left = tidy(target.slope - now)
     if (Math.abs(left) < ALIGN_TOLERANCE) break
     // How much of that swing the run actually handed on. Nothing at all means
-    // it is held at a stop somewhere and no further pass will shift it.
+    // it is held at a stop somewhere and no further pass will shift it — and
+    // the pass that bought nothing is put back, rather than left standing as a
+    // run swung right over for no gain. A run ending in a funnel is the plain
+    // case: it hands on dead vertical whatever is done to it, so the first pass
+    // would otherwise heel the whole run over by the best part of a right angle
+    // on its way to finding that out.
     const bought = (now - was) / step
-    if (Math.abs(bought) < 1e-6) break
+    if (Math.abs(bought) < 1e-6) {
+      next = before
+      break
+    }
     was = now
     step = tidy(left / bought)
   }
@@ -1319,6 +1616,7 @@ export const PART_LABEL: Record<PieceType, string> = {
   corner: 'Corner',
   hook: 'Hook',
   corkscrew: 'Corkscrew',
+  funnel: 'Funnel',
 }
 
 /** What the part is, by type and position — "Tube 2" and friends. */
@@ -1377,6 +1675,22 @@ const TYPE_DEFAULTS: Record<PieceType, Omit<Piece, 'id' | 'type'>> = {
     rings: 1,
     exitLength: CORKSCREW_DEFAULTS.exitLength,
   },
+  // The lead-in states the fall and it arrives level — see {@link slopeIsFixed}
+  // — so unlike every other part this one starts on nought rather than on the
+  // gentle fall a new part is set down at. The stub is put right by
+  // {@link settle}, which knows the tube it has to reach out over and this far
+  // out cannot.
+  funnel: {
+    length: FUNNEL_DEFAULTS.length,
+    slope: 0,
+    tilt: 0,
+    turn: 0,
+    height: FUNNEL_DEFAULTS.height,
+    topDiameter: FUNNEL_DEFAULTS.mouthDiameter,
+    rim: FUNNEL_DEFAULTS.rim,
+    rings: FUNNEL_DEFAULTS.turns,
+    exitLength: FUNNEL_DEFAULTS.exitLength,
+  },
 }
 
 export function makePiece(partial: Partial<Piece> = {}): Piece {
@@ -1404,6 +1718,7 @@ function dropOf(piece: Piece): number {
   }
   if (piece.type === 'hook') return hookDrop(piece)
   if (piece.type === 'corkscrew') return corkscrewDrop(piece)
+  if (piece.type === 'funnel') return funnelDrop(piece)
   return piece.length * sin(piece.slope)
 }
 
@@ -1500,6 +1815,9 @@ const FIELD_LABEL: Record<string, string> = {
   height: 'height',
   topDiameter: 'top Ø',
   bottomDiameter: 'bottom Ø',
+  rim: 'rim wall',
+  leadIn: 'lead-in',
+  tilt: 'feed tilt',
   rings: 'rings',
 }
 /** How each field's value is written out — lengths follow the unit setting. */
@@ -1516,8 +1834,11 @@ const FIELD_VALUE: Record<string, (v: number) => string> = {
   height: len,
   topDiameter: len,
   bottomDiameter: len,
-  // The count and which way it winds are one field, so a step says both.
-  rings: (v) => `${num(Math.abs(v))} ${v < 0 ? 'left' : 'right'}`,
+  rim: len,
+  tilt: (v) => `${num(v)}°`,
+  // The count and which way it winds are one field, so a step says both. A
+  // funnel is allowed nought of them, and nought has no hand to report.
+  rings: (v) => (v ? `${num(Math.abs(v))} ${v < 0 ? 'left' : 'right'}` : 'straight in'),
 }
 
 /** What a part is called right now, for a step label. */
@@ -1530,7 +1851,13 @@ function nameOf(s: { pieces: Piece[] }, id: string): string {
 function editLabel(name: string, patch: Partial<Piece>): string {
   const parts = Object.entries(patch)
     .filter(([k]) => k in FIELD_LABEL)
-    .map(([k, v]) => `${FIELD_LABEL[k]} ${FIELD_VALUE[k](v as number)}`)
+    // A field that is a choice rather than a figure says which way it went; the
+    // rest are written out in whatever unit was on show at the time.
+    .map(([k, v]) =>
+      typeof v === 'boolean'
+        ? `${FIELD_LABEL[k]} ${v ? 'on' : 'off'}`
+        : `${FIELD_LABEL[k]} ${FIELD_VALUE[k](v as number)}`,
+    )
   return parts.length ? `${name} ${parts.join(', ')}` : `Edit ${name}`
 }
 
@@ -1584,6 +1911,8 @@ interface RunState {
   // has none of its own — a preference that outlives any one project.
   pieceColor: string
   marbleColor: string
+  /** The sky and the land the 3D stage is drawn on, held per theme. */
+  workplane: Record<Theme, Record<WorkplaneColor, string>>
   shading: Shading
 
   // Simulator
@@ -1689,6 +2018,10 @@ interface RunState {
    */
   applyColorToAll: (v: string) => void
   setMarbleColor: (v: string) => void
+  /** Paints the sky or the land — the theme on screen is the one it changes. */
+  setWorkplaneColor: (which: WorkplaneColor, v: string) => void
+  /** Puts the current theme's sky and land back to stock, both together. */
+  resetWorkplane: () => void
   setShading: (v: Shading) => void
   /** Turning it on pulls whatever joints have come open back together. */
   setKeepConnected: (v: boolean) => void
@@ -1883,6 +2216,7 @@ export const useRun = create<RunState>((set, get) => {
 
     pieceColor: initialColor(PIECE_COLOR_KEY, DEFAULT_PIECE_COLOR),
     marbleColor: initialColor(MARBLE_COLOR_KEY, DEFAULT_MARBLE_COLOR),
+    workplane: initialWorkplane(),
     shading: initialShading(),
     keepConnected: initialKeepConnected(),
 
@@ -2129,6 +2463,18 @@ export const useRun = create<RunState>((set, get) => {
       remember(MARBLE_COLOR_KEY, marbleColor)
       set({ marbleColor })
     },
+    setWorkplaneColor: (which, color) => {
+      const theme = get().theme
+      const workplane = { ...get().workplane, [theme]: { ...get().workplane[theme], [which]: color } }
+      remember(WORKPLANE_KEY, JSON.stringify(workplane))
+      set({ workplane })
+    },
+    resetWorkplane: () => {
+      const theme = get().theme
+      const workplane = { ...get().workplane, [theme]: { ...DEFAULT_WORKPLANE[theme] } }
+      remember(WORKPLANE_KEY, JSON.stringify(workplane))
+      set({ workplane })
+    },
     setShading: (shading) => {
       remember(SHADING_KEY, shading)
       set({ shading })
@@ -2348,7 +2694,7 @@ export const useRun = create<RunState>((set, get) => {
       // Settled before it is stood down, not after: how far a coil falls is
       // what says how high off the workplane it has to start.
       const outerR = s0.innerDiameter / 2 + s0.wallThickness
-      const shape = settle(makePiece({ type }), outerR)
+      const shape = settle(makePiece({ type }), s0.innerDiameter / 2, s0.wallThickness)
       const piece = {
         ...shape,
         at: spawnPlacement(s0.pieces, shape, outerR),
@@ -2369,9 +2715,10 @@ export const useRun = create<RunState>((set, get) => {
         const { id: _id, joined: _joined, at: _at, ...rest } = s.pieces[i]
         // Stood clear on the copy's own tube — it carries the original's size,
         // which is not the run's if that part was sized on its own.
-        const outerR =
-          boreOf(s.pieces[i], s.innerDiameter) / 2 + wallOf(s.pieces[i], s.wallThickness)
-        const shape = settle(makePiece(rest), outerR)
+        const innerR = boreOf(s.pieces[i], s.innerDiameter) / 2
+        const wall = wallOf(s.pieces[i], s.wallThickness)
+        const outerR = innerR + wall
+        const shape = settle(makePiece(rest), innerR, wall)
         const copy = { ...shape, at: spawnPlacement(s.pieces, shape, outerR) }
         return { pieces: [...s.pieces, copy], selectedId: copy.id }
       }),
@@ -2414,11 +2761,13 @@ export const useRun = create<RunState>((set, get) => {
             return null
           }
           // Raising a coil gives it room for another ring, and either changes
-          // the fall it runs at — so the part is put straight back on its own
+          // the fall it runs at; widening a bowl moves the collar its feed has
+          // to reach out over — so the part is put straight back on its own
           // shape here, before the joints either side are measured off it.
           const edited = settle(
             { ...piece, ...patch },
-            boreOf(piece, cur.innerDiameter) / 2 + wallOf(piece, cur.wallThickness),
+            boreOf(piece, cur.innerDiameter) / 2,
+            wallOf(piece, cur.wallThickness),
           )
           let pieces = cur.pieces.slice()
           pieces[at] = edited

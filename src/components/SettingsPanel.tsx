@@ -13,7 +13,9 @@ import {
   STANDARD_BORE,
   MARBLE_CLEARANCE,
   DEFAULT_MARBLE_COLOR,
+  DEFAULT_WORKPLANE,
 } from '../store'
+import type { Theme, WorkplaneColor } from '../store'
 import { UNIT_NAME, formatDensity, formatLength, type Unit } from '../lib/units'
 
 /** Millimetres first: it is the default, and what the model is kept in. */
@@ -21,6 +23,22 @@ const UNITS: Unit[] = ['mm', 'in']
 
 /** First entry is the default, so clicking it restores the stock look. */
 const MARBLE_SWATCHES = [DEFAULT_MARBLE_COLOR, '#2a9e35', '#f2c94c', '#e2464e', '#3fa9f5', '#f5f7fa']
+
+/**
+ * Skies and lands worth having, per theme — daylight and pale ground for the
+ * light theme, dusk and dark ground for the other. Each list opens with that
+ * theme's stock colour, so the first swatch is always the way back.
+ */
+const WORKPLANE_SWATCHES: Record<Theme, Record<WorkplaneColor, readonly string[]>> = {
+  light: {
+    sky: [DEFAULT_WORKPLANE.light.sky, '#ffffff', '#e3eaf1', '#d8f0ea', '#f3e7d3', '#8fb9dd'],
+    land: [DEFAULT_WORKPLANE.light.land, '#ffffff', '#f1ede4', '#e2e8de', '#dfe3e8', '#c8d2dc'],
+  },
+  dark: {
+    sky: [DEFAULT_WORKPLANE.dark.sky, '#000000', '#101a26', '#1c1726', '#0f1c19', '#241a1a'],
+    land: [DEFAULT_WORKPLANE.dark.land, '#000000', '#111820', '#262233', '#182420', '#2b2020'],
+  },
+}
 
 /** Plain-English read-out for the grip slider, so the number is never the only clue. */
 function gripWord(friction: number) {
@@ -46,6 +64,9 @@ export default function SettingsPanel({ open, onClose }: { open: boolean; onClos
   const s = useRun()
   const [calibrating, setCalibrating] = useState(false)
   const standardFit = s.marbleDiameter === STANDARD_MARBLE && s.innerDiameter === STANDARD_BORE
+  const workplane = s.workplane[s.theme]
+  const stock = DEFAULT_WORKPLANE[s.theme]
+  const stockWorkplane = workplane.sky === stock.sky && workplane.land === stock.land
 
   useEffect(() => {
     if (!open) return
@@ -116,6 +137,37 @@ export default function SettingsPanel({ open, onClose }: { open: boolean; onClos
             here reaches the pieces or an export. Hiding the simulator slider does not stop the
             marble either; the Simulator button still runs it. Your choices are remembered on this
             machine.
+          </InfoNote>
+        </CollapsiblePanel>
+
+        <CollapsiblePanel title="Workplane Appearance" defaultOpen={false}>
+          <span className="field-label">
+            The 3D stage
+            <em>the two colours the horizon runs between — {s.theme} theme</em>
+          </span>
+          <ColorField
+            label="Sky color"
+            hint="everything above the horizon"
+            value={workplane.sky}
+            onChange={(v) => s.setWorkplaneColor('sky', v)}
+            presets={WORKPLANE_SWATCHES[s.theme].sky}
+          />
+          <ColorField
+            label="Land color"
+            hint="the ground the grid is ruled on"
+            value={workplane.land}
+            onChange={(v) => s.setWorkplaneColor('land', v)}
+            presets={WORKPLANE_SWATCHES[s.theme].land}
+          />
+          <button onClick={s.resetWorkplane} disabled={stockWorkplane}>
+            ↺ {stockWorkplane ? `Standard ${s.theme} workplane` : `Reset ${s.theme} sky and land`}
+          </button>
+          <InfoNote label="Why did only one theme change?">
+            Each theme keeps its own pair, and this sets the one you are looking at — so a bright
+            daylight sky does not follow you into dark mode. Switch themes and pick again to set the
+            other. The haze a long run recedes into follows the sky, so the two never disagree, and
+            the grid lines keep the theme's own colour over whatever land you pick. Nothing here
+            touches the run or an export; your choices are remembered on this machine.
           </InfoNote>
         </CollapsiblePanel>
 

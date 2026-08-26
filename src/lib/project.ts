@@ -2,6 +2,9 @@ import {
   ANGLE_DEFAULTS,
   CORKSCREW_DEFAULTS,
   CORNER_DEFAULTS,
+  FUNNEL_DEFAULTS,
+  FUNNEL_TILT_LIMITS,
+  FUNNEL_TURN_LIMITS,
   HOOK_DEFAULTS,
   HOOK_SLOPE_LIMIT,
   HOOK_SWEEP_LIMITS,
@@ -67,8 +70,16 @@ export const PROJECT_FORMAT = 'marble-run-generator'
  * bump: a reader that has never heard of it counts the rings off the height
  * instead, which is what every corkscrew did until then and is still a coil
  * that fits — it only loses the count somebody chose over the counted one.
+ * v9 added the funnel, the same way v8 added the corkscrew: a v8 reader would
+ * turn every funnel into a straight tube — and worse than the others, because a
+ * funnel is the part that hands the run on dead vertical, so everything bonded
+ * under one would come back pointing somewhere else entirely.
+ * A funnel's feed tilt rides along inside v9 without a bump: a reader that has
+ * never heard of it stands the part level — which is what every funnel was
+ * until then, and still a funnel that works — and the run comes back with its
+ * mouth a little higher than it was left.
  */
-export const PROJECT_VERSION = 8
+export const PROJECT_VERSION = 9
 
 /** Double-barrelled so a saved run reads as a project, not as loose data. */
 export const PROJECT_EXT = '.mrun.json'
@@ -185,7 +196,13 @@ const LEG_DEFAULT: Partial<Record<PieceType, number>> = {
   corner: CORNER_DEFAULTS.length,
   hook: HOOK_DEFAULTS.length,
   corkscrew: CORKSCREW_DEFAULTS.length,
+  // The one part whose two ends are nothing like each other: the feed has to
+  // reach out over the collar and the spout only has to clear the throat.
+  funnel: FUNNEL_DEFAULTS.length,
 }
+
+/** What a funnel's spout falls back to, its two ends being unalike. */
+const FUNNEL_EXIT_DEFAULT = FUNNEL_DEFAULTS.exitLength
 
 /**
  * Where a saved part was standing. Anything missing or unreadable puts it on the
@@ -285,13 +302,56 @@ function readPiece(raw: unknown, joined: boolean): Piece {
           ...(o.ringsSet === true ? { ringsSet: true } : {}),
         }
       : {}),
-    ...(type === 'angle' || type === 'corner' || type === 'hook' || type === 'corkscrew'
+    // A funnel is its bowl: how wide the mouth is, how deep it goes, how high
+    // the collar stands and how many times round the marble whirls on the way
+    // to the throat. Its feed stub is held up to what the tube here demands on
+    // the way in, so a file saved against a thinner tube opens with a stub long
+    // enough to stand on — the same repair the coils get.
+    ...(type === 'funnel'
+      ? {
+          height: num(
+            o.height,
+            PIECE_LIMITS.height.min,
+            PIECE_LIMITS.height.max,
+            FUNNEL_DEFAULTS.height,
+          ),
+          topDiameter: num(
+            o.topDiameter,
+            PIECE_LIMITS.topDiameter.min,
+            PIECE_LIMITS.topDiameter.max,
+            FUNNEL_DEFAULTS.mouthDiameter,
+          ),
+          rim: num(o.rim, PIECE_LIMITS.rim.min, PIECE_LIMITS.rim.max, FUNNEL_DEFAULTS.rim),
+          // The fall the whole part is stood at. Anything missing or out of
+          // range is the level feed every funnel had before the tilt existed.
+          tilt: num(o.tilt, FUNNEL_TILT_LIMITS.min, FUNNEL_TILT_LIMITS.max, 0),
+          rings: num(
+            o.rings,
+            FUNNEL_TURN_LIMITS.min,
+            FUNNEL_TURN_LIMITS.max,
+            FUNNEL_DEFAULTS.turns,
+          ),
+          // Only a funnel built without a lead-in carries the flag; anything
+          // missing or unreadable reads as the tube every funnel has.
+          ...(o.leadIn === false ? { leadIn: false } : {}),
+          // A stub with no style of its own follows the part, the same way the
+          // part follows the run — so an unreadable one drops back to that
+          // rather than pinning the stub to something nobody asked for.
+          ...(isVariant(o.leadInVariant) ? { leadInVariant: o.leadInVariant } : {}),
+          ...(isVariant(o.leadOutVariant) ? { leadOutVariant: o.leadOutVariant } : {}),
+        }
+      : {}),
+    ...(type === 'angle' ||
+    type === 'corner' ||
+    type === 'hook' ||
+    type === 'corkscrew' ||
+    type === 'funnel'
       ? {
           exitLength: num(
             o.exitLength,
             PIECE_LIMITS.exitLength.min,
             PIECE_LIMITS.exitLength.max,
-            LEG_DEFAULT[type] ?? PIECE_LIMITS.exitLength.min,
+            type === 'funnel' ? FUNNEL_EXIT_DEFAULT : LEG_DEFAULT[type] ?? PIECE_LIMITS.exitLength.min,
           ),
         }
       : {}),

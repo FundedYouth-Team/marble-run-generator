@@ -24,6 +24,7 @@ import {
   cornerSpec,
   hookSpec,
   corkscrewSpec,
+  funnelSpec,
   headingAt,
   isChainRoot,
   degLabel,
@@ -985,6 +986,7 @@ function AssemblyDraft({ shifted }: { shifted: boolean }) {
       const corner = piece.type === 'corner'
       const hook = piece.type === 'hook'
       const coil = piece.type === 'corkscrew'
+      const bowl = piece.type === 'funnel'
       // A hidden part is still laid out — it holds the run's shape either side
       // of it — it is simply not drawn, and has no handles to grab.
       const shown = !piece.hidden
@@ -992,6 +994,7 @@ function AssemblyDraft({ shifted }: { shifted: boolean }) {
       const c = cornerSpec(piece)
       const h = hookSpec(piece)
       const k = corkscrewSpec(piece)
+      const b = funnelSpec(piece)
 
       const points: Pt[] = []
       for (const [i, seg] of p.segments.entries()) {
@@ -1037,7 +1040,14 @@ function AssemblyDraft({ shifted }: { shifted: boolean }) {
               k.bottomRadius * 2,
               units,
             )}  ↻${degLabel(k.turns)} rings  ${slope}`
-          : null
+          : bowl
+            ? // A funnel is its bowl: how wide the mouth is, how far the marble
+              // drops through it, and how many times round it goes on the way —
+              // with no angle worth naming, both of its own being fixed.
+              `Ø${lengthText(b.mouthRadius * 2, units)}  ↓${lengthText(b.depth, units)}  ${
+                b.turns ? `↻${degLabel(b.turns)} round` : 'straight in'
+              }`
+            : null
       parts.push({
         id: piece.id,
         index: p.index,
@@ -1087,7 +1097,10 @@ function AssemblyDraft({ shifted }: { shifted: boolean }) {
       // in the sidebar, where both are one figure rather than a guessed-at drag.
       // A corkscrew is the same again, and more so: its ends sit one above the
       // other, and its fall is not a free number to drag at — the coil sets it.
-      if (hook || coil) continue
+      // A funnel is a corkscrew's case exactly: it comes in at the tilt its
+      // lead-in is set to and leaves dead vertical, and neither of those is a
+      // number to drag at — the sidebar sets the tilt, and the bowl the rest.
+      if (hook || coil || bowl) continue
 
       if (proj.plan) {
         if (corner && breakAt) {

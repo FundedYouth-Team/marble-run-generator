@@ -1,6 +1,13 @@
 import * as THREE from 'three'
-import type { Centerline } from './centerline'
-import { jointSpec, type TubeSpec } from '../store'
+import { centerlineFor, type Centerline } from './centerline'
+import {
+  funnelForward,
+  funnelShell,
+  funnelSpoutUp,
+  funnelUp,
+  type FunnelBowl,
+} from './funnel'
+import { funnelSpec, funnelStubSpec, jointSpec, type Piece, type TubeSpec } from '../store'
 
 /**
  * A station is a cross-section of the extrusion at axial position `z`,
@@ -15,12 +22,32 @@ export interface Station {
 }
 
 /**
+ * Which snap features a swept length of tube carries at its ends.
+ *
+ * A part on its own has both: a socket to be fed through and a spigot to plug
+ * into whatever comes next. A length that runs into something else inside the
+ * same part has neither at that end — a funnel's feed tube meets its own bowl
+ * there, and a joint would be a joint with itself.
+ */
+export interface TubeEnds {
+  /** Female socket at the start of the length. */
+  socket: boolean
+  /** Barbed male spigot past the end of it. */
+  spigot: boolean
+}
+
+/** What a part standing on its own is: fed at one end, plugging in at the other. */
+const BOTH_ENDS: TubeEnds = { socket: true, spigot: true }
+
+/**
  * Axial profile of one straight piece, from the female socket at z=0 through
  * the body to the male spigot that plugs into the next piece.
  *
  *   |<-- socket -->|<------ body (length) ------>|<-- spigot -->|
+ *
+ * Either end may be left off, which cuts the tube square there instead.
  */
-export function stationsFor(spec: TubeSpec, length: number): Station[] {
+export function stationsFor(spec: TubeSpec, length: number, ends: TubeEnds = BOTH_ENDS): Station[] {
   const j = jointSpec(spec, length)
   const { innerR, outerR } = spec
   const socketR = Math.min(j.mateR + j.clearance, outerR - 0.4)
@@ -30,18 +57,25 @@ export function stationsFor(spec: TubeSpec, length: number): Station[] {
   const g0 = d * 0.4 // retention face
   const g1 = d * 0.7 // end of the lead-in ramp
 
-  return [
-    // Female socket bore, with a retention groove for the mating barb.
-    { z: 0, ri: socketR, ro: outerR },
-    { z: g0, ri: socketR, ro: outerR },
-    { z: g0, ri: grooveR, ro: outerR },
-    { z: g1, ri: grooveR, ro: outerR },
-    { z: g1, ri: socketR, ro: outerR },
-    { z: d, ri: socketR, ro: outerR },
-    // Socket shoulder — the mating spigot bottoms out here.
-    { z: d, ri: innerR, ro: outerR },
-    // Full-wall body.
-    { z: length, ri: innerR, ro: outerR },
+  const stations: Station[] = ends.socket
+    ? [
+        // Female socket bore, with a retention groove for the mating barb.
+        { z: 0, ri: socketR, ro: outerR },
+        { z: g0, ri: socketR, ro: outerR },
+        { z: g0, ri: grooveR, ro: outerR },
+        { z: g1, ri: grooveR, ro: outerR },
+        { z: g1, ri: socketR, ro: outerR },
+        { z: d, ri: socketR, ro: outerR },
+        // Socket shoulder — the mating spigot bottoms out here.
+        { z: d, ri: innerR, ro: outerR },
+      ]
+    : [{ z: 0, ri: innerR, ro: outerR }]
+
+  // Full-wall body.
+  stations.push({ z: length, ri: innerR, ro: outerR })
+  if (!ends.spigot) return stations
+
+  stations.push(
     // Spigot: outer half of the wall removed so the bore stays continuous.
     { z: length, ri: innerR, ro: j.mateR },
     { z: length + g0, ri: innerR, ro: j.mateR },
@@ -49,7 +83,8 @@ export function stationsFor(spec: TubeSpec, length: number): Station[] {
     { z: length + g0, ri: innerR, ro: barbR },
     { z: length + g1, ri: innerR, ro: j.mateR },
     { z: length + d, ri: innerR, ro: j.mateR },
-  ]
+  )
+  return stations
 }
 
 function radialDivisions(spec: TubeSpec) {
@@ -81,8 +116,8 @@ interface Profile {
   split: number
 }
 
-function profilePolygon(spec: TubeSpec, length: number): Profile {
-  const stations = stationsFor(spec, length)
+function profilePolygon(spec: TubeSpec, length: number, ends: TubeEnds): Profile {
+  const stations = stationsFor(spec, length, ends)
   const pts: ProfilePoint[] = []
   const wall: boolean[] = []
   const push = (z: number, r: number, onWall: boolean) => {
@@ -307,8 +342,35 @@ function bandTriangles(profile: Profile): [number, number, number][] {
  * along `line`. Local frame: +Z is the tube axis where the part starts, +Y is
  * up, so the opening of a half / 3-4 tube faces +Y.
  */
-export function buildPieceGeometry(spec: TubeSpec, line: Centerline): THREE.BufferGeometry {
-  return sweepProfile(spec, line, subdivide(profilePolygon(spec, line.length), line))
+export function buildPieceGeometry(
+  spec: TubeSpec,
+  line: Centerline,
+  ends: TubeEnds = BOTH_ENDS,
+): THREE.BufferGeometry {
+  return sweepProfile(spec, line, subdivide(profilePolygon(spec, line.length, ends), line))
+}
+
+/**
+ * One part as a solid, whichever kind of part it is.
+ *
+ * Every part but one is a length of tube swept along its own centreline, and
+ * this is where that stops being true: a funnel's centreline is the path a
+ * marble takes across an open bowl, and there is no section to carry along it.
+ * So the bowl is built as the bowl it is — see {@link buildFunnelGeometry} — and
+ * everything that wants a solid asks here rather than sweeping for itself.
+ */
+export function buildPartGeometry(spec: TubeSpec, piece: Piece): THREE.BufferGeometry {
+  if (piece.type === 'funnel') {
+    // The bowl is cut to the part's own tube; the two stubs may each be styled
+    // on their own, so they are asked for separately.
+    return buildFunnelGeometry(
+      spec,
+      funnelSpec(piece),
+      funnelStubSpec(spec, piece, 'lead'),
+      funnelStubSpec(spec, piece, 'drain'),
+    )
+  }
+  return buildPieceGeometry(spec, centerlineFor(piece))
 }
 
 /**
@@ -338,6 +400,561 @@ export function buildEndBandGeometry(
     { z: zA, r: spec.innerR },
   ]
   return sweepProfile(spec, line, subdivide({ points, split: 2 }, line))
+}
+
+/* ------------------------------------------------------------------ */
+/* The one part that is not a swept tube                               */
+/* ------------------------------------------------------------------ */
+
+/** How finely a bowl is spun about its axis. */
+const BOWL_DIVISIONS = 72
+
+/**
+ * How finely the collar is gridded where the lead-in breaks through it — round,
+ * and up its height. A whole multiple of the divisions the rest of the bowl is
+ * spun at, so the facets line up where the collar meets the cone.
+ *
+ * A cell the bore touches at all is dropped, so a coarser grid only ever makes
+ * the hole a shade wider than the bore — never narrower. That is the right way
+ * to be wrong: the marble is never pinched, and the difference is a millimetre
+ * or two of clearance round an opening the tube itself lines.
+ */
+const PIERCE_COLUMNS = BOWL_DIVISIONS * 3
+const PIERCE_ROWS = 12
+
+/**
+ * The straight collar round the mouth, with a hole poked through it where the
+ * lead-in's bore comes in — and nothing else taken out of it.
+ *
+ * The wall is closed. That is the whole point of building this band as a grid
+ * rather than as a lathe spun part of the way round: a lathe can only leave a
+ * gap by stopping and starting again, which takes out the wall's whole height
+ * over the arc it skips and leaves the mouth notched. Here the wall is laid out
+ * as it really is — round by up — and only the cells the bore actually passes
+ * through are dropped, so what is left is a closed shell with a hole in its side
+ * the size of the tube, exactly as if one had been drilled.
+ *
+ * The hole is lined by the tube itself, which runs on through it, so the two
+ * solids together carry the bore across the wall without either of them being
+ * cut against the other.
+ */
+function collarGeometry(
+  centre: THREE.Vector3,
+  frame: BowlFrame,
+  rIn: number,
+  rOut: number,
+  yLo: number,
+  yHi: number,
+  pierce: ((p: THREE.Vector3) => boolean) | null,
+): THREE.BufferGeometry {
+  const cols = pierce ? PIERCE_COLUMNS : BOWL_DIVISIONS
+  const rows = pierce ? PIERCE_ROWS : 1
+  const { x: bx, up, forward } = frame
+
+  const at = (i: number, j: number, r: number) => {
+    const a = (Math.PI * 2 * (i % cols)) / cols
+    const y = yLo + ((yHi - yLo) * j) / rows
+    return new THREE.Vector3()
+      .copy(centre)
+      .addScaledVector(bx, r * Math.cos(a))
+      .addScaledVector(forward, r * Math.sin(a))
+      .addScaledVector(up, y)
+  }
+  /** Outward, at this column — the way the wall faces there. */
+  const radial = (i: number) => {
+    const a = (Math.PI * 2 * (i % cols)) / cols
+    return new THREE.Vector3()
+      .addScaledVector(bx, Math.cos(a))
+      .addScaledVector(forward, Math.sin(a))
+  }
+
+  // Which grid corners the bore reaches, at either face of the wall.
+  const hit: boolean[][] = []
+  for (let i = 0; i <= cols; i++) {
+    const column: boolean[] = []
+    for (let j = 0; j <= rows; j++) {
+      column.push(!!pierce && (pierce(at(i, j, rIn)) || pierce(at(i, j, rOut))))
+    }
+    hit.push(column)
+  }
+  // A cell the bore touches at all is dropped, so the hole is never smaller than
+  // the bore it has to pass.
+  const open = (i: number, j: number) =>
+    j >= 0 &&
+    j < rows &&
+    (hit[i % cols][j] ||
+      hit[(i + 1) % cols][j] ||
+      hit[i % cols][j + 1] ||
+      hit[(i + 1) % cols][j + 1])
+
+  const positions: number[] = []
+  const indices: number[] = []
+  /** One quad, wound so that it faces `away`. */
+  const quad = (a: THREE.Vector3, b: THREE.Vector3, c: THREE.Vector3, d: THREE.Vector3, away: THREE.Vector3) => {
+    const base = positions.length / 3
+    for (const p of [a, b, c, d]) positions.push(p.x, p.y, p.z)
+    const normal = new THREE.Vector3()
+      .subVectors(b, a)
+      .cross(new THREE.Vector3().subVectors(c, a))
+    if (normal.dot(away) < 0) indices.push(base, base + 2, base + 1, base, base + 3, base + 2)
+    else indices.push(base, base + 1, base + 2, base, base + 2, base + 3)
+  }
+
+  for (let i = 0; i < cols; i++) {
+    const out = radial(i)
+    const inward = out.clone().negate()
+    for (let j = 0; j < rows; j++) {
+      if (open(i, j)) {
+        // The sides of the hole: wherever a dropped cell meets a standing one,
+        // the wall's two faces are joined across its thickness.
+        for (const [di, dj] of [
+          [-1, 0],
+          [1, 0],
+          [0, -1],
+          [0, 1],
+        ] as const) {
+          const ni = (i + di + cols) % cols
+          const nj = j + dj
+          // Off the top or bottom of the band there is a cap rather than a
+          // neighbour, and the cap has already been left out under the hole.
+          if (nj >= 0 && nj < rows && !open(ni, nj)) {
+            const [p, q] =
+              di !== 0
+                ? [[di > 0 ? i + 1 : i, j], [di > 0 ? i + 1 : i, j + 1]]
+                : [[i, dj > 0 ? j + 1 : j], [i + 1, dj > 0 ? j + 1 : j]]
+            quad(
+              at(p[0], p[1], rIn),
+              at(p[0], p[1], rOut),
+              at(q[0], q[1], rOut),
+              at(q[0], q[1], rIn),
+              // Into the hole, away from the wall that is left standing.
+              new THREE.Vector3()
+                .subVectors(at(i, j, (rIn + rOut) / 2), at(ni, nj, (rIn + rOut) / 2)),
+            )
+          }
+        }
+        continue
+      }
+      // The wall itself, inside and out.
+      quad(at(i, j, rOut), at(i + 1, j, rOut), at(i + 1, j + 1, rOut), at(i, j + 1, rOut), out)
+      quad(at(i, j, rIn), at(i + 1, j, rIn), at(i + 1, j + 1, rIn), at(i, j + 1, rIn), inward)
+      // ...and the rim at either end of it.
+      if (j === rows - 1) {
+        quad(at(i, j + 1, rIn), at(i, j + 1, rOut), at(i + 1, j + 1, rOut), at(i + 1, j + 1, rIn), up)
+      }
+      if (j === 0) {
+        quad(at(i, 0, rIn), at(i, 0, rOut), at(i + 1, 0, rOut), at(i + 1, 0, rIn), up.clone().negate())
+      }
+    }
+  }
+
+  const geom = new THREE.BufferGeometry()
+  geom.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3))
+  geom.setIndex(indices)
+  return geom
+}
+
+/** One point on a bowl's profile, in the (radial, axial) half-plane. */
+interface BowlPoint {
+  r: number
+  y: number
+}
+
+/**
+ * The frame a bowl is spun in: its own upright, and the pair of level axes its
+ * mouth is spanned by. A funnel fed downhill is stood at that fall along with
+ * the rest of the run, so this is what keeps the bowl inside it level — see
+ * {@link funnelUp}.
+ */
+interface BowlFrame {
+  x: THREE.Vector3
+  up: THREE.Vector3
+  forward: THREE.Vector3
+}
+
+/**
+ * The lead-in, cut off against the inside of the bowl.
+ *
+ * This is what makes the tube part of the funnel rather than a thing laid
+ * through it. The tube is swept as any straight length is, but every line along
+ * its surface stops where it would break the bowl's inner wall — so what is left
+ * is enclosed on the outside, where the tube stands proud of the collar and is
+ * grown into it, and smooth on the inside, where there is nothing but the wall
+ * and the opening through it.
+ *
+ * Running in on the tangent, a tube's near flank meets the wall long before its
+ * far one does, so the cut takes the roof off it over that stretch and the last
+ * of the lead-in becomes an open trough running along the inside of the mouth.
+ * That is not a special case bolted on — it is the same cut, and it is exactly
+ * how a marble fed round the wall is delivered.
+ *
+ * Solved rather than sampled: a line along the tube is straight, the wall is a
+ * cylinder, so where the two meet is a quadratic and the near root is the answer.
+ */
+function leadInGeometry(
+  spec: TubeSpec,
+  f: FunnelBowl,
+  centre: THREE.Vector3,
+  frame: BowlFrame,
+  mouthR: number,
+): THREE.BufferGeometry {
+  const profile = profilePolygon(spec, f.entry, { socket: true, spigot: false })
+  const poly = profile.points
+  const div = radialDivisions(spec)
+  // A closed tube wraps, so the last angular sample *is* the first one.
+  const samples = spec.closed ? div : div + 1
+  // The bowl's axis, on the mouth's own pair of level axes. The tube runs down
+  // local +Z whatever the lead-in is tipped to, so the tilt shows up here as the
+  // share of its length and of its section that lies along the mouth's heading.
+  const cx = centre.dot(frame.x)
+  const cz = centre.dot(frame.forward)
+  const lean = frame.forward.y
+  const along = frame.forward.z
+  // Never cut back into the socket: a lead-in that meets the wall that early is
+  // one the reach should have stopped, and a stub with no socket is worse than a
+  // stub that pokes in.
+  const floor = jointSpec(spec, f.entry).depth * 1.25
+
+  /** How far a line along the tube may run before it is inside the bowl. */
+  const stopAt = (r: number, ca: number, sa: number) => {
+    const across = r * ca - cx
+    const room = mouthR * mouthR - across * across
+    // This line passes outside the mouth altogether — it never breaks through.
+    if (room <= 0 || Math.abs(along) < 1e-9) return Infinity
+    const base = r * sa * lean - cz
+    return Math.max(floor, (-base - Math.sqrt(room)) / along)
+  }
+
+  const positions: number[] = []
+  const indices: number[] = []
+  const flip = signedArea(poly) < 0
+  const ring: number[][] = []
+  for (const [e, p] of poly.entries()) {
+    const at: number[] = []
+    for (let i = 0; i < samples; i++) {
+      const a = spec.startAngle + (spec.sweep * i) / div
+      const ca = Math.cos(a)
+      const sa = Math.sin(a)
+      at.push(positions.length / 3)
+      positions.push(p.r * ca, p.r * sa, Math.min(p.z, stopAt(p.r, ca, sa)))
+    }
+    ring.push(at)
+    void e
+  }
+
+  // The lateral surface: one strip per edge of the profile.
+  for (let e = 0; e < poly.length; e++) {
+    const f2 = (e + 1) % poly.length
+    for (let j = 0; j < div; j++) {
+      const k = (j + 1) % samples
+      const a0 = ring[e][j]
+      const a1 = ring[e][k]
+      const b0 = ring[f2][j]
+      const b1 = ring[f2][k]
+      if (flip) indices.push(a0, b1, b0, a0, a1, b1)
+      else indices.push(a0, b0, b1, a0, b1, a1)
+    }
+  }
+
+  // The cut edges of an open tube, closed off across the wall.
+  if (!spec.closed) {
+    const faces = bandTriangles(profile)
+    const v = (at: number) => new THREE.Vector3().fromArray(positions, at * 3)
+    for (const [i, outward] of [
+      [0, -1],
+      [samples - 1, 1],
+    ] as const) {
+      const a = spec.startAngle + (spec.sweep * i) / div
+      const away = new THREE.Vector3(-Math.sin(a), Math.cos(a), 0).multiplyScalar(outward)
+      let best = -1
+      let normal = new THREE.Vector3()
+      for (const t of faces) {
+        const n = new THREE.Vector3()
+          .subVectors(v(ring[t[1]][i]), v(ring[t[0]][i]))
+          .cross(new THREE.Vector3().subVectors(v(ring[t[2]][i]), v(ring[t[0]][i])))
+        if (n.lengthSq() > best) {
+          best = n.lengthSq()
+          normal = n
+        }
+      }
+      const reverse = normal.dot(away) < 0
+      for (const [x, y, z] of faces) {
+        if (reverse) indices.push(ring[x][i], ring[z][i], ring[y][i])
+        else indices.push(ring[x][i], ring[y][i], ring[z][i])
+      }
+    }
+  }
+
+  const geom = new THREE.BufferGeometry()
+  geom.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3))
+  geom.setIndex(indices)
+  return geom
+}
+
+/**
+ * Whether a point is inside the lead-in's bore — the test the collar is pierced
+ * by. The tube runs from the origin down local +Z, so this is its distance off
+ * that axis and how far along it has got, and nothing more.
+ *
+ * A hair of clearance is allowed round the bore, so the hole is never left with
+ * a rim of wall standing a fraction of a millimetre into the marble's way.
+ */
+function boreOf(f: FunnelBowl, innerR: number) {
+  const clear = innerR + 0.3
+  return (p: THREE.Vector3) => Math.hypot(p.x, p.y) <= clear && p.z >= 0 && p.z <= f.entry
+}
+
+/** A straight length of centreline, for the two stubs a bowl is fed and drained by. */
+function straightLine(from: THREE.Vector3, to: THREE.Vector3, up?: THREE.Vector3): Centerline {
+  const step = new THREE.Vector3().subVectors(to, from)
+  const length = step.length()
+  return {
+    points: [from.clone(), to.clone()],
+    dirs: [length > 1e-9 ? step.divideScalar(length) : new THREE.Vector3(0, 0, 1)],
+    distances: [0, length],
+    length,
+    corner: null,
+    ups: up ? [up.clone()] : undefined,
+  }
+}
+
+/**
+ * A closed profile spun about an upright axis at `centre` — the bowl itself,
+ * built the way a bowl is rather than swept along the path through it.
+ *
+ * The profile runs down the inside, across the throat, back up the outside and
+ * across the rim, so the solid it makes is a shell with the throat open right
+ * through it. Which way round the triangles face is read off the profile rather
+ * than assumed, so a profile listed the other way about still comes out with its
+ * surface pointing outward.
+ *
+ * `arc` spins it part of the way round instead, and closes the two ends off with
+ * flat faces — which is how the collar is given the opening the lead-in's bore
+ * comes out through.
+ */
+function bowlGeometry(
+  raw: BowlPoint[],
+  centre: THREE.Vector3,
+  frame: BowlFrame,
+  arc?: { from: number; sweep: number },
+): THREE.BufferGeometry {
+  // A collar exactly as tall as its crown band leaves the two coincident, which
+  // would only add a ring of slivers.
+  const profile = raw.filter(
+    (p, i) =>
+      i === 0 ||
+      Math.abs(p.r - raw[i - 1].r) > 1e-6 ||
+      Math.abs(p.y - raw[i - 1].y) > 1e-6,
+  )
+  const n = profile.length
+  const sweep = arc ? arc.sweep : Math.PI * 2
+  const round = !arc
+  const segs = Math.max(3, Math.ceil((BOWL_DIVISIONS * sweep) / (Math.PI * 2)))
+  // A closed spin wraps, so the last ring *is* the first one.
+  const rings = round ? segs : segs + 1
+
+  const { x: bx, up, forward } = frame
+  const positions: number[] = []
+  for (let i = 0; i < rings; i++) {
+    const a = (arc ? arc.from : 0) + (sweep * i) / segs
+    const ca = Math.cos(a)
+    const sa = Math.sin(a)
+    for (const p of profile) {
+      positions.push(
+        centre.x + bx.x * p.r * ca + forward.x * p.r * sa + up.x * p.y,
+        centre.y + bx.y * p.r * ca + forward.y * p.r * sa + up.y * p.y,
+        centre.z + bx.z * p.r * ca + forward.z * p.r * sa + up.z * p.y,
+      )
+    }
+  }
+
+  let area = 0
+  for (let j = 0; j < n; j++) {
+    const p = profile[j]
+    const q = profile[(j + 1) % n]
+    area += p.r * q.y - q.r * p.y
+  }
+  const out = area > 0
+
+  const indices: number[] = []
+  for (let i = 0; i < segs; i++) {
+    const ring = i * n
+    const next = ((i + 1) % rings) * n
+    for (let j = 0; j < n; j++) {
+      const k = (j + 1) % n
+      const a = ring + j
+      const b = next + j
+      const c = next + k
+      const d = ring + k
+      if (out) indices.push(a, c, b, a, d, c)
+      else indices.push(a, b, c, a, c, d)
+    }
+  }
+
+  // The two cut ends of a part-way spin. The profile is the plain rectangle of a
+  // collar band, so a fan off its first corner covers it; which way the fan
+  // faces is measured rather than assumed, and turned about if it has come out
+  // looking back into the material.
+  if (arc) {
+    const v = (at: number) => new THREE.Vector3().fromArray(positions, at * 3)
+    for (const [ring, side] of [
+      [0, -1],
+      [segs * n, 1],
+    ] as const) {
+      const fan: [number, number, number][] = []
+      for (let j = 1; j < n - 1; j++) fan.push([ring, ring + j, ring + j + 1])
+      if (!fan.length) continue
+      // The way the spin is travelling at this end; the face has to look along
+      // it at the far end and back down it at the near one.
+      const a = arc.from + (side > 0 ? sweep : 0)
+      const away = bx
+        .clone()
+        .multiplyScalar(-Math.sin(a))
+        .addScaledVector(forward, Math.cos(a))
+        .multiplyScalar(side)
+      const [p, q, r] = fan[Math.floor(fan.length / 2)]
+      const normal = new THREE.Vector3()
+        .subVectors(v(q), v(p))
+        .cross(new THREE.Vector3().subVectors(v(r), v(p)))
+      const flip = normal.dot(away) < 0
+      for (const [x, y, z] of fan) {
+        if (flip) indices.push(x, z, y)
+        else indices.push(x, y, z)
+      }
+    }
+  }
+
+  const geom = new THREE.BufferGeometry()
+  geom.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3))
+  geom.setIndex(indices)
+  return geom
+}
+
+/**
+ * Several solids as one. They are laid alongside one another rather than cut
+ * against one another — a feed tube buried a half-wall into a collar overlaps
+ * it, and stays overlapping it — which is what a slicer takes a model to mean
+ * anyway: material is material, and two solids sharing some of it print as the
+ * one lump they are.
+ */
+function mergeSolids(parts: THREE.BufferGeometry[]): THREE.BufferGeometry {
+  const positions: number[] = []
+  const indices: number[] = []
+  for (const part of parts) {
+    const base = positions.length / 3
+    const pos = part.getAttribute('position')
+    for (let i = 0; i < pos.count; i++) positions.push(pos.getX(i), pos.getY(i), pos.getZ(i))
+    const index = part.getIndex()
+    if (index) for (let i = 0; i < index.count; i++) indices.push(base + index.getX(i))
+    else for (let i = 0; i < pos.count; i++) indices.push(base + i)
+    part.dispose()
+  }
+
+  const geom = new THREE.BufferGeometry()
+  geom.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3))
+  geom.setIndex(indices)
+  geom.computeVertexNormals()
+  geom.computeBoundingSphere()
+  return geom
+}
+
+/**
+ * A funnel as a solid: the lead-in that feeds the mouth, the bowl, and the
+ * lead-out under the throat.
+ *
+ * They are built apart and laid together, because the part is genuinely several
+ * things rather than one section carried along a line.
+ *
+ * The lead-in runs level from its socket in to the mouth, aimed across the bowl
+ * rather than at it, which is what sets the marble whirling. The collar's crown
+ * band is spun through everything but the tube's *bore* — see
+ * {@link FunnelShell.gate} — so the band runs straight through the tube's wall
+ * and closes on the opening from every side: what shows in the rim is the hole
+ * the marble comes out of and nothing else, and the tube reads as the wall
+ * carrying on rather than as a cylinder dropped into a notch. Under it the band
+ * starts again right the way round, so there is nothing to escape by.
+ *
+ * The bowl proper is a shell spun about its own axis, collar then cone, open
+ * right through at the throat. The lead-out picks that bore up a wall's
+ * thickness inside the cone, so the two are properly grown together rather than
+ * left touching at a single plane, and carries it down to the spigot.
+ *
+ * The two tubes are cut to their own specs, which is how a funnel can be fed
+ * through a closed tube and drain into an open one, or the other way about.
+ */
+export function buildFunnelGeometry(
+  spec: TubeSpec,
+  f: FunnelBowl,
+  lead: TubeSpec = spec,
+  drain: TubeSpec = spec,
+): THREE.BufferGeometry {
+  const shell = funnelShell(f, spec.innerR, spec.wall)
+  const crown = shell.crown
+  const sill = crown - shell.sill
+  const waist = crown - shell.rim
+  const throat = -f.depth
+  const out = shell.offset
+  // The bowl is level whatever the lead-in is tipped to, so it is spun in its
+  // own frame rather than in the part's — which are the same frame only on a
+  // funnel fed dead level. See {@link funnelUp}.
+  const frame: BowlFrame = {
+    x: new THREE.Vector3(1, 0, 0),
+    up: funnelUp(f.tilt),
+    forward: funnelForward(f.tilt),
+  }
+  const parts: THREE.BufferGeometry[] = []
+
+  if (f.lead && f.entry > 0) {
+    // Cut off against the inside of the bowl rather than run to a flat end — see
+    // {@link leadInGeometry}. Nothing of it is left standing inside the mouth,
+    // and the roof comes off the last stretch of its own accord where the tube
+    // runs in along the wall.
+    parts.push(leadInGeometry(lead, f, shell.centre, frame, shell.mouthR))
+  }
+
+  // The collar: a closed wall with a hole poked through it where the lead-in's
+  // bore comes in, and nothing else taken out of it — see {@link collarGeometry}.
+  // It reaches a wall's thickness below the sill so it and the bowl under it are
+  // grown together rather than left touching at a plane.
+  parts.push(
+    collarGeometry(
+      shell.centre,
+      frame,
+      shell.mouthR,
+      shell.mouthR + out,
+      sill - spec.wall,
+      crown,
+      f.lead && f.entry > 0 ? boreOf(f, spec.innerR) : null,
+    ),
+  )
+
+  // The bowl under it: the rest of the collar, then the cone in to the throat.
+  parts.push(
+    bowlGeometry(
+      [
+        { r: shell.mouthR, y: sill },
+        { r: shell.mouthR, y: waist },
+        { r: shell.throatR, y: throat },
+        { r: shell.throatR + out, y: throat },
+        { r: shell.mouthR + out, y: waist },
+        { r: shell.mouthR + out, y: sill },
+      ],
+      shell.centre,
+      frame,
+    ),
+  )
+
+  // The spout starts inside the cone rather than under it, so the extra wall's
+  // worth is added to its body and the spigot still lands where the path ends.
+  const head = shell.centre.clone().addScaledVector(frame.up, throat + spec.wall)
+  const spout = straightLine(
+    head,
+    head.clone().addScaledVector(frame.up, -(f.exit + spec.wall)),
+    funnelSpoutUp(f),
+  )
+  parts.push(buildPieceGeometry(drain, spout, { socket: false, spigot: true }))
+
+  return mergeSolids(parts)
 }
 
 /** Sweeps one closed (z, r) profile about `line` into a solid. */

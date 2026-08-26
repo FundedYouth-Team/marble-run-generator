@@ -1,11 +1,11 @@
 import * as THREE from 'three'
 import { STLExporter } from 'three/examples/jsm/exporters/STLExporter.js'
 import { OBJExporter } from 'three/examples/jsm/exporters/OBJExporter.js'
-import { buildPieceGeometry } from './geometry'
+import { buildPartGeometry } from './geometry'
 import { centerlineFor, shapeKey } from './centerline'
 import { buildThreeMF } from './threemf'
 import type { PlacedPiece } from './layout'
-import { angleSpec, pieceSpec, type Piece, type TubeSpec } from '../store'
+import { angleSpec, funnelTilt, pieceSpec, type Piece, type TubeSpec } from '../store'
 
 /**
  * All three formats are written at 1 unit = 1 mm, which is already this app's
@@ -57,8 +57,17 @@ const LAY_FLAT = new THREE.Matrix4()
  * for the half and 3/4 variants. A bent part still arches — its opening has to
  * follow the bend — so it is tipped back by half its bend first, which sits
  * both legs the same height off the plate instead of standing one of them up.
+ *
+ * A funnel prints mouth-up or not at all, and standing the part's own up axis on
+ * the plate is exactly what this does — for a funnel fed level. One fed downhill
+ * is stood at that fall, bowl and all, so it is tipped back by the tilt first
+ * and the mouth comes level again.
  */
 function layFlat(piece: Piece): THREE.Matrix4 {
+  if (piece.type === 'funnel') {
+    const tilt = THREE.MathUtils.degToRad(funnelTilt(piece))
+    return tilt ? LAY_FLAT.clone().multiply(new THREE.Matrix4().makeRotationX(tilt)) : LAY_FLAT
+  }
   if (piece.type !== 'angle') return LAY_FLAT
   const half = THREE.MathUtils.degToRad(angleSpec(piece).bend) / 2
   return LAY_FLAT.clone().multiply(new THREE.Matrix4().makeRotationX(-half))
@@ -90,7 +99,7 @@ function geometryCache(spec: TubeSpec) {
       const key = shapeKey(piece, own)
       let g = cache.get(key)
       if (!g) {
-        g = buildPieceGeometry(own, centerlineFor(piece))
+        g = buildPartGeometry(own, piece)
         cache.set(key, g)
       }
       return g
@@ -239,7 +248,7 @@ export function exportPiece(
   name: string,
 ): ExportResult {
   const line = centerlineFor(piece)
-  const geom = buildPieceGeometry(pieceSpec(spec, piece), line)
+  const geom = buildPartGeometry(pieceSpec(spec, piece), piece)
   const mesh = new THREE.Mesh(geom)
   mesh.applyMatrix4(layFlat(piece))
 

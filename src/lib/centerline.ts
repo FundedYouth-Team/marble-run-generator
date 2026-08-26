@@ -1,10 +1,12 @@
 import * as THREE from 'three'
 import { hookPath } from './hook'
 import { corkscrewPath } from './corkscrew'
+import { funnelPath } from './funnel'
 import {
   angleSpec,
   cornerSpec,
   corkscrewSpec,
+  funnelSpec,
   hookSpec,
   type Piece,
   type TubeSpec,
@@ -169,6 +171,23 @@ function corkscrewLine(piece: Piece): Centerline {
 }
 
 /**
+ * A funnel: a level feed stub, the whirl down the bowl, and the drop out of the
+ * throat. The whirl is solved in `lib/funnel` and chopped as coarsely as a coil,
+ * for the same reason — it goes round several times rather than part of once.
+ *
+ * This is the one part whose centreline is not the axis of a tube. There is no
+ * tube around it: the marble is loose in the bowl, and the line is the path it
+ * takes across the wall. Everything downstream still reads it the same way, so
+ * the marble runs it, the draft draws it and the run is measured along it
+ * exactly as if it were a length of pipe — but the solid is not swept along it.
+ * See `buildFunnelGeometry`.
+ */
+function funnelLine(piece: Piece): Centerline {
+  const { points, ups } = funnelPath(funnelSpec(piece), COIL_STEP_DEG, ARC_MIN_CHORDS)
+  return fromPoints(points, null, ups)
+}
+
+/**
  * The centreline of one part. A plain tube is a single chord; a connector is
  * two legs meeting at a break, with the break optionally rounded into an arc
  * tangent to both; a hook turns the run right round on a helix; a corkscrew
@@ -187,6 +206,7 @@ export function centerlineFor(piece: Piece): Centerline {
   }
   if (piece.type === 'hook') return hookLine(piece)
   if (piece.type === 'corkscrew') return corkscrewLine(piece)
+  if (piece.type === 'funnel') return funnelLine(piece)
   return fromPoints([new THREE.Vector3(), new THREE.Vector3(0, 0, piece.length)], null)
 }
 
@@ -219,6 +239,17 @@ export function shapeKey(piece: Piece, spec: TubeSpec): string {
   if (piece.type === 'corkscrew') {
     const k = corkscrewSpec(piece)
     return `${tube}:coil:${k.entry}:${k.topRadius}:${k.bottomRadius}:${k.turns}:${k.height}:${k.exit}`
+  }
+  // A funnel's fall is not part of its key either, and for a blunter reason:
+  // the fall it runs at is its lead-in's tilt, which is in the key already —
+  // the bowl under it is level whatever that says. What is here besides is the
+  // bowl's own numbers and the two stubs' styles — the one part whose ends may
+  // be cut differently from each other, so the tube at the head of the key does
+  // not finish the job on its own.
+  if (piece.type === 'funnel') {
+    const f = funnelSpec(piece)
+    const ends = `${piece.leadInVariant ?? '-'}:${piece.leadOutVariant ?? '-'}`
+    return `${tube}:funnel:${f.entry}:${f.tilt}:${f.mouthRadius}:${f.depth}:${f.rim}:${f.turns}:${f.exit}:${f.lead}:${ends}`
   }
   return `${tube}:straight:${piece.length}`
 }

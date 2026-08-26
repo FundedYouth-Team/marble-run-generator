@@ -3,6 +3,7 @@ import ColorField from './ColorField'
 import CollapsiblePanel from './CollapsiblePanel'
 import HoverHint from './HoverHint'
 import { pieceAxisLength } from '../lib/centerline'
+import { FUNNEL_LEAST_CONE } from '../lib/funnel'
 import {
   useRun,
   VARIANT_LABEL,
@@ -25,6 +26,19 @@ import {
   COIL_RING_GAP,
   HOOK_ROLL_FLAT,
   HOOK_ROLL_EDGE,
+  FUNNEL_TILT_LIMITS,
+  FUNNEL_TURN_LIMITS,
+  FUNNEL_TURNS_DROP,
+  FUNNEL_TURNS_SPIRAL,
+  funnelSpec,
+  funnelBowlOf,
+  funnelDrop as funnelDropOf,
+  funnelHand,
+  funnelHasLead,
+  funnelLength,
+  funnelReach,
+  funnelStubVariant,
+  funnelWhirls,
   slopeIsFixed,
   bendLimitsFor,
   slopeLimitsFor,
@@ -104,6 +118,25 @@ export default function Sidebar() {
    * has not the height for even the quarter turn it is floored at.
    */
   const coilGap = selected && coil ? corkscrewRingPitch(selected) - spec.outerR * 2 : 0
+  const funnel = selected && selected.type === 'funnel' ? funnelSpec(selected) : null
+  const funnelFall = selected && funnel ? funnelDropOf(selected) : 0
+  /** The bowl as it is actually cut, off this part's own tube. */
+  const bowl = selected && funnel ? funnelBowlOf(selected, spec.innerR, spec.wall) : null
+  /** How far the feed has to run before there is collar underneath it. */
+  const funnelLeast = selected && funnel ? funnelReach(selected, spec.innerR, spec.wall) : 0
+  /** Whether the marble is whirled round the bowl rather than dropped straight in. */
+  const whirls = !!selected && !!funnel && funnelWhirls(selected)
+  /** Whether the funnel is fed by a lead-in of its own, or is a bare bowl. */
+  const hasLead = !!selected && !!funnel && funnelHasLead(selected)
+  /** What each stub is actually cut in — its own style, or the part's. */
+  const leadInStyle = selected && funnel ? funnelStubVariant(selected, s.variant, 'lead') : style
+  const leadOutStyle = selected && funnel ? funnelStubVariant(selected, s.variant, 'drain') : style
+  /**
+   * How high the collar may stand. The bowl shares its depth out between the
+   * clearance the feed rides over, the collar, and the cone under it — and the
+   * cone is what actually gathers the marble in, so it is the one kept back.
+   */
+  const rimRoom = bowl ? Math.max(0, bowl.rim + bowl.cone - FUNNEL_LEAST_CONE) : 0
   // A part whose fall comes off its own shape has no start angle to set.
   const fixedSlope = !!selected && slopeIsFixed(selected)
   /**
@@ -801,6 +834,325 @@ export default function Sidebar() {
                       </p>
                     )}
                   </>
+                ) : funnel && bowl ? (
+                  <>
+                    {/* The lead-in is what makes a funnel a whirl rather than a
+                        catch, so it is the first thing settled here. */}
+                    <span className="field-label">
+                      Lead-in
+                      <em>the tube that feeds the mouth, and points the marble round it</em>
+                    </span>
+                    <div className="segmented small">
+                      <button
+                        className={hasLead ? 'on' : ''}
+                        onClick={() => s.updatePiece(selected.id, { leadIn: true })}
+                        title="Feed the mouth through a tube of the funnel's own, cut in through the collar"
+                      >
+                        Tube
+                      </button>
+                      <button
+                        className={hasLead ? '' : 'on'}
+                        onClick={() => s.updatePiece(selected.id, { leadIn: false })}
+                        title="Leave the lead-in off — a bare bowl, with the mouth for an inlet"
+                      >
+                        None
+                      </button>
+                    </div>
+                    {hasLead && (
+                      /* The one length here that is not a free choice at the
+                         bottom end: the lead-in has to reach out through the
+                         collar before there is anything holding it up. */
+                      <NumberField
+                        label="Lead-in length"
+                        hint={`in to the mouth — at least ${formatLength(funnelLeast, s.units)} to reach the collar`}
+                        value={funnel.entry}
+                        onChange={(v) => s.updatePiece(selected.id, { length: v })}
+                        {...PIECE_LIMITS.length}
+                        min={funnelLeast}
+                      />
+                    )}
+                    {hasLead && (
+                      /* The one angle a funnel has. It is the part's own fall —
+                         the run is brought to it — and the bowl stays level
+                         under it whatever it is set to. */
+                      <NumberField
+                        label="Feed tilt"
+                        hint={
+                          funnel.tilt
+                            ? 'the lead-in runs downhill into the mouth; the bowl stays level'
+                            : 'the lead-in runs in level — tip it to feed the mouth downhill'
+                        }
+                        value={funnel.tilt}
+                        onChange={(v) => s.updatePiece(selected.id, { tilt: v })}
+                        unit="°"
+                        {...FUNNEL_TILT_LIMITS}
+                        ends={['Level', `${FUNNEL_TILT_LIMITS.max}° down`]}
+                      />
+                    )}
+                    <NumberField
+                      label="Mouth width"
+                      hint="the bowl's opening, inside the wall — the marble is let go onto it"
+                      value={funnel.mouthRadius * 2}
+                      onChange={(v) => s.updatePiece(selected.id, { topDiameter: v })}
+                      {...PIECE_LIMITS.topDiameter}
+                    />
+                    <NumberField
+                      label="Bowl depth"
+                      hint="mouth down to the throat"
+                      value={funnel.depth}
+                      onChange={(v) => s.updatePiece(selected.id, { height: v })}
+                      {...PIECE_LIMITS.height}
+                    />
+                    <NumberField
+                      label="Rim wall"
+                      hint={`the band the marble whirls against — at least ${formatLength(bowl.sill, s.units)}, to hold the lead-in's opening`}
+                      value={bowl.rim}
+                      onChange={(v) => s.updatePiece(selected.id, { rim: v })}
+                      {...PIECE_LIMITS.rim}
+                      min={bowl.sill}
+                      max={Math.max(bowl.sill, Math.min(PIECE_LIMITS.rim.max, rimRoom))}
+                    />
+                    {/* Whirled or dropped is one number — how many times round —
+                        so the two buttons set that number rather than a mode of
+                        their own. Nought of them is the marble going straight in,
+                        and so is having no lead-in to point it round. */}
+                    <span className="field-label">
+                      Feed
+                      <em>
+                        {hasLead
+                          ? 'round the wall on its own speed, or straight down into it'
+                          : 'a bare bowl takes it straight in — nothing is aimed across the mouth'}
+                      </em>
+                    </span>
+                    <div className="segmented small">
+                      <button
+                        className={whirls ? 'on' : ''}
+                        disabled={!hasLead}
+                        onClick={() =>
+                          s.updatePiece(selected.id, {
+                            rings: whirls
+                              ? funnel.turns
+                              : FUNNEL_TURNS_SPIRAL * (funnelHand(selected) < 0 ? -1 : 1),
+                          })
+                        }
+                        title={
+                          hasLead
+                            ? 'Deliver the marble across the mouth, so it whirls round the bowl on its way down'
+                            : 'A bare bowl has no lead-in to whirl the marble with'
+                        }
+                      >
+                        Whirl
+                      </button>
+                      <button
+                        className={whirls ? '' : 'on'}
+                        disabled={!hasLead}
+                        onClick={() => s.updatePiece(selected.id, { rings: FUNNEL_TURNS_DROP })}
+                        title="Deliver the marble straight into the bowl, so it slides down the wall"
+                      >
+                        Drop in
+                      </button>
+                    </div>
+                    {hasLead && (
+                      <NumberField
+                        label="Times round"
+                        hint="how far the marble whirls before it reaches the throat — 0 goes straight in"
+                        value={Math.abs(funnel.turns)}
+                        onChange={(v) =>
+                          s.updatePiece(selected.id, { rings: v * (funnelHand(selected) < 0 ? -1 : 1) })
+                        }
+                        unit=""
+                        min={0}
+                        max={FUNNEL_TURN_LIMITS.max}
+                        step={FUNNEL_TURN_LIMITS.step}
+                      />
+                    )}
+                    {whirls && (
+                      <>
+                        <span className="field-label">
+                          Whirl
+                          <em>which way round it goes on the way down</em>
+                        </span>
+                        <div className="segmented small">
+                          <button
+                            className={funnel.turns >= 0 ? 'on' : ''}
+                            onClick={() =>
+                              s.updatePiece(selected.id, { rings: Math.abs(funnel.turns) })
+                            }
+                            title="Whirl to the right — clockwise seen from above"
+                          >
+                            Right
+                          </button>
+                          <button
+                            className={funnel.turns < 0 ? 'on' : ''}
+                            onClick={() =>
+                              s.updatePiece(selected.id, { rings: -Math.abs(funnel.turns) })
+                            }
+                            title="Whirl to the left — anticlockwise seen from above"
+                          >
+                            Left
+                          </button>
+                        </div>
+                      </>
+                    )}
+                    <NumberField
+                      label="Lead-out length"
+                      hint="the spout — straight down out of the throat"
+                      value={funnel.exit}
+                      onChange={(v) => s.updatePiece(selected.id, { exitLength: v })}
+                      {...PIECE_LIMITS.exitLength}
+                    />
+                    {/* The two ends of a funnel do different jobs, so each is cut
+                        in a style of its own rather than both following the
+                        part's. Unset is that fallback, which is what Follow the
+                        part puts them back to. */}
+                    {hasLead && (
+                      <>
+                        <span className="field-label">
+                          Lead-in tube
+                          <em>
+                            {selected.leadInVariant
+                              ? 'this stub only'
+                              : `following the part — ${VARIANT_LABEL[style]}`}
+                          </em>
+                        </span>
+                        <div className="segmented small">
+                          {VARIANTS.map((v) => (
+                            <button
+                              key={v}
+                              className={leadInStyle === v ? 'on' : ''}
+                              onClick={() =>
+                                s.updatePiece(selected.id, {
+                                  leadInVariant: selected.leadInVariant === v ? undefined : v,
+                                })
+                              }
+                              title={`${VARIANT_NOTE[v]} Click again to follow the part.`}
+                            >
+                              {VARIANT_LABEL[v]}
+                            </button>
+                          ))}
+                        </div>
+                      </>
+                    )}
+                    <span className="field-label">
+                      Lead-out tube
+                      <em>
+                        {selected.leadOutVariant
+                          ? 'this stub only'
+                          : `following the part — ${VARIANT_LABEL[style]}`}
+                      </em>
+                    </span>
+                    <div className="segmented small">
+                      {VARIANTS.map((v) => (
+                        <button
+                          key={v}
+                          className={leadOutStyle === v ? 'on' : ''}
+                          onClick={() =>
+                            s.updatePiece(selected.id, {
+                              leadOutVariant: selected.leadOutVariant === v ? undefined : v,
+                            })
+                          }
+                          title={`${VARIANT_NOTE[v]} Click again to follow the part.`}
+                        >
+                          {VARIANT_LABEL[v]}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="readout">
+                      <div>
+                        <b>{lengthText(funnel.mouthRadius * 2, s.units)}</b>
+                        <span>Mouth Ø {UNIT_LABEL[s.units]}</span>
+                      </div>
+                      <div>
+                        <b>{degLabel(Math.abs(funnel.turns))}</b>
+                        <span>Times round</span>
+                      </div>
+                      <div>
+                        <b>{coarseText(funnelFall, s.units)}</b>
+                        <span>Drop {UNIT_WORD[s.units]}</span>
+                      </div>
+                    </div>
+                    <div className="readout">
+                      <div>
+                        <b>{coarseText(bowl.rim, s.units)}</b>
+                        <span>Rim wall {UNIT_WORD[s.units]}</span>
+                      </div>
+                      <div>
+                        <b>{coarseText(bowl.cone, s.units)}</b>
+                        <span>Cone {UNIT_WORD[s.units]}</span>
+                      </div>
+                      <div>
+                        <b>{coarseText(funnelLength(selected), s.units)}</b>
+                        <span>Run length {UNIT_WORD[s.units]}</span>
+                      </div>
+                    </div>
+                    <p className="note">
+                      {whirls ? (
+                        <>
+                          <b>The marble is whirled.</b> The lead-in comes in through a hole cut in
+                          the collar and stops just past the wall, aimed across the mouth rather
+                          than at it — so the marble leaves it still travelling the way the run
+                          was, goes {degLabel(Math.abs(funnel.turns))} times round to the{' '}
+                          {funnel.turns < 0 ? 'left' : 'right'} against the collar, and closes in
+                          on the throat as it drops. Held out against the wall by its own speed the
+                          whole way, which is what a funnel is really for.
+                        </>
+                      ) : hasLead ? (
+                        <>
+                          <b>The marble is dropped in.</b> The lead-in opens through the collar
+                          pointing at the middle, and the marble slides straight down the far wall
+                          to the throat. This is the same bowl with the whirl wound out of it — put
+                          any number of times round back in and the mouth swings round beside the
+                          lead-in instead of sitting ahead of it.
+                        </>
+                      ) : (
+                        <>
+                          <b>This is a bare bowl.</b> With no lead-in there is nothing aimed across
+                          the mouth to set the marble whirling, so it goes in and down whatever the
+                          count says — the mouth itself is the inlet, and the count is kept for
+                          when the lead-in comes back.
+                        </>
+                      )}{' '}
+                      Either way it leaves down the lead-out, dead vertical: that is the only way
+                      out of a funnel, so whatever is bonded under this one starts at 90°.
+                    </p>
+                    <p className="note">
+                      <b>The bowl is level and stays level.</b> A bowl only holds what is level, so
+                      the one angle this part has is the lead-in's: tip the feed and the whole part
+                      is stood at that fall with the bowl built back to level inside it. Past a few
+                      degrees the lead-in climbs out of the collar it is let through and hangs over
+                      the bowl joined to nothing, which is why the tilt stops where it does. Either
+                      way this part states its fall the way a corkscrew states its own, and the run
+                      in front has to be brought to it.{' '}
+                      {!hasLead
+                        ? 'Nothing mates at the inlet on a bare bowl — stand it under whatever is feeding it, or put the lead-in back.'
+                        : funnel.entry <= funnelLeast
+                          ? `The lead-in is at its shortest here: ${formatLength(funnelLeast, s.units)} is what it takes to reach out through a Ø${lengthText(funnel.mouthRadius * 2, s.units)} collar ${whirls ? 'along the tangent' : 'straight on'}, and a shorter one would stop inside the bowl with nothing holding it.`
+                          : `Anything past ${formatLength(funnelLeast, s.units)} of lead-in is track into the mouth, and yours.`}
+                    </p>
+                    {whirls && funnel.mouthRadius < s.marbleDiameter && (
+                      <p className="warn">
+                        The marble runs Ø{formatLength(funnel.mouthRadius * 2, s.units)} round a
+                        mouth barely wider than the marble itself — there is nothing here to whirl
+                        round. Widen the mouth, or drop the marble straight in.
+                      </p>
+                    )}
+                    {whirls && funnel.depth / Math.abs(funnel.turns) > funnel.mouthRadius && (
+                      <p className="warn">
+                        {formatCoarse(funnel.depth, s.units)} of bowl in{' '}
+                        {degLabel(Math.abs(funnel.turns))} times round is more drop than whirl — the
+                        marble will fall through rather than run round the wall. Add turns, or take
+                        some of the depth out.
+                      </p>
+                    )}
+                    <p className="note">
+                      The bowl itself is a bowl whatever the run is cut as — closed all the way
+                      round, because an open one would let the marble out sideways at the first
+                      turn. Only the two stubs carry a style, and each carries its own.
+                      {whirls && leadInStyle !== 'closed'
+                        ? ' A lead-in aimed across the mouth is worth closing: an open one lets the marble go before it has been pointed anywhere.'
+                        : ''}
+                    </p>
+                  </>
                 ) : (
                   <NumberField
                     label="Length"
@@ -857,7 +1209,9 @@ export default function Sidebar() {
                     ? `start, turn, end — ${hookLevel ? 'a flat hook leaves at the angle it enters' : 'on edge it leaves at the mirror of it'}`
                     : coil
                       ? 'start and end are the same, and neither is yours to set'
-                      : 'a tube leaves at the angle it enters'}
+                      : funnel
+                        ? 'in at the feed tilt, straight down out — neither is yours to set here'
+                        : 'a tube leaves at the angle it enters'}
               </em>
             </span>
 
@@ -870,7 +1224,9 @@ export default function Sidebar() {
                     ? 'the fall it comes into the turn at'
                     : coil
                       ? 'worked out — the coil has one fall it can run at'
-                      : 'the fall it runs at — negative climbs'
+                      : funnel
+                        ? 'the lead-in’s own tilt — set it with Feed tilt above'
+                        : 'the fall it runs at — negative climbs'
               }
               unit="°"
               readOnly={fixedSlope}
@@ -935,7 +1291,9 @@ export default function Sidebar() {
                       ? 'worked out — which way the turn is rolled says what it hands on'
                       : coil
                         ? 'worked out — the coil holds one fall the whole way down'
-                        : 'a straight part leaves at the angle it enters'
+                        : funnel
+                          ? 'straight down the throat — the only way out of a funnel'
+                          : 'a straight part leaves at the angle it enters'
                 }
                 unit="°"
                 readOnly
@@ -992,8 +1350,11 @@ export default function Sidebar() {
                   {fixedSlope && (
                     <>
                       {' '}
-                      This part cannot come to meet it — its fall is its coil's — so it is the
-                      part before that has to be brought round
+                      This part cannot come to meet it —{' '}
+                      {funnel
+                        ? 'its fall is its lead-in’s tilt, and its bowl has to stay level'
+                        : 'its fall is its coil’s'}{' '}
+                      — so it is the part before that has to be brought round
                       {matchable
                         ? '.'
                         : `, and ${PART_LABEL[upstream.type]} leaves at an angle worked out from its own turn. Put a tube or an angle connector between the two.`}
@@ -1016,7 +1377,9 @@ export default function Sidebar() {
                   : !matchable
                     ? 'Neither side of this joint is free to move'
                     : fixedSlope
-                      ? 'Swing the part before until it hands on the angle this coil runs at'
+                      ? funnel
+                        ? 'Swing the part before until it hands on the tilt this funnel is fed at'
+                        : 'Swing the part before until it hands on the angle this coil runs at'
                       : 'Set the start angle to whatever the part before hands on'
               }
             >

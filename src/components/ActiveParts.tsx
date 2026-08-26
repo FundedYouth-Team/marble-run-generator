@@ -6,6 +6,8 @@ import {
   cornerSpec,
   hookSpec,
   corkscrewSpec,
+  funnelSpec,
+  funnelStubVariant,
   degLabel,
   exitSlope,
   pieceLabel,
@@ -57,6 +59,26 @@ function summarise(p: Piece, style: TubeVariant, units: Unit): string {
     )} to Ø${n(k.bottomRadius * 2)} · ${formatLength(k.height, units)} down at ${degLabel(
       exitSlope(p),
     )}° · ${tube}`
+  }
+  if (p.type === 'funnel') {
+    const f = funnelSpec(p)
+    const feed = !f.lead
+      ? 'bare bowl'
+      : f.turns
+        ? `${degLabel(Math.abs(f.turns))} round ${f.turns < 0 ? 'left' : 'right'}`
+        : 'dropped in'
+    // The two stubs may be cut differently from each other, so both are named
+    // whenever either has a style of its own.
+    const stubs =
+      p.leadInVariant || p.leadOutVariant
+        ? `${VARIANT_LABEL[funnelStubVariant(p, style, 'lead')]} in / ${
+            VARIANT_LABEL[funnelStubVariant(p, style, 'drain')]
+          } out`
+        : tube
+    return `Ø${n(f.mouthRadius * 2)} mouth · ${feed} · ${formatLength(
+      f.depth,
+      units,
+    )} deep · level in, straight down out · ${stubs}`
   }
   return `${formatLength(p.length, units)} · ${degLabel(p.slope)}° slope · ${degLabel(
     p.turn,
