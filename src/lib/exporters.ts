@@ -5,7 +5,7 @@ import { buildPartGeometry } from './geometry'
 import { centerlineFor, shapeKey } from './centerline'
 import { buildThreeMF } from './threemf'
 import type { PlacedPiece } from './layout'
-import { angleSpec, pieceSpec, type Piece, type TubeSpec } from '../store'
+import { OPEN_SIDE_ANGLE, angleSpec, pieceSpec, type Piece, type TubeSpec } from '../store'
 
 /**
  * All three formats are written at 1 unit = 1 mm, which is already this app's
@@ -58,14 +58,24 @@ const LAY_FLAT = new THREE.Matrix4()
  * follow the bend — so it is tipped back by half its bend first, which sits
  * both legs the same height off the plate instead of standing one of them up.
  *
- * A funnel prints mouth-up or not at all, and standing the part's own up axis on
- * the plate is exactly what this does — a funnel is fed dead level, so its own
- * up axis and the world's are already the same one.
+ * A part cut open on its side is rolled about its own axis until that side is
+ * the one facing up, which is the whole point of the setting for printing: the
+ * slot still wants to be the face that needs no support. The roll goes on
+ * *outside* the tip, so a bend is squared up in its own plane first and the
+ * whole arch is then rolled — which for a part opened onto its side stands that
+ * arch on edge, exactly as it has to be for the slot to look at the ceiling.
+ *
+ * A funnel is the one part not rolled: it prints mouth-up or not at all, and its
+ * mouth is not the opening this setting names. Standing the part's own up axis
+ * on the plate is what {@link LAY_FLAT} already does — a funnel is fed dead
+ * level, so its own up axis and the world's are the same one.
  */
-function layFlat(piece: Piece): THREE.Matrix4 {
-  if (piece.type !== 'angle') return LAY_FLAT
+function layFlat(piece: Piece, own: TubeSpec): THREE.Matrix4 {
+  const roll = own.closed || piece.type === 'funnel' ? 0 : OPEN_SIDE_ANGLE[own.openSide]
+  const m = roll === 0 ? LAY_FLAT.clone() : LAY_FLAT.clone().multiply(new THREE.Matrix4().makeRotationZ(roll))
+  if (piece.type !== 'angle') return m
   const half = THREE.MathUtils.degToRad(angleSpec(piece).bend) / 2
-  return LAY_FLAT.clone().multiply(new THREE.Matrix4().makeRotationX(-half))
+  return m.multiply(new THREE.Matrix4().makeRotationX(-half))
 }
 
 /** Gap between parts on the print plate, mm. */
@@ -219,11 +229,12 @@ export function exportPrintPlate(
   let y = 0
   let previousR = 0
   parts.forEach((p, i) => {
-    const r = pieceSpec(spec, p.piece).outerR
+    const own = pieceSpec(spec, p.piece)
+    const r = own.outerR
     if (i > 0) y += previousR + r + PLATE_GAP
     previousR = r
     const mesh = new THREE.Mesh(cache.get(p.piece))
-    mesh.applyMatrix4(layFlat(p.piece))
+    mesh.applyMatrix4(layFlat(p.piece, own))
     mesh.position.set(0, y, 0)
     group.add(mesh)
   })
@@ -243,9 +254,10 @@ export function exportPiece(
   name: string,
 ): ExportResult {
   const line = centerlineFor(piece)
-  const geom = buildPartGeometry(pieceSpec(spec, piece), piece)
+  const own = pieceSpec(spec, piece)
+  const geom = buildPartGeometry(own, piece)
   const mesh = new THREE.Mesh(geom)
-  mesh.applyMatrix4(layFlat(piece))
+  mesh.applyMatrix4(layFlat(piece, own))
 
   const group = new THREE.Group()
   group.add(mesh)

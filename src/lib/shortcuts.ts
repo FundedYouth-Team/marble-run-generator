@@ -132,10 +132,10 @@ export function actionFor(e: KeyboardEvent, map: ShortcutMap): ShortcutAction | 
 /**
  * Whether a click on a part adds it to the selection rather than replacing it.
  *
- * The command key is what a set is built with elsewhere, and Shift is taken as
- * the same thing rather than as a range: the parts list is the run's order, and
- * a range down it would mean something different again on the stage, where there
- * is no order to sweep along. One key, one meaning, in all three views.
+ * The command key is what a set is built with, and on the stage Shift is taken
+ * as the same thing: there is no order to sweep along out there, so a range
+ * would mean nothing. The parts list is a list, and handles its own Shift as a
+ * range down it before ever asking this.
  */
 export function addsToSelection(e: {
   ctrlKey: boolean

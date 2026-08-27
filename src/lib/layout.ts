@@ -40,6 +40,26 @@ export interface Segment {
    * because there is no wall there to catch it.
    */
   enclosed: boolean
+  /**
+   * How tightly the run bends here, and which way the bend leans — null on a
+   * chord with nothing either side to bend against, and on a run that is dead
+   * straight through.
+   *
+   * A chord is straight by construction, so this is the curve the chords either
+   * side of it describe, read off the joints they meet at. What it buys the
+   * marble is the one force other than gravity acting across the tube: swung
+   * round a bend fast enough it is held out against the far wall, and a trough
+   * that would drop it standing still can carry it through. See `sag`.
+   */
+  curve: Curve | null
+}
+
+/** A bend the run takes, as the marble feels it. */
+export interface Curve {
+  /** Radius of the turn, mm — bigger is gentler. */
+  radius: number
+  /** Unit vector from the chord towards the centre of that turn, square to it. */
+  toward: THREE.Vector3
 }
 
 export interface PlacedPiece {
@@ -222,6 +242,9 @@ export function buildAssembly(pieces: Piece[]): Assembly {
         pitch: Math.asin(THREE.MathUtils.clamp(-step.y, -1, 1)),
         up: ups[i - 1] ?? new THREE.Vector3(0, 1, 0),
         enclosed: walled(i - 1),
+        // Filled in once the whole run is standing — a chord's bend is read off
+        // its neighbours, and the next part has not been placed yet.
+        curve: null,
       })
       s += length
       polyline.push(to.clone())
@@ -260,6 +283,8 @@ export function buildAssembly(pieces: Piece[]): Assembly {
     yaw += THREE.MathUtils.degToRad(exitTurn(piece))
   })
 
+  for (const run of chains) measureCurves(run.segments)
+
   const bounds = new THREE.Box3()
   if (polyline.length) bounds.setFromPoints(polyline)
   else bounds.set(new THREE.Vector3(), new THREE.Vector3())
@@ -275,6 +300,70 @@ export function buildAssembly(pieces: Piece[]): Assembly {
     bounds,
     polyline,
   }
+}
+
+/**
+ * A turn sharper than this is a corner rather than a curve, and the marble is
+ * taken to hit it rather than be swung round it. Two chords meeting at more than
+ * this are the mitre at a joint or the break in a connector — places the run
+ * genuinely kinks, where reading a radius off the angle would hand back a
+ * fiercely tight one that never existed. Radians.
+ */
+const CURVE_LIMIT = Math.PI / 4
+
+/**
+ * Reads the bend at each chord off the chords either side of it.
+ *
+ * A chord is straight; the curve is in the joints at its ends, so the turn taken
+ * at each end is shared between the two chords that meet there and the chord's
+ * own bend is the half it is handed from each. Divided by the length it is taken
+ * over, that is a curvature, and one over it is the radius the marble is swung
+ * on. A run of chords approximating a bend comes out at the bend's own radius,
+ * which is the point of doing it this way rather than trusting any one part to
+ * declare one.
+ */
+function measureCurves(segments: Segment[]) {
+  if (segments.length < 2) return
+  // The turn at each joint, and which way it leans — held as the vector between
+  // the two directions, which points at the centre of the turn by construction.
+  //
+  // Only where both sides of the joint are tube. A funnel's whirl is a path
+  // across the inside of a bowl rather than the axis of a pipe, so the angle
+  // between it and the spout under it is not a bend the marble is swung round —
+  // it is the throat. Read as one it comes out a viciously tight turn, and the
+  // spout below spends the drop throwing the marble at its own open side.
+  const turns = segments.slice(1).map((seg, i) => {
+    const before = segments[i]
+    if (!seg.enclosed || !before.enclosed) return null
+    const angle = before.dir.angleTo(seg.dir)
+    const toward = new THREE.Vector3().subVectors(seg.dir, before.dir)
+    return { angle, toward }
+  })
+
+  segments.forEach((seg, i) => {
+    if (seg.length < 1e-6) return
+    // The joint at each end of this chord, kept only where it is a bend rather
+    // than a kink, along with the neighbour it is shared with.
+    const ends = [turns[i - 1], turns[i]].filter(
+      (t) => t && t.angle > 1e-6 && t.angle < CURVE_LIMIT,
+    )
+    if (!ends.length) return
+
+    // Half the turn at each of its ends belongs to this chord, and it is taken
+    // over the chord's own length — which on a run of chords approximating a
+    // bend comes back out as the bend's own radius.
+    let swept = 0
+    const toward = new THREE.Vector3()
+    for (const turn of ends) {
+      swept += turn!.angle / 2
+      toward.addScaledVector(turn!.toward, 1 / turn!.toward.length())
+    }
+    // Square to the chord: only what acts across the tube can hold the marble
+    // against its wall.
+    toward.addScaledVector(seg.dir, -toward.dot(seg.dir))
+    if (toward.lengthSq() < 1e-12) return
+    seg.curve = { radius: seg.length / swept, toward: toward.normalize() }
+  })
 }
 
 /**

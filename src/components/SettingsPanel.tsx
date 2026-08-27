@@ -142,9 +142,7 @@ export default function SettingsPanel({ open, onClose }: { open: boolean; onClos
           ))}
           <InfoNote label="Will hiding these change my run?">
             No. These are readouts and helpers drawn over the stage, not part of the model — nothing
-            here reaches the pieces or an export. Hiding the simulator slider does not stop the
-            marble either; the Simulator button still runs it. Your choices are remembered on this
-            machine.
+            here reaches the pieces or an export. Your choices are remembered on this machine.
           </InfoNote>
         </CollapsiblePanel>
 

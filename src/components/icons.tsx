@@ -66,6 +66,15 @@ export function EyeOffIcon({ size = 14 }: { size?: number }) {
   )
 }
 
+/** Tick — the mark inside a ticked box, drawn on its own so the box is CSS. */
+export function CheckIcon({ size = 10 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.4" strokeLinecap="round" strokeLinejoin="round">
+      <path d="m4.5 12.5 5 5 10-11" />
+    </svg>
+  )
+}
+
 /** Pencil on the page — "give this part your own name". */
 export function PencilIcon({ size = 12 }: { size?: number }) {
   return (
@@ -199,20 +208,27 @@ export function DuplicateIcon({ size = 17 }: { size?: number }) {
 }
 
 /**
- * The same copy, with an arrow carrying it onto the end of the run — "make
- * another of these and join it on". The bar is the end it lands against, which
- * is what separates this from a copy that is merely nudged aside.
+ * A part copied down a cascade — "make another of these and join it on". Four
+ * cards stepping away from the original, which is the filled one at the back:
+ * the step is the run growing by a part at a time, which is what separates this
+ * from a copy that is merely nudged aside.
+ *
+ * Each card behind is drawn as the L of it that the next one does not cover, so
+ * the cascade reads on any ground without any of them needing a solid fill.
  */
 export function DuplicateJoinIcon({ size = 17 }: { size?: number }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
-      {/* The original, behind — drawn as the three sides that stay visible. */}
-      <path d="M12.2 6.2V4.1a1.4 1.4 0 0 0-1.4-1.4H3.4A1.4 1.4 0 0 0 2 4.1v7.4a1.4 1.4 0 0 0 1.4 1.4h2" />
-      <rect x="5.6" y="6.2" width="8.4" height="8.4" rx="1.4" fill="currentColor" fillOpacity="0.16" />
-      {/* Onto the run: the way the copy travels, and the end it meets. */}
-      <path d="M15.4 10.4h3.4" />
-      <path d="m17 8.4 2 2-2 2" />
-      <path d="M21.4 6.6v7.6" />
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+      {/* The original, at the back. Closed and filled, so it reads as the part
+          that was already there rather than as one more empty copy. */}
+      <path
+        d="M5.5 11.1H3.2a1.5 1.5 0 0 1-1.5-1.5V3.2a1.5 1.5 0 0 1 1.5-1.5h6.4a1.5 1.5 0 0 1 1.5 1.5v2.3H5.5Z"
+        fill="currentColor"
+        fillOpacity="0.16"
+      />
+      <path d="M9.3 14.9H7a1.5 1.5 0 0 1-1.5-1.5V7A1.5 1.5 0 0 1 7 5.5h6.4A1.5 1.5 0 0 1 14.9 7v2.3" />
+      <path d="M13.1 18.7h-2.3a1.5 1.5 0 0 1-1.5-1.5v-6.4a1.5 1.5 0 0 1 1.5-1.5h6.4a1.5 1.5 0 0 1 1.5 1.5v2.3" />
+      <rect x="13.1" y="13.1" width="9.4" height="9.4" rx="1.5" />
     </svg>
   )
 }

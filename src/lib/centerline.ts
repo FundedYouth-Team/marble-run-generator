@@ -15,6 +15,8 @@ import {
   corkscrewSpec,
   funnelSpec,
   hookSpec,
+  jointFilletOf,
+  socketReach,
   type Piece,
   type TubeSpec,
 } from '../store'
@@ -340,7 +342,87 @@ function withLead(line: Centerline, piece: Piece): Centerline {
   const ups = split
     ? [own[0].clone(), ...own.map(turned)]
     : [own[0].clone(), ...own.slice(1).map(turned)]
-  return fromPoints(points, line.corner ? swing(line.corner) : null, ups)
+  const led = fromPoints(points, line.corner ? swing(line.corner) : null, ups)
+  return roundLead(led, jointFilletOf(piece), socketReach(piece))
+}
+
+/**
+ * The lead's break, rounded off into an arc tangent to both sides of it — the
+ * same rounding {@link bentLine} gives a connector's own break, applied to the
+ * break a bonded part takes at its inlet.
+ *
+ * The arc cuts across the corner rather than moving either side of it: the
+ * socket still sits square on the axis it plugs into and the body still runs
+ * where the part is aimed, so the aim the joint was given is the aim it keeps.
+ * That is why this is done last, to the led shape rather than inside it — the
+ * aim is settled first and the rounding is a cut across the result.
+ *
+ * What it does cost is a little centreline length, which is what rounding a
+ * corner always costs, and — through `leadLengthFor` rather than through
+ * anything here — a longer lead, because an arc reaches further back down the
+ * lead than a mitre does. That second one is what actually moves the part's far
+ * end: the break happens later along, so everything past it does too.
+ *
+ * The arc is trimmed to what there is room for. It may not reach back into the
+ * socket — `keep` is what the socket and its clearance have already taken — and
+ * it may not run out over the far end of the leg past the break, which has its
+ * own joint to stand on. Nothing left over and the break stays sharp, the same
+ * answer a connector gives on legs too short to round.
+ */
+function roundLead(line: Centerline, radius: number, keep: number): Centerline {
+  if (radius <= 0 || line.points.length < 3) return line
+  const inDir = line.dirs[0]
+  const outDir = line.dirs[1]
+  const theta = Math.acos(THREE.MathUtils.clamp(inDir.dot(outDir), -1, 1))
+  const tan = Math.tan(theta / 2)
+  // Straight through: a lead with no break in it has no corner to round.
+  if (theta < 1e-4 || tan < 1e-6) return line
+
+  const before = line.distances[1]
+  const after = line.distances[2] - line.distances[1]
+  const tangent = Math.min(radius * tan, Math.max(0, before - keep), Math.max(0, after - JOINT_LOCK))
+  if (tangent < 1e-6) return line
+
+  const corner = line.points[1]
+  const r = tangent / tan
+  // The break turns from one direction to the other, so the two together name
+  // the axis it turns about and the plane the arc lies in. Squaring the incoming
+  // leg off toward the far side of that turn finds the centre.
+  const axis = new THREE.Vector3().crossVectors(inDir, outDir).normalize()
+  const arcStart = corner.clone().addScaledVector(inDir, -tangent)
+  const inward = inDir.clone().applyAxisAngle(axis, Math.PI / 2)
+  const centre = arcStart.clone().addScaledVector(inward, r)
+  const spoke = new THREE.Vector3().subVectors(arcStart, centre)
+  const chords = Math.max(ARC_MIN_CHORDS, Math.ceil(theta / DEG / ARC_STEP_DEG))
+
+  const arc: THREE.Vector3[] = []
+  for (let i = 1; i <= chords; i++) {
+    arc.push(centre.clone().add(spoke.clone().applyAxisAngle(axis, (theta * i) / chords)))
+  }
+
+  // The way up either side of the break is already worked out — see
+  // {@link withLead} — so the arc's job is only to get from the one to the
+  // other. The bend takes it most of the way; what is left over is the twist a
+  // two-axis break carries, and both are laid on in step with the arc so the
+  // trough winds round rather than flicking over somewhere in the middle.
+  const own = line.ups ?? carriedUps(line)
+  const bent = own[0].clone().applyAxisAngle(axis, theta)
+  const twist = Math.atan2(
+    new THREE.Vector3().crossVectors(bent, own[1]).dot(outDir),
+    bent.dot(own[1]),
+  )
+  const arcUps: THREE.Vector3[] = []
+  for (let i = 0; i < chords; i++) {
+    const f = (i + 0.5) / chords
+    const dir = inDir.clone().applyAxisAngle(axis, theta * f)
+    arcUps.push(own[0].clone().applyAxisAngle(axis, theta * f).applyAxisAngle(dir, twist * f))
+  }
+
+  return fromPoints(
+    [line.points[0], arcStart, ...arc, ...line.points.slice(2)],
+    line.corner,
+    [own[0].clone(), ...arcUps, ...own.slice(1)],
+  )
 }
 
 /**
@@ -400,8 +482,18 @@ function ownLine(piece: Piece): Centerline {
  * them — see {@link leadBreak}.
  */
 export function shapeKey(piece: Piece, spec: TubeSpec): string {
-  const lead = piece.entrySlope === undefined ? '' : `${piece.entrySlope}>${piece.turn}>${piece.slope}`
-  const tube = `${spec.variant}:${spec.innerR}:${spec.wall}:${lead}`
+  // All three angles the break is built from, and the radius it is cut at: a
+  // joint rounded off is a different solid from the same joint mitred.
+  const lead =
+    piece.entrySlope === undefined
+      ? ''
+      : `${piece.entrySlope}>${piece.turn}>${piece.slope}~${jointFilletOf(piece)}`
+  // The side the tube opens is part of the solid, not part of how it is stood
+  // up: the opening is cut into the section itself, so two parts alike but for
+  // it are two different shapes. A closed tube has no opening, and its side is
+  // left out of the key so the same solid is shared however it is set.
+  const side = spec.closed ? '-' : spec.openSide
+  const tube = `${spec.variant}:${side}:${spec.innerR}:${spec.wall}:${lead}`
   if (piece.type === 'angle') {
     const a = angleSpec(piece)
     return `${tube}:angle:${a.entry}:${a.bend}:${a.exit}:${a.fillet}`
@@ -434,7 +526,12 @@ export function shapeKey(piece: Piece, spec: TubeSpec): string {
   // end of this part can differ from the tube at the head of the key.
   if (piece.type === 'funnel') {
     const f = funnelSpec(piece)
-    return `${tube}:funnel:${f.entry}:${f.mouthRadius}:${f.depth}:${f.rim}:${f.turns}:${f.exit}:${f.lead}:${piece.leadOutVariant ?? '-'}`
+    // A drain cut open while the part itself is closed is the one way a side can
+    // still tell two solids apart after `side` has collapsed it, so it goes in
+    // here rather than being lost with the rest.
+    const drain = piece.leadOutVariant ?? '-'
+    const drainSide = drain !== '-' && drain !== 'closed' ? spec.openSide : '-'
+    return `${tube}:funnel:${f.entry}:${f.mouthRadius}:${f.depth}:${f.rim}:${f.turns}:${f.exit}:${f.lead}:${drain}:${drainSide}`
   }
   return `${tube}:straight:${piece.length}`
 }

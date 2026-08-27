@@ -7,6 +7,8 @@ import { FUNNEL_LEAST_CONE, funnelFeedRadius } from '../lib/funnel'
 import {
   useRun,
   VARIANT_LABEL,
+  OPEN_SIDE_LABEL,
+  OPEN_SIDES,
   PIECE_LIMITS,
   TUBE_LIMITS,
   ANGLE_DEFAULTS,
@@ -48,13 +50,18 @@ import {
   wallOf,
   colorOf,
   variantOf,
+  openSideOf,
   jointSpec,
   pieceLabel,
   pieceTypeLabel,
   PART_LABEL,
   DEFAULT_PIECE_COLOR,
+  JOINT_FILLET_DEFAULT,
   JOINT_LOCK,
+  breakAngleOf,
+  mitreBite,
   turnLimitsFor,
+  type OpenSide,
   type TubeVariant,
 } from '../store'
 import { UNIT_LABEL, UNIT_WORD, coarseText, formatCoarse, formatLength, lengthText } from '../lib/units'
@@ -65,9 +72,21 @@ const VARIANTS: TubeVariant[] = ['half', 'threequarter', 'closed']
 const PIECE_SWATCHES = [DEFAULT_PIECE_COLOR, '#2a9e35', '#2b6cb0', '#c2410c', '#e6e9ee', '#2a2f3a']
 
 const VARIANT_NOTE: Record<TubeVariant, string> = {
-  half: 'Open trough — 180° of wall, marble fully visible.',
-  threequarter: '70% wall with a slot on top to see into the tube.',
-  closed: 'Full 360° tube — marble enclosed.',
+  half: 'Open trough — 180° of wall. The marble sits in it rather than inside it, so it can leave through the open side.',
+  threequarter: '70% wall with a slot to see through. The wall still curls over the marble, so it carries exactly as closed tube does.',
+  closed: 'Full 360° tube — marble enclosed, and out of sight.',
+}
+
+/**
+ * Which way each side faces, said as the marble sees it. Left and right are read
+ * looking along the run rather than at the screen, which is the only reading
+ * that survives a run turning back on itself.
+ */
+const OPEN_SIDE_NOTE: Record<OpenSide, string> = {
+  top: 'Opening faces up — the marble is seen from above, and the part prints as it lies.',
+  right: 'Opening faces right, looking along the run.',
+  bottom: 'Opening faces down — the marble is seen from underneath. A half pipe turned this way drops it.',
+  left: 'Opening faces left, looking along the run.',
 }
 
 export default function Sidebar() {
@@ -79,6 +98,18 @@ export default function Sidebar() {
   const style = selected ? variantOf(selected, s.variant) : s.variant
   // Whether Apply to All has anything left to do — some part is cut differently.
   const mixed = s.pieces.some((p) => variantOf(p, s.variant) !== style)
+  // The side the opening faces works the same way again: the selected part's
+  // own, or the run's when nothing is picked.
+  const side = selected ? openSideOf(selected, s.openSide) : s.openSide
+  const mixedSide = s.pieces.some((p) => openSideOf(p, s.openSide) !== side)
+  /**
+   * Whether what is being set has any opening to face anywhere. A closed part
+   * plainly has none; the run only has none while every part following it is
+   * closed too, since a part cut open on its own still takes the run's side.
+   */
+  const noOpening = selected
+    ? style === 'closed'
+    : style === 'closed' && s.pieces.every((p) => variantOf(p, s.variant) === 'closed')
   // Colour works the same way: the selected part's own, or the run's when
   // nothing is picked, and Apply to All is live while some part differs.
   const color = selected ? colorOf(selected, s.pieceColor) : s.pieceColor
@@ -91,7 +122,7 @@ export default function Sidebar() {
   const mixedTube = s.pieces.some(
     (p) => boreOf(p, s.innerDiameter) !== bore || wallOf(p, s.wallThickness) !== wall,
   )
-  const spec = tubeSpec(bore, wall, style)
+  const spec = tubeSpec(bore, wall, style, side)
   // Centreline length, so a bent part counts what it actually carries.
   const totalLength = s.pieces.reduce((a, p) => a + pieceAxisLength(p), 0)
   const selectedLength = selected ? pieceAxisLength(selected) : 100
@@ -204,6 +235,11 @@ export default function Sidebar() {
         boreOf(selected, s.innerDiameter) / 2 + wallOf(selected, s.wallThickness),
       )
     : PIECE_LIMITS.turn
+
+  // What this part's inlet break is cut at — its own where it has been told,
+  // and what the Rotate tool would give it the first time it is swung where it
+  // has not. See `aimPart`.
+  const pivot = selected ? (selected.jointFillet ?? s.jointFillet) : 0
 
   const closeJoint = () => {
     if (!selected) return
@@ -344,6 +380,43 @@ export default function Sidebar() {
             : s.pieces.length
               ? `Every part is already ${VARIANT_LABEL[style]}.`
               : 'No parts yet — this is the style the first one arrives in.'}
+        </p>
+
+        {/* Which side that opening faces. Every part is a closed pipe until it
+            is cut open, so this only has anything to say once one has been —
+            but the choice is remembered either way, so a part cut open again
+            opens the side it was last set to. */}
+        <span className="field-label">
+          Opens
+          <em>{noOpening ? 'nothing to open — this is closed tube' : 'looking along the run'}</em>
+        </span>
+        <div className="segmented">
+          {OPEN_SIDES.map((v) => (
+            <button
+              key={v}
+              className={side === v ? 'on' : ''}
+              disabled={noOpening}
+              onClick={() => (selected ? s.setPieceOpenSide(selected.id, v) : s.setOpenSide(v))}
+              title={OPEN_SIDE_NOTE[v]}
+            >
+              {OPEN_SIDE_LABEL[v]}
+            </button>
+          ))}
+        </div>
+        <p className="note">
+          {noOpening
+            ? 'A closed tube has no opening. Cut it Half or 3/4 to choose a side.'
+            : OPEN_SIDE_NOTE[side]}
+        </p>
+        <button onClick={() => s.applyOpenSideToAll(side)} disabled={!mixedSide}>
+          Apply to All Parts
+        </button>
+        <p className="note">
+          {mixedSide
+            ? `Opens all ${s.pieces.length} parts on the ${OPEN_SIDE_LABEL[side].toLowerCase()}, and every part added next.`
+            : s.pieces.length
+              ? `Every part already opens on the ${OPEN_SIDE_LABEL[side].toLowerCase()}.`
+              : 'No parts yet — this is the side the first one opens on.'}
         </p>
       </CollapsiblePanel>
 
@@ -1315,6 +1388,48 @@ export default function Sidebar() {
                 </>
               )}
             </p>
+            {/* What that break is cut as. Only a bonded part has one — a run's
+                head plugs into nothing — and it is the same setting the Rotate
+                tool carries in the toolbar, on the part rather than on the tool. */}
+            {upstream && (
+              <>
+                <span className="field-label">
+                  Joint pivot
+                  <em>rounded carries the marble's speed through the joint</em>
+                </span>
+                <div className="segmented small">
+                  <button
+                    className={pivot > 0 ? 'on' : ''}
+                    onClick={() => s.setJointFillet(pivot > 0 ? pivot : JOINT_FILLET_DEFAULT, selected.id)}
+                    title="Round the break off with an arc tangent to the axis it plugs into and the one it runs on"
+                  >
+                    Rounded
+                  </button>
+                  <button
+                    className={pivot > 0 ? '' : 'on'}
+                    onClick={() => s.setJointFillet(0, selected.id)}
+                    title="Meet the two axes at a mitred corner"
+                  >
+                    Straight
+                  </button>
+                </div>
+                <NumberField
+                  label="Joint radius"
+                  hint="0 is a mitred corner"
+                  value={pivot}
+                  onChange={(v) => s.setJointFillet(v, selected.id)}
+                  {...PIECE_LIMITS.jointFillet}
+                />
+                <p className="note">
+                  {pivot > 0
+                    ? `Rounded off at ${formatLength(pivot, s.units)}. The arc reaches ${formatLength(
+                        mitreBite(breakAngleOf(handedOn, selected.turn, selected.slope), pivot),
+                        s.units,
+                      )} back down the lead, which is straight this part cannot also turn in — so a wider radius holds it to a shallower turn. Right now it may turn ±${degLabel(turnLimits.max)}°.`
+                    : `Mitred, which is how a joint is cut unless it is asked not to be. Rounding it off spends lead on the arc, so this part could then turn less than the ±${degLabel(turnLimits.max)}° it can now.`}
+                </p>
+              </>
+            )}
             <button
               onClick={closeJoint}
               disabled={!led || !matchable}

@@ -7,6 +7,7 @@ import {
   HOOK_DEFAULTS,
   HOOK_SLOPE_LIMIT,
   HOOK_SWEEP_LIMITS,
+  OPEN_SIDE_LABEL,
   PART_LABEL,
   PIECE_LIMITS,
   TUBE_LIMITS,
@@ -16,6 +17,7 @@ import {
   makePiece,
   projectSlug,
   type LoadedProject,
+  type OpenSide,
   type Piece,
   type Placement,
   type PieceType,
@@ -81,6 +83,10 @@ export const PROJECT_FORMAT = 'marble-run-generator'
  * run comes back with its mouth a little higher than it was left. Everything
  * else about such a file — how wide the bowl is, how deep, how far round —
  * still says exactly what it always said.
+ * Which side a tube opens rides along inside v9 without a bump, the same way
+ * per-part colour rode along inside v3: a reader that has never heard of it puts
+ * every opening back on top, which is where every opening was until now — the
+ * run comes back the shape it always was, only rolled about its own axis.
  */
 export const PROJECT_VERSION = 9
 
@@ -100,6 +106,8 @@ export interface ProjectFile {
   wallThickness: number
   /** The run's style — what a part with none of its own is cut in. */
   variant: TubeVariant
+  /** The run's open side — which way a part with none of its own opens. */
+  openSide: OpenSide
   marbleDiameter: number
   pieces: Array<Omit<Piece, 'id'>>
   /**
@@ -122,6 +130,7 @@ export function serialiseProject(s: ProjectSource): string {
     innerDiameter: s.innerDiameter,
     wallThickness: s.wallThickness,
     variant: s.variant,
+    openSide: s.openSide,
     marbleDiameter: s.marbleDiameter,
     // Ids are internal handles — they are minted fresh on the way back in.
     pieces: s.pieces.map(({ id: _id, ...rest }) => rest),
@@ -167,6 +176,10 @@ function inRange(v: unknown, limits: { min: number; max: number }): boolean {
 
 function isVariant(v: unknown): v is TubeVariant {
   return typeof v === 'string' && v in VARIANT_LABEL
+}
+
+function isOpenSide(v: unknown): v is OpenSide {
+  return typeof v === 'string' && v in OPEN_SIDE_LABEL
 }
 
 function isType(v: unknown): v is PieceType {
@@ -368,8 +381,19 @@ function readPiece(raw: unknown, joined: boolean): Piece {
           ),
         }
       : {}),
+    // The break the *joint* takes, which any part can have and most have never
+    // been asked about. Carried only where the file says something about it, so
+    // a part that was never told either way still takes whatever the Rotate tool
+    // is set to the first time it is swung.
+    ...(inRange(o.jointFillet, PIECE_LIMITS.jointFillet)
+      ? { jointFillet: o.jointFillet as number }
+      : {}),
     // No style of its own is the normal case — that part follows the run's.
     ...(isVariant(o.variant) ? { variant: o.variant } : {}),
+    // Same for the side it opens: only a part turned on its own carries one, and
+    // a file from before the side could be chosen carries none at all, which
+    // reads back as the top every opening used to be on.
+    ...(isOpenSide(o.openSide) ? { openSide: o.openSide } : {}),
     // Same for colour, and a part painted something unreadable simply follows it too.
     ...(isHexColor(o.color) ? { color: o.color.toLowerCase() } : {}),
     // Bore and wall the same way: only a part that was sized on its own carries
@@ -433,7 +457,9 @@ export function parseProject(text: string): LoadedProject {
       TUBE_LIMITS.wallThickness.max,
       3,
     ),
-    variant: isVariant(o.variant) ? o.variant : 'threequarter',
+    variant: isVariant(o.variant) ? o.variant : 'closed',
+    // A file written before the side could be chosen opened every part on top.
+    openSide: isOpenSide(o.openSide) ? o.openSide : 'top',
     // The marble has to stay inside whatever bore the file arrived with.
     marbleDiameter: num(o.marbleDiameter, 4, Math.max(4, innerDiameter - 1), 16),
     // A file from before the keys were settable says nothing about them, and

@@ -45,6 +45,15 @@ import {
  * they are written and read on screen — see `lib/units`.
  */
 export type TubeVariant = 'half' | 'threequarter' | 'closed'
+/**
+ * Which way a cut tube's opening faces, in the part's own frame — read looking
+ * along the run, the way the marble sees it. Top is up, and is what every open
+ * tube was before the side could be chosen.
+ *
+ * A closed tube has no opening, so this says nothing about one; it is still kept
+ * on the part, so a tube cut open again opens the side it was last set to.
+ */
+export type OpenSide = 'top' | 'right' | 'bottom' | 'left'
 export type PieceType = 'straight' | 'angle' | 'corner' | 'hook' | 'corkscrew' | 'funnel'
 export type Mode = '2d' | '3d'
 /**
@@ -53,6 +62,12 @@ export type Mode = '2d' | '3d'
  * other than "select this" — a drag on the arrows, or one end of a joint.
  */
 export type Tool = 'select' | 'move' | 'rotate' | 'connect' | 'disconnect'
+/**
+ * How wide a handle tool reaches: the runs that were picked, or every run on the
+ * stage. See {@link RunState.toolScope} — the two handles do the same thing
+ * either way, so this says what they do it to rather than what they do.
+ */
+export type ToolScope = 'selected' | 'all'
 /**
  * Which way the 2D draft looks at the run. The six ortho views are named for
  * the side of the model they are taken from, the same way the 3D view cube
@@ -76,7 +91,7 @@ export type LeftPanel = 'parameters' | null
  * part of the run — they are readouts and helpers around it, and someone who
  * knows their way around may want the stage clear of them.
  */
-export type Overlay = 'axes' | 'mouse' | 'parts' | 'scrubber'
+export type Overlay = 'axes' | 'mouse' | 'parts'
 export type OverlayMap = Record<Overlay, boolean>
 
 /** Listed in the order they are offered in Settings. */
@@ -88,7 +103,6 @@ export const OVERLAYS: { id: Overlay; label: string; hint: string }[] = [
   },
   { id: 'mouse', label: 'Mouse guide', hint: 'what each button does, bottom right' },
   { id: 'parts', label: 'Active parts list', hint: 'the run’s parts, top left' },
-  { id: 'scrubber', label: 'Simulator slider', hint: 'the transport bar along the bottom' },
 ]
 
 const THEME_KEY = 'mrg.theme'
@@ -102,6 +116,8 @@ const AUTO_ATTACH_KEY = 'mrg.autoAttach'
 const UNITS_KEY = 'mrg.units'
 const SHORTCUTS_KEY = 'mrg.shortcuts'
 const OVERLAYS_KEY = 'mrg.overlays'
+const ROTATE_STEP_KEY = 'mrg.rotateStep'
+const JOINT_FILLET_KEY = 'mrg.jointFillet'
 
 /**
  * CSS pins an inch to 96px no matter what the panel actually is, so this is
@@ -226,6 +242,44 @@ function initialAutoAttach(): boolean {
   return saved !== 'off'
 }
 
+/**
+ * The steps the rings snap to, degrees. Nought is the free swing the rings have
+ * always had; the rest are the angles a run is actually built on — an eighth of
+ * a turn, a quarter, and the two finer ones a joint is trimmed with.
+ */
+export const ROTATE_STEPS = [0, 1, 5, 15, 45, 90] as const
+
+/** How a step is written where it is offered — nought is not an angle. */
+export const rotateStepLabel = (deg: number) => (deg > 0 ? `${deg}°` : 'Free')
+
+/** Free is the default: the rings swung to wherever they were dragged. */
+function initialRotateStep(): number {
+  const saved = typeof localStorage !== 'undefined' ? localStorage.getItem(ROTATE_STEP_KEY) : null
+  const step = Number(saved)
+  return ROTATE_STEPS.includes(step as (typeof ROTATE_STEPS)[number]) ? step : 0
+}
+
+/**
+ * The radius a joint is rounded off with when it is rounded at all, mm — what
+ * the Rotate tool hands a part switched over to a rounded pivot.
+ *
+ * A shade under twice a stock tube's outer radius: wide enough that the arc
+ * reads as a curve rather than a softened corner, tight enough that its tangent
+ * still fits inside a stock part's lead at a useful turn.
+ */
+export const JOINT_FILLET_DEFAULT = 24
+
+/** Sharp is the default: a joint is a mitred corner unless it is asked not to be. */
+function initialJointFillet(): number {
+  const saved = typeof localStorage !== 'undefined' ? localStorage.getItem(JOINT_FILLET_KEY) : null
+  const radius = Number(saved)
+  return Number.isFinite(radius) &&
+    radius >= PIECE_LIMITS.jointFillet.min &&
+    radius <= PIECE_LIMITS.jointFillet.max
+    ? radius
+    : 0
+}
+
 /** Millimetres are the default; only an explicit past choice flips it. */
 function initialUnits(): Unit {
   const saved = typeof localStorage !== 'undefined' ? localStorage.getItem(UNITS_KEY) : null
@@ -237,7 +291,7 @@ function initialUnits(): Unit {
  * reads as shown — an overlay is only hidden by an explicit past choice.
  */
 function initialOverlays(): OverlayMap {
-  const shown = { axes: true, mouse: true, parts: true, scrubber: true }
+  const shown = { axes: true, mouse: true, parts: true }
   const saved = typeof localStorage !== 'undefined' ? localStorage.getItem(OVERLAYS_KEY) : null
   if (!saved) return shown
   try {
@@ -405,10 +459,38 @@ export interface Piece {
    */
   fillet?: number
   /**
+   * Radius the break at this part's *inlet* is rounded off with, mm — the pivot
+   * the Rotate tool swings the part about. Zero, or unset, is the mitred corner
+   * every joint has always taken; anything more is an arc tangent to the axis
+   * the part is fed on and the axis it runs on, so the marble carries its speed
+   * through the joint rather than slapping into a kink.
+   *
+   * Not to be confused with {@link Piece.fillet}, which rounds a connector's own
+   * break partway along it. This one is the break the joint puts in, and a part
+   * that is not bonded onto anything has none — see {@link leadFor}.
+   *
+   * The radius costs straight tube: the arc reaches back down the lead by its
+   * own tangent, which on a wide radius is a good deal further than a mitre
+   * would, and that has to stop short of the socket. So rounding a joint both
+   * lengthens its lead and holds the part to a shallower turn — see
+   * {@link leadLengthFor} and {@link breakLimitFor}.
+   */
+  jointFillet?: number
+  /**
    * This part's own tube style. Unset follows the run's style, so a part that
    * has never been styled on its own keeps up with whatever the run is set to.
    */
   variant?: TubeVariant
+  /**
+   * Which side this part's opening faces. Unset follows the run's, the same way
+   * {@link Piece.variant} does, so a part that has never been turned on its own
+   * keeps up with whatever the run is set to.
+   *
+   * Kept even while the part is cut closed: a closed tube has no opening to
+   * face anywhere, and cutting it open again should put the opening back where
+   * it was last asked for rather than on top.
+   */
+  openSide?: OpenSide
   /**
    * This part's own colour, as a 6-digit hex. Unset follows the run's colour,
    * so a part that has never been painted keeps up with whatever the run is set
@@ -520,6 +602,11 @@ export const PIECE_LIMITS = {
   // next part to plug onto.
   exitLength: { min: JOINT_LOCK * 2, max: 600, step: 1 },
   fillet: { min: 0, max: 120, step: 1 },
+  // The joint's own rounding. Held tighter than a connector's: this arc has to
+  // fit inside the lead, between the socket it must not reach back into and the
+  // body of the part past the break, and a lead is a lock or two of tube rather
+  // than a whole leg.
+  jointFillet: { min: 0, max: 80, step: 1 },
   // Tighter than the bore is a turn the tube cannot be cut round; wider than
   // this is not a hook any more but a run that happens to bend.
   radius: { min: 20, max: 300, step: 1 },
@@ -845,7 +932,8 @@ export function funnelSpec(piece: Piece): FunnelBowl {
 export function funnelDrainSpec(base: TubeSpec, piece: Piece): TubeSpec {
   const own = piece.leadOutVariant
   if (!own || own === base.variant) return base
-  return tubeSpec(base.innerR * 2, base.wall, own)
+  // The side is the part's throughout — only the style is the stub's own.
+  return tubeSpec(base.innerR * 2, base.wall, own, base.openSide)
 }
 
 /** The style a funnel's drain is actually cut in. */
@@ -1653,6 +1741,18 @@ function entryRunOf(piece: Piece): number {
 }
 
 /**
+ * How much of a part's lead the socket has already spoken for, mm — the depth
+ * the spigot sits in, and the clearance left standing past its shoulder.
+ *
+ * Nothing the joint's break does may reach back into this: it is the stretch
+ * the snap itself lives in, and a cut through it is a joint that will not go
+ * together. Read by the centreline as the far end of what an arc may round off.
+ */
+export function socketReach(piece: Piece): number {
+  return socketDepth(piece.length) + MITRE_CLEARANCE
+}
+
+/**
  * How much of that opening straight is already spoken for at the far end, mm.
  *
  * A plain tube is one straight from socket to spigot, so the lock its spigot
@@ -1675,13 +1775,16 @@ function inletOwes(piece: Piece): number {
  * socket, a little clearance, and the bite — which on a part barely turned is
  * less than the lock and on a part turned hard is a good deal more.
  *
+ * A joint rounded off reaches back by its arc's tangent instead, which on a
+ * radius wider than the tube is further again — see {@link jointBite}.
+ *
  * This is the "additional spacing" half of the answer. The other half is that a
  * part can only give so much of itself over to it — see {@link turnLimitsFor}.
  */
 export function leadLengthFor(piece: Piece, outerR: number): number {
   if (piece.entrySlope === undefined) return JOINT_LOCK
   const bend = breakAngleOf(piece.entrySlope, piece.turn, piece.slope)
-  const bite = mitreBite(bend, outerR)
+  const bite = jointBite(piece, bend, outerR)
   const need = socketDepth(piece.length) + MITRE_CLEARANCE + bite
   // Never past what the part has to give: the mitre reaches forward as far as
   // it reaches back, and on a plain tube the spigot's own lock comes out of the
@@ -1694,6 +1797,32 @@ export function leadLengthFor(piece: Piece, outerR: number): number {
 
 /** Straight tube left standing between the socket's shoulder and the mitre, mm. */
 const MITRE_CLEARANCE = 2
+
+/**
+ * The radius a part's inlet break is really cut at, mm — its own where it has
+ * been rounded off, and nothing where it is left as a mitred corner.
+ *
+ * Read through here rather than off the field, so that everything measuring the
+ * break agrees about which of the two it is looking at.
+ */
+export function jointFilletOf(piece: Piece): number {
+  return piece.jointFillet ?? 0
+}
+
+/**
+ * How far a part's inlet break reaches back down its lead, mm.
+ *
+ * A mitred corner reaches back by the tube's own radius times the tangent of the
+ * half angle — the cut plane halves the angle, so the inside of the bend runs
+ * back that far. An arc reaches back by its tangent length, which is the same
+ * sum with the arc's radius in place of the tube's. Either way it is what has to
+ * clear the socket, so the wider of the two is the one that governs: rounding a
+ * break off tighter than the tube would still leave a mitre's worth of tube cut
+ * away either side of it.
+ */
+export function jointBite(piece: Piece, bend: number, outerR: number): number {
+  return mitreBite(bend, Math.max(outerR, jointFilletOf(piece)))
+}
 
 /**
  * How far a bonded part may be turned off the run before the bend it would take
@@ -1730,14 +1859,21 @@ export const tubeRadiusOf =
  * clearance have already taken. Turn a stock tube more than this and there is
  * no joint left: the answer is a corner or a hook, built to turn, with legs long
  * enough to mitre.
+ *
+ * A break rounded off is held tighter still, and by the same sum read with the
+ * arc's radius in it: an arc reaches back down the lead by its tangent, so the
+ * wider it is rounded the less of a turn there is room for. Ask for a gentle
+ * joint on a stock tube and it is the turn that gives way, which is the trade
+ * the setting is there to make.
  */
 export function breakLimitFor(piece: Piece, outerR: number): number {
   const run = entryRunOf(piece)
   if (!run) return 180
   // Half the straight left over once the socket and its clearance are taken:
-  // the mitre needs the same bite on both sides of the break.
+  // the break needs the same bite on both sides of itself.
   const bite = (run - socketDepth(piece.length) - MITRE_CLEARANCE - inletOwes(piece)) / 2
-  return bite <= 0 ? 0 : tidy((2 * Math.atan(bite / outerR)) / RAD)
+  const radius = Math.max(outerR, jointFilletOf(piece))
+  return bite <= 0 ? 0 : tidy((2 * Math.atan(bite / radius)) / RAD)
 }
 
 export function turnLimitsFor(piece: Piece, entrySlope: number | undefined, outerR: number) {
@@ -2009,6 +2145,32 @@ export const VARIANT_COVERAGE: Record<TubeVariant, number> = {
   closed: 1,
 }
 
+export const OPEN_SIDE_LABEL: Record<OpenSide, string> = {
+  top: 'Top',
+  right: 'Right',
+  bottom: 'Bottom',
+  left: 'Left',
+}
+
+/** The four sides in the order they are offered, top first. */
+export const OPEN_SIDES: OpenSide[] = ['top', 'right', 'bottom', 'left']
+
+/**
+ * Where the opening is centred, radians, measured off the tube's own up axis
+ * and turning towards its left — which is the axis `up × direction`, since a
+ * marble running down local +Z with local +Y overhead has local +X to its left.
+ *
+ * So it reads as the marble does: right is a quarter turn clockwise seen from
+ * behind, and the run's own bends and rolls carry it along without any of this
+ * having to know about them.
+ */
+export const OPEN_SIDE_ANGLE: Record<OpenSide, number> = {
+  top: 0,
+  right: -Math.PI / 2,
+  bottom: Math.PI,
+  left: Math.PI / 2,
+}
+
 /**
  * The style a part is actually cut in: its own, if it has been given one, and
  * otherwise the run's — which is what lets one setting still carry every part
@@ -2016,6 +2178,14 @@ export const VARIANT_COVERAGE: Record<TubeVariant, number> = {
  */
 export function variantOf(piece: Piece, runVariant: TubeVariant): TubeVariant {
   return piece.variant ?? runVariant
+}
+
+/**
+ * Which side a part's opening actually faces: its own, if it has been turned,
+ * and otherwise the run's — the same fallback the style works on.
+ */
+export function openSideOf(piece: Piece, runSide: OpenSide): OpenSide {
+  return piece.openSide ?? runSide
 }
 
 /**
@@ -2314,6 +2484,7 @@ interface Snapshot {
   innerDiameter: number
   wallThickness: number
   variant: TubeVariant
+  openSide: OpenSide
   marbleDiameter: number
 }
 
@@ -2344,6 +2515,7 @@ function snapshot(s: Snapshot): Snapshot {
     innerDiameter: s.innerDiameter,
     wallThickness: s.wallThickness,
     variant: s.variant,
+    openSide: s.openSide,
     marbleDiameter: s.marbleDiameter,
   }
 }
@@ -2362,6 +2534,7 @@ const FIELD_LABEL: Record<string, string> = {
   sweep: 'sweep',
   exitLength: 'exit leg',
   fillet: 'corner radius',
+  jointFillet: 'joint pivot',
   radius: 'turn radius',
   roll: 'turn plane',
   height: 'height',
@@ -2380,6 +2553,9 @@ const FIELD_VALUE: Record<string, (v: number) => string> = {
   sweep: (v) => `${num(v)}°`,
   exitLength: len,
   fillet: len,
+  // Nought is not a radius of nought — it is the joint left as a mitred corner,
+  // which is what the step should say it was set to.
+  jointFillet: (v) => (v > 0 ? `rounded ${len(v)}` : 'straight'),
   radius: len,
   roll: (v) => `${num(v)}°`,
   height: len,
@@ -2433,10 +2609,12 @@ interface RunState {
   shortcuts: ShortcutMap
 
   // Tube front-face definition. Bore and wall are the run's throughout; the
-  // style is only what a part falls back to when it has none of its own.
+  // style and the side it opens are only what a part falls back to when it has
+  // none of its own.
   innerDiameter: number
   wallThickness: number
   variant: TubeVariant
+  openSide: OpenSide
 
   // Assembly
   pieces: Piece[]
@@ -2457,6 +2635,19 @@ interface RunState {
   /** What the left button does on the 3D stage. */
   tool: Tool
   /**
+   * How wide the handle tools reach — what the arrows and the rings take hold of
+   * when they are dragged. The two handles are the same gesture asked of two
+   * different sets, so which set it is belongs to the tool rather than to the
+   * selection, and is picked from the tool's own menu when it is taken up.
+   *
+   * `selected` is the resting answer: the runs the picked parts stand in. `all`
+   * takes every run on the stage, whatever is picked — the handle still sits on
+   * a part, since a drag has to start somewhere, but nothing is left behind.
+   *
+   * Only Move and Rotate read it; the other tools leave it as they found it.
+   */
+  toolScope: ToolScope
+  /**
    * The first end the Connector has been given, waiting for the one it is to be
    * bonded to. Null with nothing picked yet, and cleared the moment a joint is
    * made — one click is half a joint, not a mode.
@@ -2476,6 +2667,29 @@ interface RunState {
    * it is the Connector's job.
    */
   autoAttach: boolean
+  /**
+   * How far the Rotate tool's rings move per notch, degrees — the "how much"
+   * half of the tool's settings. Nought is a free swing; anything else holds
+   * every drag to whole multiples of it, so a run can be built on square angles
+   * without any of them being typed.
+   *
+   * A preference rather than part of the run: it says how the handles behave,
+   * and nothing about what is on the stage. So it outlives the project and is
+   * not a step in the timeline.
+   */
+  rotateStep: number
+  /**
+   * The radius the Rotate tool rounds a joint off with, mm — the "pivot" half.
+   * Nought leaves the break a mitred corner, which is what every joint has
+   * always been.
+   *
+   * This is the setting the tool works with, not the shape of any one joint:
+   * it is written onto {@link Piece.jointFillet} of whatever part is being
+   * aimed, and reads back off the part in hand so that picking a rounded joint
+   * shows a rounded joint. Held here so the next part aimed is rounded the same
+   * way without asking again.
+   */
+  jointFillet: number
 
   // 3D appearance. The piece colour is only what a part falls back to when it
   // has none of its own — a preference that outlives any one project.
@@ -2586,6 +2800,15 @@ interface RunState {
    * is dropped, so the parts are back to following it from here on.
    */
   applyVariantToAll: (v: TubeVariant) => void
+  /** The side parts open on — every part with none of its own follows it. */
+  setOpenSide: (v: OpenSide) => void
+  /** Turns one part's opening on its own, leaving the rest of the run as it is. */
+  setPieceOpenSide: (id: string, v: OpenSide) => void
+  /**
+   * Puts one side on the whole run: it becomes the run's, and every part's own
+   * is dropped, so the parts are back to following it from here on.
+   */
+  applyOpenSideToAll: (v: OpenSide) => void
   /** The colour parts fall back to — every part that has none of its own follows it. */
   setPieceColor: (v: string) => void
   /** Paints one part on its own, leaving the rest of the run as it is. */
@@ -2608,6 +2831,18 @@ interface RunState {
    * says where the *next* part goes; nothing already on the stage moves.
    */
   setAutoAttach: (v: boolean) => void
+  /** Sets the notch the Rotate tool's rings move in, degrees; nought is free. */
+  setRotateStep: (deg: number) => void
+  /**
+   * Sets the radius the Rotate tool rounds a joint off with, mm — nought for a
+   * mitred corner. `id` names a part to put it on there and then, which is what
+   * the tool does while a part is in hand; without one the setting is only
+   * remembered for the next part aimed.
+   *
+   * Putting it on a part is a step in the timeline, because it is a change to
+   * the shape that part prints as. Setting it alone is not.
+   */
+  setJointFillet: (mm: number, id?: string) => void
   toggleShading: () => void
   setMarbleDiameter: (v: number) => void
   resetMarbleFit: () => void
@@ -2616,15 +2851,18 @@ interface RunState {
   setBounce: (v: number) => void
   toggleRunning: () => void
   setLoop: (v: boolean) => void
-  /** Called as the scrubber is grabbed: pauses the run and puts the marble on stage. */
-  scrubSim: () => void
   resetSim: () => void
   setExportFormat: (v: ExportFormat) => void
   setScreenPxPerMm: (v: number) => void
   resetScreenCalibration: () => void
 
-  /** Switches what the left button does on the 3D stage; any half-made joint is dropped. */
-  setTool: (t: Tool) => void
+  /**
+   * Switches what the left button does on the 3D stage; any half-made joint is
+   * dropped. A handle tool is taken up with the reach it is to work at — see
+   * {@link RunState.toolScope} — and anything else puts that back to `selected`,
+   * so a reach picked once never quietly outlives the tool it was picked for.
+   */
+  setTool: (t: Tool, scope?: ToolScope) => void
   /**
    * Hands the Connector an end. The first one is held; the second makes the
    * joint if the two can take one, and is ignored if they cannot. Null lets go
@@ -2710,6 +2948,25 @@ interface RunState {
     opts?: { holdExit?: boolean; patch?: Partial<Piece> },
   ) => void
   /**
+   * Aims a part where it has just been pointed, and lets the run behind it
+   * follow. This is the mirror of {@link RunState.swingHead}: that one pivots on
+   * a part's far end and brings the run in front of it round, this one pivots on
+   * its near end and takes the run behind it along.
+   *
+   * The part swings about its own inlet, so the joint it is plugged into stays
+   * exactly where it is and every part ahead of it in the run stands still.
+   * Everything bonded behind it comes with it rigidly, holding whatever kinks it
+   * already had. What the swing opens up at the inlet is taken by the break a
+   * lock past that joint — see {@link JOINT_LOCK} — which is the bend the tube
+   * is really cut with, and the reason the joint itself stays straight.
+   *
+   * `turn` is the heading the part is aimed on, measured off what the part
+   * before hands over; `slope` is its own fall. Either may be left out, and both
+   * are held to what the part's own tube can be cut round — see
+   * {@link turnLimitsFor}.
+   */
+  aimPart: (id: string, aim: { turn?: number; slope?: number }) => void
+  /**
    * Puts every part back as it stood when a drag began. A swing moves parts
    * either side of the one under the pointer, so cancelling it has to restore
    * the run, not just the part that was grabbed.
@@ -2727,6 +2984,13 @@ interface RunState {
    * picked before it leads again.
    */
   toggleSelect: (id: string) => void
+  /**
+   * Picks a whole run of parts at once — a Shift-click down the parts list,
+   * which takes everything between the part last clicked and the one clicked
+   * now. The last id given leads the set, so the parameters panel shows the row
+   * the sweep ended on. Ids that are not parts of the run are dropped.
+   */
+  selectParts: (ids: string[]) => void
   /**
    * A click on a part, wherever it landed — the 3D stage, the draft, the parts
    * list. `additive` is the key that builds a set being held. Without it the part
@@ -2751,7 +3015,11 @@ function freshSnapshot(): Snapshot {
     selectedIds: [],
     innerDiameter: STANDARD_BORE,
     wallThickness: 3,
-    variant: 'threequarter',
+    // Every pipe is a closed pipe until it is asked to open: a run prints and
+    // runs as tube, and cutting one open is a choice made about a part or about
+    // the run, along with which side it opens.
+    variant: 'closed',
+    openSide: 'top',
     marbleDiameter: STANDARD_MARBLE,
   }
 }
@@ -2837,11 +3105,13 @@ export const useRun = create<RunState>((set, get) => {
     innerDiameter: INITIAL_SNAPSHOT.innerDiameter,
     wallThickness: INITIAL_SNAPSHOT.wallThickness,
     variant: INITIAL_SNAPSHOT.variant,
+    openSide: INITIAL_SNAPSHOT.openSide,
 
     pieces: INITIAL_SNAPSHOT.pieces,
     selectedId: INITIAL_SNAPSHOT.selectedId,
     selectedIds: INITIAL_SNAPSHOT.selectedIds,
     tool: 'select',
+    toolScope: 'selected',
     pendingPort: null,
 
     pieceColor: initialColor(PIECE_COLOR_KEY, DEFAULT_PIECE_COLOR),
@@ -2850,6 +3120,8 @@ export const useRun = create<RunState>((set, get) => {
     shading: initialShading(),
     keepConnected: initialKeepConnected(),
     autoAttach: initialAutoAttach(),
+    rotateStep: initialRotateStep(),
+    jointFillet: initialJointFillet(),
 
     marbleDiameter: INITIAL_SNAPSHOT.marbleDiameter,
     running: false,
@@ -3072,6 +3344,29 @@ export const useRun = create<RunState>((set, get) => {
           pieces: styled ? s.pieces.map(({ variant: _v, ...rest }) => rest) : s.pieces,
         }
       }),
+    setOpenSide: (openSide) =>
+      commit(`Opens: ${OPEN_SIDE_LABEL[openSide]}`, (s) =>
+        s.openSide === openSide ? null : { openSide },
+      ),
+    setPieceOpenSide: (id, openSide) =>
+      commit(`${nameOf(get(), id)} opens: ${OPEN_SIDE_LABEL[openSide]}`, (s) => {
+        const piece = s.pieces.find((p) => p.id === id)
+        // Picking the side a part already opens on changes nothing, whether it
+        // holds that side itself or follows the run's.
+        if (!piece || openSideOf(piece, s.openSide) === openSide) return null
+        return { pieces: s.pieces.map((p) => (p.id === id ? { ...p, openSide } : p)) }
+      }),
+    applyOpenSideToAll: (openSide) =>
+      commit(`Opens all: ${OPEN_SIDE_LABEL[openSide]}`, (s) => {
+        const turned = s.pieces.some((p) => p.openSide !== undefined)
+        if (s.openSide === openSide && !turned) return null
+        return {
+          openSide,
+          // Dropping each part's own is what makes this stick: the run opens
+          // one way, and stays that way as the side is changed again.
+          pieces: turned ? s.pieces.map(({ openSide: _o, ...rest }) => rest) : s.pieces,
+        }
+      }),
     setPieceColor: (pieceColor) => {
       remember(PIECE_COLOR_KEY, pieceColor)
       set({ pieceColor })
@@ -3140,6 +3435,25 @@ export const useRun = create<RunState>((set, get) => {
       remember(AUTO_ATTACH_KEY, autoAttach ? 'on' : 'off')
       set({ autoAttach })
     },
+    // How the rings behave, not what they have done: no step, and remembered
+    // past the project the way the rest of the handle settings are.
+    setRotateStep: (rotateStep) => {
+      if (get().rotateStep === rotateStep) return
+      remember(ROTATE_STEP_KEY, String(rotateStep))
+      set({ rotateStep })
+    },
+    setJointFillet: (mm, id) => {
+      const jointFillet = clamp(mm, PIECE_LIMITS.jointFillet.min, PIECE_LIMITS.jointFillet.max)
+      if (get().jointFillet !== jointFillet) {
+        remember(JOINT_FILLET_KEY, String(jointFillet))
+        set({ jointFillet })
+      }
+      // Put on a part, it is a change to what that part prints as, so it goes
+      // through the same door every other shape edit does — the lead is
+      // re-measured on the way out, because a rounded break reaches further back
+      // down it than a mitred one.
+      if (id) get().updatePiece(id, { jointFillet })
+    },
     toggleShading: () =>
       set((s) => {
         const shading: Shading = s.shading === 'solid' ? 'transparent' : 'solid'
@@ -3165,14 +3479,6 @@ export const useRun = create<RunState>((set, get) => {
     // Starting is also what puts the marble on stage the first time.
     toggleRunning: () => set((s) => ({ running: !s.running, simStarted: true })),
     setLoop: (loop) => set({ loop }),
-    // Taking hold of the scrubber hands the marble to the user: it goes on stage
-    // if it was not there yet, and the run stops so the slider is the only thing
-    // moving it.
-    // Every drag event calls this, so it only writes when something actually changes.
-    scrubSim: () => {
-      const s = get()
-      if (s.running || !s.simStarted) set({ running: false, simStarted: true })
-    },
     resetSim: () => set((s) => ({ resetToken: s.resetToken + 1 })),
     setExportFormat: (exportFormat) => set({ exportFormat }),
 
@@ -3193,7 +3499,12 @@ export const useRun = create<RunState>((set, get) => {
 
     // Changing tool drops any half-made joint: the end you picked belonged to the
     // gesture you have just walked away from.
-    setTool: (tool) => set((s) => (s.tool === tool ? s : { tool, pendingPort: null })),
+    setTool: (tool, scope = 'selected') =>
+      set((s) =>
+        s.tool === tool && s.toolScope === scope
+          ? s
+          : { tool, toolScope: scope, pendingPort: null },
+      ),
 
     pickPort: (port) => {
       const s = get()
@@ -3629,6 +3940,58 @@ export const useRun = create<RunState>((set, get) => {
         `piece:${id}:swing`,
       ),
 
+    aimPart: (id, aim) =>
+      commit(
+        `Aim ${nameOf(get(), id)}`,
+        (cur) => {
+          const at = cur.pieces.findIndex((p) => p.id === id)
+          if (at < 0) return null
+          const piece = cur.pieces[at]
+          const tube = tubeRadiusOf(cur.innerDiameter, cur.wallThickness)
+          // The fall the part is fed at. That is what its break is measured off,
+          // and so what says how far it may be turned before the mitre eats the
+          // socket it plugs into. A run's head is fed by nothing and turns as
+          // freely as it likes.
+          const fed = at > 0 && piece.joined ? exitSlope(cur.pieces[at - 1]) : undefined
+          // A joint that has never been told either way takes the pivot the tool
+          // is set to, so what the settings say a joint will be is what the first
+          // swing of it actually makes. Told once — rounded or sharp, either is a
+          // choice — it keeps what it was told, and only that control changes it.
+          const jointFillet = piece.jointFillet ?? cur.jointFillet
+          const S = slopeLimitsFor(piece)
+          const slope = aim.slope === undefined ? piece.slope : tidy(clamp(aim.slope, S.min, S.max))
+          // Measured against the fall and the pivot the part is landing on rather
+          // than the ones it left: turning, tipping and rounding all spend the
+          // same straight, and the turn is what gives way where they do not all fit.
+          const T = turnLimitsFor({ ...piece, slope, jointFillet }, fed, tube(piece))
+          const turn = aim.turn === undefined ? piece.turn : tidy(clamp(aim.turn, T.min, T.max))
+          // Drag traffic repeats the aim the part already sits on, and an aim
+          // held against its limits repeats it too — neither is a step.
+          if (slope === piece.slope && turn === piece.turn && jointFillet === piece.jointFillet) {
+            return null
+          }
+          const aimed = { ...piece, slope, turn, jointFillet }
+          const pieces = cur.pieces.slice()
+          pieces[at] = aimed
+          // Only the run behind it follows, and the heading half of that carries
+          // itself: a turn is a change from the part before, so everything after
+          // this part is already measured off the new one. The fall is not —
+          // each part holds an angle of its own — so the joints behind are
+          // walked back into line at the kinks they were standing at.
+          return {
+            pieces: carrySlope(
+              pieces,
+              at,
+              tidy(exitSlope(aimed) - exitSlope(piece)),
+              cur.keepConnected,
+              tube,
+            ),
+          }
+        },
+        // One drag of the ring is one step, however far it swings the run.
+        `piece:${id}:aim`,
+      ),
+
     restoreDrag: (id, pieces) =>
       commit(
         `Cancel ${nameOf(get(), id)} drag`,
@@ -3710,6 +4073,15 @@ export const useRun = create<RunState>((set, get) => {
         // otherwise the part goes on the end, where the lead is.
         return picked(without.length === s.selectedIds.length ? [...without, id] : without)
       }),
+    selectParts: (ids) =>
+      set((s) => {
+        // A part named twice keeps only its last place, so the row the sweep
+        // ended on is the one that leads.
+        const known = ids.filter(
+          (id, i) => ids.indexOf(id, i + 1) === -1 && s.pieces.some((p) => p.id === id),
+        )
+        return known.length ? picked(known) : s
+      }),
     pickPart: (id, additive) => {
       const s = get()
       if (additive) s.toggleSelect(id)
@@ -3739,16 +4111,25 @@ export interface TubeSpec {
   sweep: number
   closed: boolean
   variant: TubeVariant
+  /** Which side the opening faces — nothing to a closed tube, which has none. */
+  openSide: OpenSide
 }
 
-export function tubeSpec(innerDiameter: number, wallThickness: number, variant: TubeVariant): TubeSpec {
+export function tubeSpec(
+  innerDiameter: number,
+  wallThickness: number,
+  variant: TubeVariant,
+  openSide: OpenSide = 'top',
+): TubeSpec {
   const innerR = innerDiameter / 2
   const outerR = innerR + wallThickness
   const coverage = VARIANT_COVERAGE[variant]
   const sweep = Math.PI * 2 * coverage
-  // The opening is always centred on top (+Y, i.e. 90°).
+  // The opening is centred on the side asked for. Section angles are measured
+  // off local +X and turn towards +Y (up), so up itself is 90° and the side's
+  // own angle — measured the other way about, off up — is taken back off it.
   const gap = Math.PI * 2 - sweep
-  const startAngle = Math.PI / 2 + gap / 2
+  const startAngle = Math.PI / 2 - OPEN_SIDE_ANGLE[openSide] + gap / 2
   return {
     innerR,
     outerR,
@@ -3757,6 +4138,7 @@ export function tubeSpec(innerDiameter: number, wallThickness: number, variant: 
     sweep,
     closed: variant === 'closed',
     variant,
+    openSide,
   }
 }
 
@@ -3768,11 +4150,15 @@ export function tubeSpec(innerDiameter: number, wallThickness: number, variant: 
  */
 export function pieceSpec(base: TubeSpec, piece: Piece): TubeSpec {
   const variant = variantOf(piece, base.variant)
+  const openSide = openSideOf(piece, base.openSide)
   const innerDiameter = boreOf(piece, base.innerR * 2)
   const wall = wallOf(piece, base.wall)
-  return variant === base.variant && innerDiameter === base.innerR * 2 && wall === base.wall
+  return variant === base.variant &&
+    openSide === base.openSide &&
+    innerDiameter === base.innerR * 2 &&
+    wall === base.wall
     ? base
-    : tubeSpec(innerDiameter, wall, variant)
+    : tubeSpec(innerDiameter, wall, variant, openSide)
 }
 
 /** Snap-fit joint geometry, derived from the tube wall. */

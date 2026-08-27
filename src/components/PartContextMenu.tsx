@@ -86,6 +86,7 @@ export default function PartContextMenu({
     toggleSelect,
     leadPart,
     tool,
+    toolScope,
     setTool,
     dropToWorkplane,
     togglePieceHidden,
@@ -195,9 +196,20 @@ export default function PartContextMenu({
    * move and turn everything picked, so picking this one alone would quietly
    * drop the rest of what the drag was meant to take.
    */
+  /**
+   * Whether the item is the state the stage is actually in: this part in hand,
+   * with that tool, reaching no further than what is picked. A handle spread
+   * across the whole stage is a different thing from the one the item offers, so
+   * the item is not ticked for it.
+   */
+  const held = (t: Tool) => picked && tool === t && toolScope === 'selected'
+
   const hold = (next: Tool) =>
     run(() => {
-      if (picked && tool === next) {
+      // A handle reaching across the whole stage is not the one this item is
+      // offering, so taking it up on a part brings it back to that part rather
+      // than putting the tool down — the tool is the same, the reach is not.
+      if (held(next)) {
         setTool('select')
         return
       }
@@ -262,9 +274,9 @@ export default function PartContextMenu({
           )}
           {has('move') && (
             <button
-              className={picked && tool === 'move' ? 'on' : ''}
+              className={held('move') ? 'on' : ''}
               role="menuitemcheckbox"
-              aria-checked={picked && tool === 'move'}
+              aria-checked={held('move')}
               title={`Pick this part and take up the arrows that move ${set.length > 1 ? 'every run picked' : 'its run'}`}
               onClick={hold('move')}
             >
@@ -274,10 +286,14 @@ export default function PartContextMenu({
           )}
           {has('rotate') && (
             <button
-              className={picked && tool === 'rotate' ? 'on' : ''}
+              className={held('rotate') ? 'on' : ''}
               role="menuitemcheckbox"
-              aria-checked={picked && tool === 'rotate'}
-              title={`Pick this part and take up the ring that turns ${set.length > 1 ? 'every run picked, about this one' : 'its run about the upright'}`}
+              aria-checked={held('rotate')}
+              title={
+                piece.joined && index > 0
+                  ? 'Pick this part and take up the three rings that aim it — the run bends here, holding everything ahead of it still'
+                  : `Pick this part and take up the rings that turn ${set.length > 1 ? 'every run picked, about this one' : 'its run'}`
+              }
               onClick={hold('rotate')}
             >
               <RotateIcon size={14} />

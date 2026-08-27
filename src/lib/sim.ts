@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import { sampleChain, type Assembly, type Chain, type Segment } from './layout'
-import { contact, landing, type World } from './collide'
+import { contact, holdsMarble, landing, type World } from './collide'
 import type { Piece } from '../store'
 
 /** Gravity in mm/s². */
@@ -101,11 +101,50 @@ export function resetMarble(m: MarbleState, asm: Assembly, rest: RestOffset) {
   seat(m, asm, rest)
 }
 
-/** Places the marble on the floor of the bore at its current arc length. */
+/** Scratch for {@link sag}, which is asked every step. */
+const push = new THREE.Vector3()
+
+/**
+ * Which way the marble is pushed across the chord it is on — a unit vector in
+ * the world, or null where nothing pushes it either way.
+ *
+ * Its weight, less whatever of that runs along the chord, since only what acts
+ * across the section can press it against a wall; plus, on a bend, the throw
+ * outward the turn gives it. Those two together are what decides both where in
+ * the bore it rides and whether the tube has anything under it there.
+ *
+ * The throw counts only inside a tube. A funnel's whirl is a path across an open
+ * bowl rather than the axis of a pipe, and the bowl already has the marble
+ * running on its wall; adding the turn again would lift it off that wall.
+ *
+ * Null is the honest answer on a chord running dead vertical with no bend in it:
+ * the marble is not pressed against anything, it is falling down the middle of
+ * the pipe.
+ */
+function sag(seg: Segment, v: number): THREE.Vector3 | null {
+  push.set(0, -G, 0)
+  push.addScaledVector(seg.dir, -push.dot(seg.dir))
+  if (seg.enclosed && seg.curve && seg.curve.radius > 1e-6) {
+    push.addScaledVector(seg.curve.toward, -(v * v) / seg.curve.radius)
+  }
+  return push.lengthSq() < 1e-9 ? null : push.normalize()
+}
+
+/**
+ * Places the marble where it rides in the bore at its current arc length —
+ * pressed against the wall in whatever direction {@link sag} is pushing it, so a
+ * marble on a steep run sits on the floor of the tube rather than being pushed
+ * through it, and one swung round a bend rides up the outside of it.
+ */
 function seat(m: MarbleState, asm: Assembly, rest: RestOffset) {
   const { point, seg } = sampleChain(asm, m.chain, m.s)
   m.position.copy(point)
-  if (seg) m.position.y -= rest(seg.piece)
+  if (!seg) return
+  const off = rest(seg.piece)
+  if (off <= 0) return
+  const against = sag(seg, m.v)
+  // Nothing pressing it anywhere leaves it down the middle of the pipe.
+  if (against) m.position.addScaledVector(against, off)
 }
 
 /** What one chord hands the next: only the tangential part of the speed survives. */
@@ -131,10 +170,8 @@ function forces(seg: Segment, friction: number) {
  * marble in the crease where a fall meets a climb has neither: both chords drive
  * it back at the crease, and there it stays.
  *
- * The same comparison serves both — what gravity gets out of the slope against
- * what the tube holds back — which is the comparison `speedAt` and
- * {@link stallPoint} walk the run with, so the three can never disagree about
- * where a run gives out.
+ * The same comparison serves both: what gravity gets out of the slope against
+ * what the tube holds back.
  */
 function pinned(run: Chain, s: number, friction: number): boolean {
   const ahead = forces(run.segments[chordAt(run, s, true)], friction)
@@ -160,93 +197,6 @@ function chordAt(run: Chain, s: number, forward: boolean): number {
   return 0
 }
 
-/**
- * The speed a marble released at the head of a run would be carrying by arc
- * length `s`, or null if the run stalls before it gets there.
- *
- * Over one straight chord the acceleration is constant, so v·dv/ds = a solves in
- * closed form and the whole run integrates chord by chord — no time-stepping.
- * That is what lets the scrubber drop the marble anywhere on the run and have it
- * carry on at the speed it would have had if it had rolled there.
- *
- * Null is the honest answer past a stall rather than nought: a marble cannot
- * reach that part of the run at all, and a scrubber that quietly reported nought
- * would be showing a stretch of run that never gets used as though it did.
- */
-export function speedAt(asm: Assembly, chain: number, s: number, friction: number): number | null {
-  const run = asm.chains[chain]
-  if (!run) return 0
-  const target = THREE.MathUtils.clamp(s, 0, run.length)
-  let v2 = 0
-  for (let i = 0; i < run.segments.length; i++) {
-    const seg = run.segments[i]
-    if (seg.startS >= target) break
-    const span = Math.min(seg.length, target - seg.startS)
-    const { drive, grip } = forces(seg, friction)
-    const a = drive - grip
-    if (a < 0) {
-      // Losing speed, and it may run out before the chord does. Past that point
-      // the run is not slow, it is unreachable: the marble stops there and — on
-      // a climb — sets off back down. Nothing beyond is ever visited.
-      const reach = v2 / (-2 * a)
-      if (reach < span) return null
-    }
-    v2 = Math.max(0, v2 + 2 * a * span)
-    if (span < seg.length) break
-    const following = run.segments[i + 1]
-    // Kink loss at the joint, squared because this walk is carrying v².
-    if (following) {
-      const cos = kink(seg, following)
-      v2 *= cos * cos
-    }
-  }
-  return Math.sqrt(v2)
-}
-
-/**
- * Where a run released at its head comes to a halt, mm along it — or null when
- * it runs clear to the end. What the scrubber shades out, and the plainest
- * answer to "why does my marble not get there".
- */
-export function stallPoint(asm: Assembly, chain: number, friction: number): number | null {
-  const run = asm.chains[chain]
-  if (!run) return null
-  let v2 = 0
-  for (let i = 0; i < run.segments.length; i++) {
-    const seg = run.segments[i]
-    const { drive, grip } = forces(seg, friction)
-    const a = drive - grip
-    if (a < 0) {
-      const reach = v2 / (-2 * a)
-      if (reach < seg.length) return seg.startS + reach
-    }
-    v2 = Math.max(0, v2 + 2 * a * seg.length)
-    const following = run.segments[i + 1]
-    if (following) {
-      const cos = kink(seg, following)
-      v2 *= cos * cos
-    }
-  }
-  return null
-}
-
-/** Drops the marble at arc length `s`, moving at whatever speed the run gives it there. */
-export function seekMarble(m: MarbleState, asm: Assembly, s: number, phys: Physics) {
-  const run = asm.chains[m.chain] ?? asm.chains[0]
-  if (!run) return
-  m.chain = asm.chains.indexOf(run)
-  m.s = THREE.MathUtils.clamp(s, 0, run.length)
-  // Past a stall the run gives it nothing, so it is put down at rest — and if
-  // the slope there will not hold it, it sets off back down of its own accord.
-  m.v = speedAt(asm, m.chain, m.s, phys.friction) ?? 0
-  m.airborne = false
-  m.stuck = false
-  m.velocity.set(0, 0, 0)
-  // Rolling without slipping ties spin to distance, so scrubbing back unrolls it.
-  m.spin = m.s / Math.max(phys.radius, 0.1)
-  seat(m, asm, phys.rest)
-}
-
 export interface StepResult {
   /** True when the marble has fallen far enough to warrant a reset. */
   lost: boolean
@@ -270,13 +220,28 @@ export function stepMarble(
   phys: Physics,
 ): StepResult {
   if (!asm.chains.length) return { lost: false }
-  return m.airborne ? fly(m, dt, asm, world, phys) : roll(m, dt, asm, phys)
+  return m.airborne ? fly(m, dt, asm, world, phys) : roll(m, dt, asm, world, phys)
 }
 
 /** One step along the run the marble is on. */
-function roll(m: MarbleState, dt: number, asm: Assembly, phys: Physics): StepResult {
+function roll(m: MarbleState, dt: number, asm: Assembly, world: World, phys: Physics): StepResult {
   const run = asm.chains[m.chain]
   if (!run || !run.segments.length) return { lost: false }
+
+  // Before anything else: is there anything under it at all? A trough carries
+  // the marble only while its wall is on the side the marble is being pressed
+  // to, so one turned on its back — or one on a crest throwing the marble at its
+  // open side — simply lets go, and the marble falls out of the run rather than
+  // sticking to a centreline with nothing under it. A tube with more wall than a
+  // trough never lets go: see `holdsMarble`.
+  const here = run.segments[chordAt(run, m.s, m.v >= 0)]
+  if (!holdsMarble(world, here, sag(here, m.v))) {
+    seat(m, asm, phys.rest)
+    m.airborne = true
+    m.stuck = false
+    m.velocity.copy(here.dir).multiplyScalar(m.v)
+    return { lost: false }
+  }
 
   // Standing still with nowhere to go is the end of the run for this marble; it
   // is asked afresh every step, so widening the fall under it sets it off again.
@@ -288,7 +253,7 @@ function roll(m: MarbleState, dt: number, asm: Assembly, phys: Physics): StepRes
   }
   m.stuck = false
 
-  const seg = run.segments[chordAt(run, m.s, m.v >= 0)]
+  const seg = here
   const { drive, grip } = forces(seg, phys.friction)
   const was = Math.sign(m.v)
   // Standing still, there is no motion for grip to oppose — only the slope acts,
@@ -401,8 +366,13 @@ function fly(
     m.velocity.copy(tangent).addScaledVector(hit.normal, -into * phys.bounce)
   }
 
-  // Anything it has fallen into, once it has stopped rattling around in it.
-  const caught = landing(world, m.position, phys.radius)
+  // Anything it has fallen into, once it has stopped rattling around in it —
+  // and only where that tube can hold it, asked of a marble at rest. One that
+  // would need to be travelling to stay in is left in the air, where the walls
+  // are solved properly and it can be thrown straight back out again.
+  const caught = landing(world, m.position, phys.radius, (seg) =>
+    holdsMarble(world, seg, sag(seg, 0)),
+  )
   if (caught) {
     const { dir } = sampleChain(asm, caught.chain, caught.s)
     const along = m.velocity.dot(dir)

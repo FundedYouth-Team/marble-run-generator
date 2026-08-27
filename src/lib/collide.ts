@@ -1,7 +1,14 @@
 import * as THREE from 'three'
-import type { Assembly, Segment } from './layout'
+import type { Assembly, PlacedPiece, Segment } from './layout'
 import { funnelShell } from './funnel'
-import { funnelSpec, type Piece, type TubeSpec } from '../store'
+import {
+  OPEN_SIDE_ANGLE,
+  funnelDrainSpec,
+  funnelSpec,
+  tubeSpec,
+  type Piece,
+  type TubeSpec,
+} from '../store'
 
 /**
  * The stage as the flying marble meets it: every surface on it, solved rather
@@ -22,19 +29,34 @@ import { funnelSpec, type Piece, type TubeSpec } from '../store'
  */
 
 /** A length of tube: the chord it runs on, and the annulus swept along it. */
-interface Shell {
+export interface Shell {
   seg: Segment
   innerR: number
   outerR: number
   /** Across the tube, world — `up × dir`, so the opening is measured in-plane. */
   right: THREE.Vector3
   /**
-   * Half the opening, radians either side of the chord's up axis. Nought on
+   * Half the opening, radians either side of {@link Shell.opens}. Nought on
    * closed tube, a right angle on a half pipe. Inside this arc there is no
    * material at any radius, which is how the marble gets into a trough from
    * above and out of one it is thrown clear of.
    */
   gap: number
+  /**
+   * Where that opening is centred, radians off the chord's up axis — nought for
+   * a tube open on top, and a quarter turn either way for one opened onto its
+   * side. See {@link OPEN_SIDE_ANGLE}, which this is read straight off: the
+   * marble has to fall out of the side the part was actually cut open on.
+   */
+  opens: number
+  /**
+   * Whether the wall curls over the marble, so that the slot is a window rather
+   * than a way through. A closed tube and a 3/4 one both are; a trough is not.
+   * See {@link captive} — and note that it settles both ways at once, since a
+   * marble that cannot be pulled out through the slot cannot be dropped in
+   * through it either. Such a tube is solid to a marble in the air as well.
+   */
+  captive: boolean
 }
 
 /**
@@ -65,9 +87,47 @@ interface Bowl {
 export interface World {
   shells: Shell[]
   bowls: Bowl[]
+  /**
+   * The tube round each chord, for asking what a chord can hold. A chord with
+   * no entry has no tube round it at all — a funnel's whirl, where the bowl does
+   * the holding rather than a wall.
+   */
+  byChord: Map<Segment, Shell>
 }
 
 const UP = new THREE.Vector3(0, 1, 0)
+
+/** An angle brought back into (-π, π], so "how far apart" is the short way round. */
+export function wrapPi(a: number): number {
+  const t = (a + Math.PI) % (Math.PI * 2)
+  return (t < 0 ? t + Math.PI * 2 : t) - Math.PI
+}
+
+/**
+ * The tube each of a part's chords is really cut from.
+ *
+ * Every part but the funnel is one tube from end to end, so the part's own spec
+ * answers for all of it. A funnel is three things in a row, and only the middle
+ * one is what the part's style describes:
+ *
+ * - the feed pipe, which is a hole let through the bowl's wall. A hole through a
+ *   wall has no open side to give it, so the mesh builds it closed whatever the
+ *   part is cut in — see `feedTubeGeometry` — and the marble has to be carried
+ *   through it accordingly. Read as a trough it would drop the marble at the
+ *   very rim of the bowl, out of a pipe that is plainly closed on screen.
+ * - the whirl, which is no pipe at all and gets no shell.
+ * - the drain, which may have been given a style of its own.
+ */
+function tubeAlong(placed: PlacedPiece, own: TubeSpec): (seg: Segment) => TubeSpec {
+  if (placed.piece.type !== 'funnel') return () => own
+  const feed = tubeSpec(own.innerR * 2, own.wall, 'closed', own.openSide)
+  const drain = funnelDrainSpec(own, placed.piece)
+  const { entry } = funnelSpec(placed.piece)
+  // By arc length along the part rather than by counting chords, for the reason
+  // `enclosedChords` gives: a funnel bent onto its joint has its feed split in
+  // two, and everything counted from the front is then off by one.
+  return (seg) => (seg.startS - placed.startS + seg.length / 2 < entry ? feed : drain)
+}
 
 /**
  * Reads the stage into surfaces. `spec` hands back the tube a part is cut from,
@@ -76,20 +136,27 @@ const UP = new THREE.Vector3(0, 1, 0)
 export function buildWorld(asm: Assembly, spec: (piece: Piece) => TubeSpec): World {
   const shells: Shell[] = []
   const bowls: Bowl[] = []
+  const byChord = new Map<Segment, Shell>()
 
-  for (const run of asm.chains) {
-    for (const seg of run.segments) {
+  for (const placed of asm.placed) {
+    const along = tubeAlong(placed, spec(placed.piece))
+    for (const seg of placed.segments) {
       if (!seg.enclosed) continue
-      const tube = spec(seg.piece)
-      shells.push({
+      const tube = along(seg)
+      // The solid covers `sweep` of the circle, so what is left open is the rest
+      // of it, half to either side of wherever it is centred.
+      const gap = Math.max(0, (Math.PI * 2 - tube.sweep) / 2)
+      const shell: Shell = {
         seg,
         innerR: tube.innerR,
         outerR: tube.outerR,
         right: new THREE.Vector3().crossVectors(seg.up, seg.dir),
-        // The solid covers `sweep` of the circle centred on up, so what is left
-        // open is the rest of it, half to either side.
-        gap: Math.max(0, (Math.PI * 2 - tube.sweep) / 2),
-      })
+        gap,
+        opens: OPEN_SIDE_ANGLE[tube.openSide],
+        captive: captive(gap),
+      }
+      shells.push(shell)
+      byChord.set(seg, shell)
     }
   }
 
@@ -124,7 +191,46 @@ export function buildWorld(asm: Assembly, spec: (piece: Piece) => TubeSpec): Wor
     })
   }
 
-  return { shells, bowls }
+  return { shells, bowls, byChord }
+}
+
+/**
+ * Whether a tube's wall curls over the marble — which is what makes a slot a
+ * window rather than a way out.
+ *
+ * A tube that keeps more than half its wall has the two sides of its slot
+ * leaning in over the widest part of the bore, and the marble under them is held
+ * the way a snap fit holds one: to leave it would have to spring the walls
+ * apart, which printed tube and a glass marble do not do to each other. So a 3/4
+ * tube carries the marble exactly as a closed one does, whichever way up the
+ * part is turned and however hard a bend throws it — the slot is there to see
+ * through, and the marble still leaves at the ends and nowhere else.
+ *
+ * Only once the slot reaches half the circle do the walls stand straight up with
+ * nothing overhanging, and the part stops being a tube with a window in it and
+ * becomes a trough. A trough is open to whatever is above it, and a marble
+ * pressed that way goes.
+ */
+function captive(gap: number): boolean {
+  return gap < Math.PI / 2 - 1e-9
+}
+
+/**
+ * Whether the tube round a chord holds a marble that is being pushed `push` way
+ * — a unit vector in the world, which is where the marble's weight and whatever
+ * a bend is throwing it out with add up to.
+ *
+ * A chord with no tube round it holds whatever is on it: the funnel's bowl is
+ * the only such chord, and the bowl is a wall in its own right.
+ */
+export function holdsMarble(world: World, seg: Segment, push: THREE.Vector3 | null): boolean {
+  const shell = world.byChord.get(seg)
+  if (!shell || shell.captive) return true
+  // Nothing pushing it anywhere is nothing pushing it out.
+  if (!push) return true
+  const angle = Math.atan2(push.dot(shell.right), push.dot(seg.up))
+  // Wall where it is being pushed, so the wall takes it.
+  return Math.abs(wrapPi(angle - shell.opens)) >= shell.gap
 }
 
 /** Where a surface was met, and which way the marble has to go to get off it. */
@@ -175,10 +281,15 @@ function shellContact(shell: Shell, p: THREE.Vector3, r: number): Contact | null
   if (rho < 1e-6) return null
   radial.divideScalar(rho)
 
-  // Measured off the up axis, so the opening — which is centred on up — is the
-  // arc either side of nought.
-  const angle = Math.atan2(radial.dot(shell.right), radial.dot(seg.up))
-  if (Math.abs(angle) < shell.gap) return null
+  // Measured off the up axis and turning towards the tube's left, which is the
+  // frame the open side is named in — so the opening is the arc either side of
+  // where that side sits, wrapped to the short way round. A captive tube has no
+  // way through its slot in either direction, so it is solid all the way round
+  // and this is not asked of it at all.
+  if (!shell.captive) {
+    const angle = Math.atan2(radial.dot(shell.right), radial.dot(seg.up))
+    if (Math.abs(wrapPi(angle - shell.opens)) < shell.gap) return null
+  }
 
   if (rho <= innerR) {
     const depth = rho + r - innerR
@@ -276,18 +387,27 @@ export interface Landing {
  * Which run, if any, the marble is now inside.
  *
  * A tube catches it when its whole width fits within the bore — which for an
- * open trough is exactly what dropping in through the gap leaves it. A bowl
+ * open trough is exactly what dropping in through the gap leaves it — and when
+ * the tube can actually hold it there, which `holds` answers. Without that
+ * second question a trough turned on its back would catch the very marble it is
+ * about to drop, over and over, and the marble would hang in mid-air. A bowl
  * catches it when it is anywhere in the cup at all, because a funnel has no bore
  * to be inside: what it has is a wall the marble is already running on, and the
  * whirl is where that wall takes it.
  */
-export function landing(world: World, p: THREE.Vector3, r: number): Landing | null {
+export function landing(
+  world: World,
+  p: THREE.Vector3,
+  r: number,
+  holds: (seg: Segment) => boolean,
+): Landing | null {
   for (const shell of world.shells) {
     rel.subVectors(p, shell.seg.start)
     const t = rel.dot(shell.seg.dir)
     if (t < 0 || t > shell.seg.length) continue
     radial.copy(rel).addScaledVector(shell.seg.dir, -t)
     if (radial.length() > shell.innerR - r) continue
+    if (!holds(shell.seg)) continue
     return { chain: shell.seg.chain, s: shell.seg.startS + t }
   }
 

@@ -17,6 +17,7 @@ export default function ExportPanel() {
     innerDiameter,
     wallThickness,
     variant,
+    openSide,
     selectedId,
     exportFormat,
     setExportFormat,
@@ -25,8 +26,8 @@ export default function ExportPanel() {
     setExportName,
   } = useRun()
   const spec = useMemo(
-    () => tubeSpec(innerDiameter, wallThickness, variant),
-    [innerDiameter, wallThickness, variant],
+    () => tubeSpec(innerDiameter, wallThickness, variant, openSide),
+    [innerDiameter, wallThickness, variant, openSide],
   )
   const asm = useMemo(() => buildAssembly(pieces), [pieces])
   const [last, setLast] = useState<ExportResult | null>(null)
@@ -112,8 +113,9 @@ export default function ExportPanel() {
       </div>
 
       <p className="note">
-        <b>Print plate</b> lays every piece flat and separated, opening upward — no supports
-        needed for the Half and 3/4 variants. <b>Assembly</b> exports the run as designed, for
+        <b>Print plate</b> lays every piece flat and separated, rolled so its opening faces
+        upward whichever side it was cut on — no supports needed for the Half and 3/4
+        variants. <b>Assembly</b> exports the run as designed, for
         checking fit rather than printing. 1 unit = 1 mm, Z up — files are always written in
         millimetres, whichever unit you design in.
       </p>

@@ -7,7 +7,15 @@ import HelpOverlay from './components/HelpOverlay'
 import PartLibrary from './components/PartLibrary'
 import ProjectBar from './components/ProjectBar'
 import { pieceAxisLength } from './lib/centerline'
-import { useRun, tubeSpec, variantOf, sizedLikeRun, VARIANT_LABEL } from './store'
+import {
+  useRun,
+  tubeSpec,
+  variantOf,
+  openSideOf,
+  sizedLikeRun,
+  OPEN_SIDE_LABEL,
+  VARIANT_LABEL,
+} from './store'
 import { formatCoarse, lengthText } from './lib/units'
 import { actionFor } from './lib/shortcuts'
 
@@ -18,7 +26,7 @@ function isTyping(el: EventTarget | null) {
 }
 
 export default function App() {
-  const { mode, setMode, pieces, innerDiameter, wallThickness, variant, units } = useRun()
+  const { mode, setMode, pieces, innerDiameter, wallThickness, variant, openSide, units } = useRun()
 
   // The shortcuts, wherever you are — both stages share the one timeline. The
   // bindings are read at press time rather than watched, so re-binding one in
@@ -48,12 +56,22 @@ export default function App() {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [])
-  const spec = tubeSpec(innerDiameter, wallThickness, variant)
+  const spec = tubeSpec(innerDiameter, wallThickness, variant, openSide)
   // Centreline length, so a bent part counts what it actually carries.
   const total = pieces.reduce((a, p) => a + pieceAxisLength(p), 0)
   // Style is a part's own, so the strip only names one when the run agrees on it.
   const styles = new Set(pieces.map((p) => variantOf(p, variant)))
-  const style = styles.size > 1 ? 'Mixed styles' : VARIANT_LABEL[[...styles][0] ?? variant]
+  const oneStyle = styles.size > 1 ? null : ([...styles][0] ?? variant)
+  // The side an open tube faces, said alongside it on the same terms — and left
+  // unsaid on a closed run, which has no opening to face anywhere.
+  const sides = new Set(pieces.map((p) => openSideOf(p, openSide)))
+  const oneSide = sides.size > 1 ? null : ([...sides][0] ?? openSide)
+  const style =
+    oneStyle === null
+      ? 'Mixed styles'
+      : oneStyle === 'closed'
+        ? VARIANT_LABEL[oneStyle]
+        : `${VARIANT_LABEL[oneStyle]} · opens ${oneSide ? OPEN_SIDE_LABEL[oneSide].toLowerCase() : 'mixed sides'}`
   // Same for the tube itself: one size is only worth quoting while every part is
   // cut to it.
   const mixedTube = pieces.some((p) => !sizedLikeRun(p, innerDiameter, wallThickness))

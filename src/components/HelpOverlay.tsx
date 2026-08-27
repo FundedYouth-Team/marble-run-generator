@@ -126,7 +126,7 @@ const HELP: Record<HelpTab, Group[]> = {
         {
           keys: [`${MOD_LABEL}-click a part`],
           action: 'Add it to the selection, or take it back out',
-          note: 'Shift does the same; Duplicate and Delete then take the whole set, while the settings, the arrows and the ring stay on the last part picked',
+          note: 'Shift does the same on the stage — in Active Parts it takes a range instead; Duplicate and Delete then take the whole set, while the settings, the arrows and the ring stay on the last part picked',
         },
         { keys: ['Left-click empty space'], action: 'Deselect' },
         {
@@ -138,6 +138,11 @@ const HELP: Record<HelpTab, Group[]> = {
           keys: ['Active Parts'],
           action: 'Switch a part off to take it out of both views',
           note: 'it still holds its place in the run',
+        },
+        {
+          keys: ['Tick a part', 'Shift-click a part'],
+          action: 'Build a set in the list — one row at a time, or a whole run of rows at once',
+          note: 'Shift takes everything between the row last picked and the row clicked',
         },
       ],
     },
@@ -152,12 +157,12 @@ const HELP: Record<HelpTab, Group[]> = {
         {
           keys: ['Move'],
           action: 'Drag the three axis arrows to move the selected part about the workplane',
-          note: `red is X, green Y, blue Z; anything joined to that part travels with it, and with a set picked (${MOD_LABEL}-click) every run in the set travels the same distance`,
+          note: `red is X, green Y, blue Z; anything joined to that part travels with it, and with a set picked (${MOD_LABEL}-click) every run in the set travels the same distance. The button asks how far the arrows reach: Move Selected, which is that, or Move All, which takes every run on the stage whatever is picked`,
         },
         {
           keys: ['Rotate'],
-          action: 'Drag the green ring to swing the selected part’s run round the upright',
-          note: 'it turns about the part you picked, so that one stands still while the rest comes round it — a set picked alongside it is carried round that same point, holding its arrangement',
+          action: 'Drag any of the three rings to aim the selected part — red X, green Y, blue Z, the same axes the arrows travel on',
+          note: 'a bonded part bends the run where it stands: it swings about the joint it is plugged into, everything ahead of it holds still, and everything past it comes along holding its shape. On a run’s head, which has nothing in front of it to hold, the green ring turns the whole run instead — and carries any set picked alongside it round that same point. a strip appears under the bar while it is in hand, carrying its own two settings: Step, the notch every swing is held to, and Joint pivot, whether the break it bends at is rounded off or left a mitred corner. The button asks how far the rings reach: Rotate Selected, which is all of the above, or Rotate All, which stands the rings on the head of the picked run and turns every run on the stage about it',
         },
         {
           keys: ['Drop to Workplane'],
@@ -319,14 +324,24 @@ const HOWTO: Partial<Record<HelpTab, HowTo[]>> = {
       note: 'To move one part out of a run, break the joint with the Disconnector first — it comes away standing exactly where it was.',
     },
     {
-      question: 'How do I turn a run to face another way?',
-      lead: 'With the Rotate tool. Like Move it works on runs, and like Move it works about the part you picked rather than about the head of the run.',
+      question: 'How do I bend a run partway along it?',
+      lead: 'With the Rotate tool, on a part in the middle of the run. It aims that one part: its inlet does not move, so everything ahead of it stands exactly where it was, and everything joined behind it swings with it and holds its shape.',
       steps: [
-        'Select the part, in the viewport or in Active Parts.',
-        'Click Rotate. A green ring appears on it, lying in the workplane.',
-        'Drag the ring. The whole run swings round that part, which stays exactly where it is.',
+        'Select the part the run should bend at, in the viewport or in Active Parts.',
+        'Click Rotate. Three rings appear on it — red X, green Y, blue Z, the same axes the move arrows travel on.',
+        'Drag any of them. The part swings about the joint it is plugged into and takes the rest of the run with it.',
       ],
-      note: 'Only the upright is offered: a run is set down on a heading, and its climbs and corners are the parts’ own slope and turn — edit those in the sidebar.',
+      note: 'The joint itself stays dead straight — the bend is taken a lock further along, in solid tube, which is the only place a printed joint can take one. That is also its limit: turn a part further than its own tube can be cut round and the ring runs out of travel. Past that, bend the run with a Corner or a Hook, which are built to turn it.',
+    },
+    {
+      question: 'How do I turn a whole run to face another way?',
+      lead: 'With the Rotate tool, on the part at the head of the run — the one with nothing joined in front of it. That part has nothing to hold still, so its rings swing the run entire.',
+      steps: [
+        'Select the head of the run, in the viewport or in Active Parts.',
+        'Click Rotate. The green ring is the one that lies in the workplane.',
+        'Drag it. The whole run swings round that part, which stays exactly where it is.',
+      ],
+      note: 'Pick parts in several runs and the green ring carries them all, each keeping its place in the arrangement. To turn a run about a point partway along it, break the joint there with the Disconnector first.',
     },
     {
       question: 'How do I take a part back out of a run?',
@@ -348,10 +363,20 @@ const HOWTO: Partial<Record<HelpTab, HowTo[]>> = {
       note: 'A marble in the air bounces off anything solid it meets on the way — the outside of a tube, the rim of a funnel — so a near miss deflects it rather than passing through.',
     },
     {
+      question: 'Why did my marble fall out of the tube?',
+      lead: 'Because the part is a Half pipe, and a half pipe is a trough rather than a tube: its walls stand straight up with nothing overhanging, so the marble sits in it rather than inside it and can leave through the open side. Only a half pipe can do this. A 3/4 tube keeps more than half its wall, which curls over the marble and holds it exactly as closed tube does — its slot is there to see through, and the marble still leaves at the ends and nowhere else.',
+      steps: [
+        'Cut the part 3/4 Open under Tube Style: you still see the marble, and it cannot get out.',
+        'Or check which side the half pipe opens on — turned onto its back it drops the marble straight away.',
+        'Keep it a half pipe where you want the marble to leave, or to drop into the run from above.',
+      ],
+      note: 'A half pipe loses it to speed as well as to gravity. Taken over a crest fast enough the marble carries on straight and leaves the trough, the way a car leaves a humpback bridge — and swung round a bend hard enough it is held out against the far wall instead, so an upside-down trough on a tight bend can carry it through.',
+    },
+    {
       question: 'Why has my marble stopped halfway down?',
       lead: 'It has run out of fall. A marble is driven by how steeply the tube drops and held back by the tube’s grip, and below about five degrees at the stock grip the grip wins. It does not stop dead where it stands: on a climb it rolls back down, and it settles wherever it can go no further.',
       steps: [
-        'Watch the bar along the bottom — the stretch past the stall is hatched out, and the readout says STUCK.',
+        'Watch the readout at the end of the toolbar — it says STUCK once the marble can go no further.',
         'Steepen the parts before the stall, or drop the Tube grip in Settings.',
         'Check for a sharp corner just before it: a hard turn bleeds off speed the run then has to make up again.',
       ],

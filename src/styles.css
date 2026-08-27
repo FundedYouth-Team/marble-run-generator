@@ -104,6 +104,11 @@
   --font: 'IBM Plex Sans', 'Segoe UI', system-ui, -apple-system, sans-serif;
   --mono: 'IBM Plex Mono', 'SF Mono', ui-monospace, Menlo, monospace;
 
+  /* The strip a tool with settings of its own hangs under the bar. Named here
+     so the stage furniture and the bar agree on it; the stage adds it to
+     --toolbar-h only while such a tool is in hand. */
+  --tool-options-h: 38px;
+
   /* How far the stage furniture is set down to clear the toolbar across the top.
      The 3D stage sets its own from the height the view cube is placed against;
      the 2D draft carries no such bar, so nothing there is pushed down. */
@@ -2441,13 +2446,74 @@ button.danger {
   z-index: 5;
   height: var(--toolbar-h);
   display: flex;
-  align-items: stretch;
-  gap: 0;
-  padding: 0 12px;
+  flex-direction: column;
   background: var(--panel);
   border-bottom: 1px solid var(--line);
   box-shadow: 0 1px 6px rgba(15, 30, 45, 0.06);
   overflow: hidden;
+}
+
+/* The bar proper. Its own row, so a tool with settings can hang a second one
+   under it without any of this having to give up width for it. */
+.toolbar-row {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  padding: 0 12px;
+}
+
+/* The settings belonging to the tool in hand. A single line, set apart from the
+   bar by its own rule and a slightly sunk ground — it reads as hanging off the
+   bar rather than as another band of it. */
+.toolbar-row.options {
+  flex: 0 0 auto;
+  height: var(--tool-options-h);
+  align-items: center;
+  gap: 18px;
+  border-top: 1px solid var(--line-soft);
+  /* Sunk a shade below the bar, so the strip reads as hanging off it rather
+     than as another band of it — and so the segmented controls, which are that
+     shade themselves, still stand up off their ground. */
+  background: var(--panel-2);
+}
+
+/* Which tool the strip belongs to, in the same small caps the bands are named
+   in — so the strip says whose it is without a border around the lot. */
+.tool-options-tool {
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  /* The accent rather than the plain mute the bands are named in: this one names
+     the tool in hand, which is the one thing on the strip that is not a setting. */
+  color: var(--accent-text);
+  white-space: nowrap;
+}
+
+/* One setting: its name, then its control, on the one line. */
+.tool-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.tool-option-name {
+  font-size: 11px;
+  color: var(--ink-mute);
+  white-space: nowrap;
+}
+
+/* An aside on a setting — what it is about to act on. Last to be read and first
+   to be cut, so it is the one thing here allowed to run out of room. */
+.tool-option-note {
+  font-size: 11px;
+  color: var(--ink-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* One band of the bar, named above its buttons. */
@@ -2499,6 +2565,44 @@ button.danger {
   color: var(--ink-dim);
 }
 
+/* Wraps a tool that asks which way on click, so the menu has something anchored
+   in the bar to be placed under. */
+.tool-menu-slot {
+  display: inline-flex;
+  position: relative;
+}
+
+/* A tool with more than one way of doing it. The caret needs a corner to sit in
+   and the picture is already centred, so the button keeps its size and the mark
+   is placed over it rather than beside it. */
+.tool-btn.has-menu {
+  position: relative;
+}
+
+/* The mark that says there is a menu: a small wedge in the bottom-right corner,
+   the same one every menu button in the app wears. */
+.tool-btn-caret {
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  width: 0;
+  height: 0;
+  border-left: 3.5px solid transparent;
+  border-top: 3.5px solid transparent;
+  border-right: 3.5px solid currentColor;
+  border-bottom: 3.5px solid currentColor;
+  opacity: 0.65;
+}
+
+/* The menu itself, hung off the body — it borrows the part menu's look, since it
+   is the same kind of list, but is placed in viewport pixels rather than in the
+   stage, and so has to out-rank what .part-menu says about that. */
+.part-menu.tool-menu {
+  position: fixed;
+  z-index: 60;
+  min-width: 186px;
+}
+
 .tool-btn svg {
   display: block;
   flex: 0 0 auto;
@@ -2546,6 +2650,18 @@ button.danger {
   background: linear-gradient(180deg, var(--seg-on-a), var(--seg-on-b));
   border-color: var(--primary-on-border);
   color: var(--primary-ink);
+}
+
+/* A tool setting that is a figure rather than a choice — the joint radius the
+   Rotate tool rounds with. The same box the panels use, taken in narrower: the
+   strip has one number to show and no room to spare for it. */
+.toolbar-row.options .numbox {
+  padding: 1px 6px;
+}
+
+.toolbar-row.options .numbox input {
+  width: 40px;
+  font-size: 11px;
 }
 
 /* What the tool in hand is waiting for, said in the bar rather than in a
@@ -2597,104 +2713,6 @@ button.danger {
   color: var(--ink-mute);
   letter-spacing: 0.06em;
   text-transform: uppercase;
-}
-
-/* ---------------- simulator scrubber ---------------- */
-
-/* The transport bar along the bottom of the workplane. Centred on the stage and
-   held clear of the parts tree on the left and the legend on the right; the
-   slide-out panels push it the same way everything else in the corner goes. */
-.scrubber {
-  position: absolute;
-  bottom: 14px;
-  left: 50%;
-  transform: translateX(-50%);
-  width: clamp(260px, 44%, 560px);
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 12px;
-  background: var(--hud-bg);
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  backdrop-filter: blur(6px);
-  transition: transform 0.24s ease;
-}
-
-.scrubber.shifted {
-  transform: translateX(calc(-50% - var(--parts-w) / 2));
-}
-
-.scrub-play {
-  flex: 0 0 auto;
-  width: 30px;
-  height: 30px;
-  padding: 0;
-  font-size: 12px;
-  line-height: 1;
-}
-
-.scrub-play.on {
-  background: linear-gradient(180deg, var(--seg-on-a), var(--seg-on-b));
-  border-color: var(--primary-on-border);
-  color: var(--primary-ink);
-}
-
-.scrub-track {
-  flex: 1 1 auto;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.scrub-track input[type='range'] {
-  flex: 0 0 auto;
-  width: 100%;
-  cursor: pointer;
-}
-
-/* Holds the slider over the dead-ground band, which is drawn behind it. */
-.scrub-rail {
-  position: relative;
-  display: flex;
-}
-
-/*
- * Where the run stops carrying the marble: from the stall to the far end is run
- * it never reaches, so it is hatched out rather than left looking travelable.
- */
-.scrub-stall {
-  position: absolute;
-  top: 50%;
-  right: 0;
-  height: 5px;
-  transform: translateY(-50%);
-  pointer-events: none;
-  border-radius: 2px;
-  background: repeating-linear-gradient(
-    -45deg,
-    color-mix(in srgb, var(--danger) 55%, transparent) 0 3px,
-    transparent 3px 6px
-  );
-}
-
-/* Start on the left, end on the right, and where the marble is between them. */
-.scrub-ends {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 8px;
-  font-size: 9.5px;
-  line-height: 1.2;
-  color: var(--ink-mute);
-  white-space: nowrap;
-}
-
-.scrub-ends b {
-  font-family: var(--mono);
-  font-size: 10px;
-  color: var(--accent-2);
 }
 
 /* ---------------- active parts tree ---------------- */
@@ -2834,6 +2852,31 @@ button.danger {
 .active-part.off .active-part-name {
   color: var(--ink-mute);
   font-style: italic;
+}
+
+/* The tick box: builds a set one row at a time, for a mouse on its own. */
+.active-part-check {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: var(--input-bg);
+  color: var(--btn-on-accent);
+}
+
+.active-part-check:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: var(--input-bg);
+}
+
+.active-part-check[aria-checked='true'],
+.active-part-check[aria-checked='true']:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: var(--accent);
 }
 
 .active-part-eye {

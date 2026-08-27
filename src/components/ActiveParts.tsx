@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { EyeIcon, EyeOffIcon, PencilIcon } from './icons'
+import { useState, type MouseEvent } from 'react'
+import { CheckIcon, EyeIcon, EyeOffIcon, PencilIcon } from './icons'
 import {
   useRun,
   angleSpec,
@@ -13,7 +13,10 @@ import {
   pieceLabel,
   pieceTypeLabel,
   variantOf,
+  openSideOf,
   VARIANT_LABEL,
+  OPEN_SIDE_LABEL,
+  type OpenSide,
   type Piece,
   type TubeVariant,
 } from '../store'
@@ -21,8 +24,12 @@ import { formatLength, lengthText, type Unit } from '../lib/units'
 import { addsToSelection } from '../lib/shortcuts'
 
 /** What the part is, in one line, for the row's tooltip. */
-function summarise(p: Piece, style: TubeVariant, units: Unit): string {
-  const tube = VARIANT_LABEL[style]
+function summarise(p: Piece, style: TubeVariant, side: OpenSide, units: Unit): string {
+  // Closed tube has no opening, so naming a side for it would only be noise.
+  const tube =
+    style === 'closed'
+      ? VARIANT_LABEL[style]
+      : `${VARIANT_LABEL[style]}, opens ${OPEN_SIDE_LABEL[side].toLowerCase()}`
   const n = (mm: number) => lengthText(mm, units)
   if (p.type === 'angle') {
     const a = angleSpec(p)
@@ -99,14 +106,21 @@ function ChevronIcon() {
  * tree rolls up to its header, for when the viewport matters more than the list.
  * Rows rename in place (double-click, or the pencil), and a renamed part keeps a
  * tag of what it actually is, so "Big Drop" is still visibly Tube 2.
+ *
+ * Being a list, it picks sets the way a list does: a tick box on every row for
+ * one part at a time, and Shift-click for a whole run of them between the row
+ * last clicked and the row clicked now.
  */
 export default function ActiveParts() {
   const {
     pieces,
     variant,
+    openSide,
     selectedId,
     selectedIds,
     pickPart,
+    selectParts,
+    toggleSelect,
     renamePiece,
     togglePieceHidden,
     showAllPieces,
@@ -116,7 +130,32 @@ export default function ActiveParts() {
   /** Which row is being renamed, and the in-flight text — committed on Enter or blur. */
   const [editingId, setEditingId] = useState<string | null>(null)
   const [draft, setDraft] = useState('')
+  /**
+   * The row a Shift-click sweeps from: the last one picked on its own or ticked.
+   * It falls back to the part leading the selection, so a part picked out on the
+   * stage is still somewhere to sweep from.
+   */
+  const [anchorId, setAnchorId] = useState<string | null>(null)
   const hiddenCount = pieces.filter((p) => p.hidden).length
+
+  /**
+   * A click on a row. Shift sweeps from the anchor to here — with the command
+   * key held the sweep joins what is already picked, without it the sweep is the
+   * selection. Anything else is the click every view shares.
+   */
+  function rowClick(e: MouseEvent, id: string) {
+    const anchor = pieces.findIndex((p) => p.id === (anchorId ?? selectedId))
+    const to = pieces.findIndex((p) => p.id === id)
+    if (e.shiftKey && anchor >= 0 && anchor !== to) {
+      const run = pieces.slice(Math.min(anchor, to), Math.max(anchor, to) + 1).map((p) => p.id)
+      // The row clicked leads the set, so the panels follow the sweep's end.
+      if (anchor > to) run.reverse()
+      selectParts(e.ctrlKey || e.metaKey ? [...selectedIds, ...run] : run)
+      return
+    }
+    pickPart(id, addsToSelection(e))
+    setAnchorId(id)
+  }
 
   function startEdit(id: string, name?: string) {
     setEditingId(id)
@@ -172,10 +211,11 @@ export default function ActiveParts() {
           const renamed = label !== typeLabel
           const editing = p.id === editingId
           const shown = !p.hidden
+          const ticked = selectedIds.includes(p.id)
           const classes = ['active-part']
           // Every picked row is marked; the one leading the set is marked again,
           // since that is the row the parameters panel is showing.
-          if (selectedIds.includes(p.id)) classes.push('on')
+          if (ticked) classes.push('on')
           if (p.id === selectedId) classes.push('lead')
           if (!shown) classes.push('off')
           if (editing) classes.push('editing')
@@ -183,10 +223,26 @@ export default function ActiveParts() {
             <div
               key={p.id}
               className={classes.join(' ')}
-              title={`${renamed ? `${label} — ` : ''}${typeLabel} · ${summarise(p, variantOf(p, variant), units)}`}
-              onClick={(e) => !editing && pickPart(p.id, addsToSelection(e))}
+              title={`${renamed ? `${label} — ` : ''}${typeLabel} · ${summarise(p, variantOf(p, variant), openSideOf(p, openSide), units)}`}
+              onClick={(e) => !editing && rowClick(e, p.id)}
               onDoubleClick={() => startEdit(p.id, p.name)}
             >
+              {/* One part at a time, without the keyboard: the box adds this row
+                  to the set or takes it back out, whatever else is picked. */}
+              <button
+                className="active-part-check"
+                role="checkbox"
+                aria-checked={ticked}
+                aria-label={`${ticked ? 'Unselect' : 'Select'} ${label}`}
+                title={ticked ? 'Unselect' : 'Select'}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  toggleSelect(p.id)
+                  setAnchorId(p.id)
+                }}
+              >
+                {ticked && <CheckIcon />}
+              </button>
               <button
                 className="active-part-eye"
                 aria-pressed={shown}

@@ -3,3 +3,4 @@ dist
 .DS_Store
 *.local
 _ignore
+.claude/changelog-pending.md

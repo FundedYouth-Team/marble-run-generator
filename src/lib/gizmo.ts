@@ -15,11 +15,12 @@ import * as THREE from 'three'
  *    coordinate system, an arrow that does not point along its own axis is worse
  *    than one that is sometimes behind the tube; the gizmo draws with the depth
  *    test off, so it stays visible either way.
- * 2. **The axis in hand keeps its colour.** The gizmo washes the picked handle
- *    halfway to white and fades the other two to a quarter opacity, so grabbing
- *    the red arrow turns it pink. Here the picked axis stays its own colour at
- *    full strength and the others only fade — the colour is how you tell which
- *    axis you have.
+ * 2. **The axis in hand keeps its colour, and it is the only one that has one.**
+ *    The gizmo washes the picked handle halfway to white and fades the other two
+ *    to a quarter opacity, so grabbing the red arrow turns it pink and leaves
+ *    three coloured handles on screen. Here it is the other way about: the axis
+ *    under the pointer stays its own colour at full strength and the other two
+ *    go a light grey, so the one colour left on the gizmo is the axis you have.
  * 3. **The drag guide line sits beside the axis, not on it.** The gizmo draws a
  *    long white line straight down the axis being dragged, through the model and
  *    under the arrow, where it reads as part of the arrow rather than as a guide.
@@ -33,7 +34,22 @@ import * as THREE from 'three'
 const GUIDE_OFFSET = 0.45
 
 /** What the axes not in hand fade to. The gizmo's own figure is 0.25. */
-const IDLE_OPACITY = 0.45
+const IDLE_OPACITY = 0.55
+
+/**
+ * What the axes not in hand are washed to while another one is.
+ *
+ * Grey rather than a fainter red and blue, because faint red and faint blue are
+ * still red and blue: with all three coloured, which one is in hand has to be
+ * read off how bright they are, which is a comparison. Grey makes it a glance —
+ * the gizmo is left with exactly one colour on it, and that is the axis.
+ *
+ * Light enough to sit back on the stage, dark enough to still be seen on it, and
+ * the same either way the theme is set: the gizmo is drawn with the depth test
+ * off, over the tube as often as over the ground behind it, so there is no one
+ * ground to pick a grey against.
+ */
+const IDLE_COLOR = new THREE.Color(0x9aa4b0)
 
 /**
  * Below this a handle has been squashed to nothing rather than scaled — the
@@ -111,8 +127,12 @@ function restyle(controls: GizmoControls) {
     if (material.tempOpacity !== undefined) material.opacity = material.tempOpacity
     // A guide is only drawn when it is wanted, so it is never the dim one.
     if (axis && handle.tag !== 'helper') {
-      if (inHand(handle.name, axis)) material.opacity = 1
-      else material.opacity *= IDLE_OPACITY
+      if (inHand(handle.name, axis)) {
+        material.opacity = 1
+      } else {
+        material.opacity *= IDLE_OPACITY
+        material.color?.copy(IDLE_COLOR)
+      }
     }
 
     // 3. The guide line, off to one side. Everything else the gizmo puts on the

@@ -33,6 +33,7 @@ import {
   slopeLimitsFor,
   bendLimitsFor,
   entrySwingLimitsFor,
+  OPEN_SIDE_LABEL,
   VARIANT_LABEL,
   type Piece,
   type DraftView,
@@ -410,12 +411,12 @@ const SECTION_MOUSE: MouseConfig = {
 
 /** `shifted` steps the legend aside when the settings panel is out. */
 function CrossSection({ shifted }: { shifted: boolean }) {
-  const { innerDiameter, wallThickness, variant, marbleDiameter, pieces, selectedId, units, overlays } =
+  const { innerDiameter, wallThickness, variant, openSide, marbleDiameter, pieces, selectedId, units, overlays } =
     useRun()
   // Bore, wall and style are each a part's own, so the front face is the section
   // of the selected part — and the run's own tube whenever nothing is picked.
   const selected = pieces.find((p) => p.id === selectedId)
-  const run = tubeSpec(innerDiameter, wallThickness, variant)
+  const run = tubeSpec(innerDiameter, wallThickness, variant, openSide)
   const spec = selected ? pieceSpec(run, selected) : run
   const style = spec.variant
   const marbleR = marbleDiameter / 2
@@ -640,7 +641,18 @@ function CrossSection({ shifted }: { shifted: boolean }) {
 
           {/* Opening callout */}
           <text className="callout" x={0} y={top + 5} textAnchor="middle">
-            {spec.closed ? 'Closed tube — 360° wall' : `${openDeg}° open — ${VARIANT_LABEL[style]}`}
+            {/* The side is named as the marble reads it — looking along the run —
+                while this is the face of the tube looked back at, so the two are
+                mirrored. Said here rather than left to be worked out. */}
+            {!spec.closed && (
+              <title>
+                Sides are named looking along the run, so the opening of a tube that opens right is
+                drawn on the left of this face.
+              </title>
+            )}
+            {spec.closed
+              ? 'Closed tube — 360° wall'
+              : `${openDeg}° open ${OPEN_SIDE_LABEL[spec.openSide].toLowerCase()} — ${VARIANT_LABEL[style]}`}
           </text>
         </svg>
 
@@ -922,6 +934,7 @@ function AssemblyDraft({ shifted }: { shifted: boolean }) {
     innerDiameter,
     wallThickness,
     variant,
+    openSide,
     draftView,
     setDraftView,
     selectedId,
@@ -940,8 +953,8 @@ function AssemblyDraft({ shifted }: { shifted: boolean }) {
   } = useRun()
   // The tube the run is cut from — what a part with no size of its own follows.
   const spec = useMemo(
-    () => tubeSpec(innerDiameter, wallThickness, variant),
-    [innerDiameter, wallThickness, variant],
+    () => tubeSpec(innerDiameter, wallThickness, variant, openSide),
+    [innerDiameter, wallThickness, variant, openSide],
   )
   const proj = VIEWS[draftView]
   const { ref, size } = useSize<HTMLDivElement>()
