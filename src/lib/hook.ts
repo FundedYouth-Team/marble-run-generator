@@ -73,8 +73,13 @@ export function turnAxis(slope: number, roll: number): THREE.Vector3 {
  * The frame a part is stood up in, as the layout builds it: Z along the run, X
  * level, Y toward the sky. This is the one the next part along will be placed
  * with, so it is what a hook has to leave its outlet sitting in.
+ *
+ * Exported because the corner connector has the very same problem — it turns
+ * about the tube's own up axis, which on a falling run is not the upright, so
+ * its trough rolls through the turn exactly as a hook's would. One answer for
+ * both, rather than two that can drift apart. See `lib/centerline`.
  */
-function skyward(dir: THREE.Vector3, up: THREE.Vector3): THREE.Vector3 {
+export function skyward(dir: THREE.Vector3, up: THREE.Vector3): THREE.Vector3 {
   const x = new THREE.Vector3().crossVectors(up, dir)
   // Running dead vertical, there is no heading to read the frame off, and the
   // run carries on with the one it came in on.

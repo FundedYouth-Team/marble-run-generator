@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { centerlineFor, type Centerline } from './centerline'
+import { centerlineFor, chordUps, type Centerline } from './centerline'
 import { FUNNEL_SOCKET_KEEP, funnelShell, funnelSpoutUp, type FunnelBowl } from './funnel'
 import { funnelDrainSpec, funnelSpec, jointSpec, type Piece, type TubeSpec } from '../store'
 
@@ -187,25 +187,8 @@ interface Ring {
  * see {@link Centerline.ups}.
  */
 function chordFrames(line: Centerline) {
-  const xs: THREE.Vector3[] = []
-  const ys: THREE.Vector3[] = []
-  if (line.ups) {
-    for (const [i, dir] of line.dirs.entries()) {
-      // Squared up against the chord, so the section sits across the tube even
-      // where the named up axis leans out of true with it.
-      const y = line.ups[i].clone().addScaledVector(dir, -line.ups[i].dot(dir)).normalize()
-      ys.push(y)
-      xs.push(new THREE.Vector3().crossVectors(y, dir))
-    }
-    return { xs, ys }
-  }
-  xs.push(new THREE.Vector3(1, 0, 0))
-  ys.push(new THREE.Vector3(0, 1, 0))
-  for (let i = 1; i < line.dirs.length; i++) {
-    const q = new THREE.Quaternion().setFromUnitVectors(line.dirs[i - 1], line.dirs[i])
-    xs.push(xs[i - 1].clone().applyQuaternion(q))
-    ys.push(ys[i - 1].clone().applyQuaternion(q))
-  }
+  const ys = chordUps(line)
+  const xs = ys.map((y, i) => new THREE.Vector3().crossVectors(y, line.dirs[i]))
   return { xs, ys }
 }
 

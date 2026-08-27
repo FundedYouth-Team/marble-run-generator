@@ -18,10 +18,12 @@ import { FitIcon, HomeIcon } from './icons'
 import { buildEndBandGeometry, buildPartGeometry } from '../lib/geometry'
 import { centerlineFor, shapeKey } from '../lib/centerline'
 import { buildAssembly, chainBox, type Assembly } from '../lib/layout'
-import { createMarble, resetMarble, seekMarble, stepMarble } from '../lib/sim'
+import { createMarble, resetMarble, seekMarble, stallPoint, stepMarble } from '../lib/sim'
+import { buildWorld } from '../lib/collide'
 import { scrub, telemetry } from '../lib/telemetry'
 import { measure, type MoveMeasure } from '../lib/measure'
 import { tidyGizmo, type GizmoControls } from '../lib/gizmo'
+import { addsToSelection } from '../lib/shortcuts'
 import { coarseText, formatCoarse, formatLength, type Unit } from '../lib/units'
 import {
   useRun,
@@ -72,14 +74,19 @@ interface ScenePalette {
 
 /**
  * Selection reads as the full-strength colour against washed-out neighbours: the
- * parts you have not picked sit lightened toward white, the picked one deepens.
+ * parts you have not picked sit lightened toward white, the picked ones deepen.
  * Works against any hue the user chooses.
  */
 function shades(hex: string) {
   const base = new THREE.Color(hex)
   return {
+    /**
+     * Picked, but not the part leading the set: the colour as the user chose it,
+     * so it stands clear of the washed-out ones without taking the eye off the
+     * part the panels and the handles are following.
+     */
     base,
-    /** Every part you have not picked, washed out so the picked one carries the eye. */
+    /** Every part you have not picked, washed out so the picked ones carry the eye. */
     idle: base.clone().lerp(new THREE.Color('#ffffff'), 0.45),
     selected: base.clone().lerp(new THREE.Color('#000000'), 0.22),
     /** Just enough self-lit colour to keep the deepened part from reading as black. */
@@ -121,6 +128,7 @@ function PieceMesh({
   position,
   quaternion,
   selected,
+  lead,
   tint,
   xray,
   pickable,
@@ -131,7 +139,10 @@ function PieceMesh({
   piece: Piece
   position: THREE.Vector3
   quaternion: THREE.Quaternion
+  /** In the picked set, whether or not it leads it. */
   selected: boolean
+  /** The one part of the set the panels and the handles follow. */
+  lead: boolean
   tint: ReturnType<typeof shades>
   xray: boolean
   /**
@@ -140,7 +151,8 @@ function PieceMesh({
    * a part that answered the click first would swallow every one of them.
    */
   pickable: boolean
-  onClick: () => void
+  /** True when the click was held with the key that picks more than one part. */
+  onClick: (additive: boolean) => void
   /** A right-press landed here; the stage decides whether it becomes a menu or an orbit. */
   onRightDown: (x: number, y: number) => void
 }) {
@@ -163,7 +175,7 @@ function PieceMesh({
         pickable
           ? (e) => {
               e.stopPropagation()
-              onClick()
+              onClick(addsToSelection(e.nativeEvent))
             }
           : undefined
       }
@@ -177,8 +189,8 @@ function PieceMesh({
       <meshStandardMaterial
         // Rebuilt on mode change — flipping `transparent` in place needs a shader recompile.
         key={xray ? 'xray' : 'solid'}
-        color={selected ? tint.selected : tint.idle}
-        emissive={selected ? tint.emissive : tint.black}
+        color={lead ? tint.selected : selected ? tint.base : tint.idle}
+        emissive={lead ? tint.emissive : tint.black}
         metalness={xray ? 0 : 0.15}
         roughness={xray ? 0.25 : 0.45}
         side={THREE.DoubleSide}
@@ -403,8 +415,9 @@ const ndc = new THREE.Vector3()
  * Posts where the move figures belong on the glass, every frame.
  *
  * The points themselves are in the world — the foot of the drop line on the
- * workplane, its head on the underside of the run, and the part the arrows sit
- * on — so the figures stay pinned to the run as the camera swings around it.
+ * workplane, its head on the underside of everything picked, and the part the
+ * arrows sit on — so the figures stay pinned to the run as the camera swings
+ * around it.
  * Only the projection happens here; the drawing is done in the DOM over the
  * canvas, where text stays crisp and unmirrored at any angle.
  */
@@ -418,7 +431,7 @@ function MoveProbe({
   foot: THREE.Vector3
   head: THREE.Vector3
   anchor: THREE.Vector3
-  /** Underside of the run over the workplane, mm. */
+  /** Underside of everything the arrows are holding, over the workplane, mm. */
   height: number
   /** Travel since the drag began, mm; null when the arrows are only sitting there. */
   travel: { x: number; y: number; z: number } | null
@@ -469,23 +482,55 @@ function useTidyGizmo() {
 }
 
 /**
- * The three axis arrows, on the selected part. Dragging one moves the whole run
- * that part belongs to: a bonded part cannot travel on its own, which is what
- * being bonded means, so the arrows write the placement at the head of the run
- * and everything joined to it follows.
+ * The runs the picked parts stand in, each named by one of the parts that picked
+ * it and paired with where its head stands right now.
  *
- * The handle is put on the part that was picked rather than at the head of the
+ * A bonded part cannot travel on its own — that is what being bonded means — so
+ * the handles work on runs rather than on parts, and a set of parts spanning
+ * three runs is three runs to move. The part leading the selection comes first,
+ * so the run under the handle is the one the timeline step is named after.
+ */
+function pickedChains(asm: Assembly, ids: string[], lead: string | null) {
+  const order = lead ? [lead, ...ids.filter((id) => id !== lead)] : ids
+  const seen = new Set<number>()
+  const runs: { pieceId: string; at: Placement }[] = []
+  for (const id of order) {
+    const placed = asm.placed.find((p) => p.piece.id === id)
+    const root = placed ? asm.chains[placed.chain]?.pieces[0] : undefined
+    if (root === undefined || seen.has(root)) continue
+    seen.add(root)
+    runs.push({ pieceId: id, at: placementOf(asm.placed[root].piece) })
+  }
+  return runs
+}
+
+/** Tenths of a millimetre — finer than anything printable, and it keeps the
+ *  numbers in the timeline readable. */
+const tidyMm = (v: number) => Math.round(v * 10) / 10
+
+/**
+ * The three axis arrows, on the part leading the selection. Dragging one moves
+ * every run that has a part picked in it: the arrows write a fresh placement at
+ * the head of each, and everything joined to them follows.
+ *
+ * The whole set travels by the one distance, so the runs in it hold the
+ * arrangement they were standing in — several runs moved together are still
+ * several runs, not a run that has been rearranged.
+ *
+ * The handle is put on the part that was picked rather than at the head of its
  * run, so it is where the pointer already is; the fixed offset between the two
  * is what turns a drag there into a placement here.
  */
 function MoveGizmo({ asm, specOf }: { asm: Assembly; specOf: (piece: Piece) => TubeSpec }) {
-  const { selectedId, moveChain } = useRun()
+  const { selectedId, selectedIds, placeChains } = useRun()
   const [proxy, setProxy] = useState<THREE.Object3D | null>(null)
   /**
-   * Where the run stood when the drag began; null between drags. The travel
-   * figure is measured off it rather than off the last frame, so it reports one
-   * whole drag however many frames it took.
+   * Where every run being dragged stood when the drag began; null between drags.
+   * The travel is measured off these rather than off the last frame, so a drag
+   * of a hundred frames lands exactly where one of one would, and the figure
+   * reports the whole of it.
    */
+  const from = useRef<{ pieceId: string; at: Placement }[] | null>(null)
   const [origin, setOrigin] = useState<Placement | null>(null)
   const setControls = useTidyGizmo()
   const placed = asm.placed.find((p) => p.piece.id === selectedId)
@@ -493,19 +538,21 @@ function MoveGizmo({ asm, specOf }: { asm: Assembly; specOf: (piece: Piece) => T
   const at = root === undefined ? null : placementOf(asm.placed[root].piece)
 
   if (!placed || !at || !selectedId) return null
-  // Where the head of the run stands relative to the part under the arrows. The
-  // run is rigid, so this holds for the whole drag.
+  // Where the head of the run under the arrows stands relative to the part they
+  // sit on. The run is rigid, so this holds for the whole drag.
   const dx = at.x - placed.start.x
   const dy = at.y - placed.start.y
   const dz = at.z - placed.start.z
-  // Tenths of a millimetre — finer than anything printable, and it keeps the
-  // numbers in the timeline readable.
-  const tidy = (v: number) => Math.round(v * 10) / 10
 
-  // The drop line hangs from the middle of the run's footprint: an edge would
-  // have to be chosen afresh every time the camera swung past it, and the middle
-  // is the one point that reads the same from every side.
-  const box = chainBox(asm, placed.chain, (piece) => specOf(piece).outerR)
+  // The drop line hangs from the middle of the footprint of everything picked:
+  // an edge would have to be chosen afresh every time the camera swung past it,
+  // and the middle is the one point that reads the same from every side.
+  const box = new THREE.Box3()
+  for (const chain of new Set(
+    asm.placed.filter((p) => selectedIds.includes(p.piece.id)).map((p) => p.chain),
+  )) {
+    box.union(chainBox(asm, chain, (piece) => specOf(piece).outerR))
+  }
   const midX = (box.min.x + box.max.x) / 2
   const midZ = (box.min.z + box.max.z) / 2
   const head = new THREE.Vector3(midX, box.min.y, midZ)
@@ -521,16 +568,36 @@ function MoveGizmo({ asm, specOf }: { asm: Assembly; specOf: (piece: Piece) => T
           mode="translate"
           space="world"
           size={0.85}
-          onMouseDown={() => setOrigin(at)}
-          onMouseUp={() => setOrigin(null)}
-          onObjectChange={() =>
-            moveChain(
-              selectedId,
-              tidy(proxy.position.x + dx),
-              tidy(proxy.position.y + dy),
-              tidy(proxy.position.z + dz),
+          onMouseDown={() => {
+            from.current = pickedChains(asm, selectedIds, selectedId)
+            setOrigin(at)
+          }}
+          onMouseUp={() => {
+            from.current = null
+            setOrigin(null)
+          }}
+          onObjectChange={() => {
+            // The run under the arrows goes where the drag has put it; the rest
+            // go the same distance from where they each began.
+            const lead = { x: tidyMm(proxy.position.x + dx), y: tidyMm(proxy.position.y + dy), z: tidyMm(proxy.position.z + dz) }
+            const runs = from.current ?? pickedChains(asm, selectedIds, selectedId)
+            const anchor = runs[0]?.at ?? at
+            const gx = lead.x - anchor.x
+            const gy = lead.y - anchor.y
+            const gz = lead.z - anchor.z
+            placeChains(
+              runs.map(({ pieceId, at: was }) => ({
+                pieceId,
+                at: {
+                  ...was,
+                  x: tidyMm(was.x + gx),
+                  y: tidyMm(was.y + gy),
+                  z: tidyMm(was.z + gz),
+                },
+              })),
+              'move',
             )
-          }
+          }}
         />
       )}
       <MoveProbe
@@ -555,36 +622,39 @@ const tidyYaw = (deg: number) => {
 }
 
 /**
- * The turn ring, on the selected part. Dragging it swings the whole run that
- * part belongs to, for the same reason the arrows move the whole run: a bonded
- * part cannot turn on its own.
+ * The turn ring, on the part leading the selection. Dragging it swings every run
+ * that has a part picked in it, for the same reason the arrows move whole runs: a
+ * bonded part cannot turn on its own.
  *
  * Only the upright is offered. A run is set down on a heading and nothing else —
  * its climbs and its corners are the parts' own angles — so a roll or a tip
  * about the other two axes would have nowhere to be written.
  *
- * The ring is centred on the part that was picked and the run turns about it, so
- * the part under the pointer stands still while the rest swings round it. That
- * means writing the head of the run a new place as well as a new heading: it is
- * carried round the pivot by the same turn.
+ * The ring is centred on the part that was picked and everything turns about it,
+ * so the part under the pointer stands still while the rest swings round it —
+ * the runs picked alongside it are carried round that same point, rather than
+ * each turning on the spot, so the set keeps the arrangement it was standing in.
+ * That means writing the head of every run a new place as well as a new heading.
  */
 function RotateGizmo({ asm }: { asm: Assembly }) {
-  const { selectedId, rotateChain } = useRun()
+  const { selectedId, selectedIds, placeChains } = useRun()
   const [proxy, setProxy] = useState<THREE.Object3D | null>(null)
   /**
-   * Where the run stood when the drag began. The whole drag is measured off it
-   * rather than off the last frame, so rounding the placement never accumulates
-   * into a drift over a long swing.
+   * Where the runs stood when the drag began, and what they are turning about.
+   * The whole drag is measured off these rather than off the last frame, so
+   * rounding the placements never accumulates into a drift over a long swing.
    */
-  const from = useRef<{ at: Placement; pivot: THREE.Vector3; angle: number } | null>(null)
+  const from = useRef<{
+    runs: { pieceId: string; at: Placement }[]
+    pivot: THREE.Vector3
+    angle: number
+  } | null>(null)
   const setControls = useTidyGizmo()
   const placed = asm.placed.find((p) => p.piece.id === selectedId)
   const root = placed ? asm.chains[placed.chain]?.pieces[0] : undefined
   const at = root === undefined ? null : placementOf(asm.placed[root].piece)
 
   if (!placed || !at || !selectedId) return null
-  // Tenths of a millimetre, as the arrows use — finer than anything printable.
-  const tidy = (v: number) => Math.round(v * 10) / 10
 
   return (
     <>
@@ -599,7 +669,11 @@ function RotateGizmo({ asm }: { asm: Assembly }) {
           showX={false}
           showZ={false}
           onMouseDown={() => {
-            from.current = { at, pivot: placed.start.clone(), angle: proxy.rotation.y }
+            from.current = {
+              runs: pickedChains(asm, selectedIds, selectedId),
+              pivot: placed.start.clone(),
+              angle: proxy.rotation.y,
+            }
           }}
           onMouseUp={() => {
             from.current = null
@@ -613,16 +687,25 @@ function RotateGizmo({ asm }: { asm: Assembly }) {
             const d = proxy.rotation.y - f.angle
             const c = Math.cos(d)
             const s = Math.sin(d)
-            const px = f.at.x - f.pivot.x
-            const pz = f.at.z - f.pivot.z
-            rotateChain(selectedId, {
-              // The same turn the heading takes, applied to where the head of
-              // the run stands relative to the part being turned about.
-              x: tidy(f.pivot.x + px * c + pz * s),
-              y: f.at.y,
-              z: tidy(f.pivot.z - px * s + pz * c),
-              yaw: tidyYaw(f.at.yaw + THREE.MathUtils.radToDeg(d)),
-            })
+            const deg = THREE.MathUtils.radToDeg(d)
+            placeChains(
+              f.runs.map(({ pieceId, at: was }) => {
+                const px = was.x - f.pivot.x
+                const pz = was.z - f.pivot.z
+                return {
+                  pieceId,
+                  at: {
+                    // The same turn the heading takes, applied to where the head
+                    // of that run stands relative to the point being turned about.
+                    x: tidyMm(f.pivot.x + px * c + pz * s),
+                    y: was.y,
+                    z: tidyMm(f.pivot.z - px * s + pz * c),
+                    yaw: tidyYaw(was.yaw + deg),
+                  },
+                }
+              }),
+              'rotate',
+            )
           }}
         />
       )}
@@ -630,9 +713,18 @@ function RotateGizmo({ asm }: { asm: Assembly }) {
   )
 }
 
-function Marble({ asm }: { asm: Assembly }) {
-  const { marbleDiameter, marbleColor, running, loop, timeScale, friction, resetToken, innerDiameter } =
-    useRun()
+function Marble({ asm, specOf }: { asm: Assembly; specOf: (piece: Piece) => TubeSpec }) {
+  const {
+    marbleDiameter,
+    marbleColor,
+    running,
+    loop,
+    timeScale,
+    friction,
+    bounce,
+    resetToken,
+    innerDiameter,
+  } = useRun()
   const tint = useMemo(() => shades(marbleColor), [marbleColor])
   const mesh = useRef<THREE.Mesh>(null)
   const state = useRef(createMarble())
@@ -643,11 +735,19 @@ function Marble({ asm }: { asm: Assembly }) {
     (piece: Piece) => Math.max(boreOf(piece, innerDiameter) / 2 - radius, 0),
     [innerDiameter, radius],
   )
+  // Every surface on the stage, solved from the same layout the meshes are drawn
+  // from — so what the marble hits in the air is exactly what is on screen.
+  const world = useMemo(() => buildWorld(asm, specOf), [asm, specOf])
+  const phys = useMemo(
+    () => ({ friction, bounce, radius, rest }),
+    [friction, bounce, radius, rest],
+  )
 
   useLayoutEffect(() => {
     resetMarble(state.current, asm, rest)
     mesh.current?.position.copy(state.current.position)
     scrub.s = 0
+    scrub.chain = 0
   }, [asm, rest, resetToken])
 
   // Off stage means no readout to give — leave the HUD at zero, not at the last run's numbers.
@@ -656,8 +756,11 @@ function Marble({ asm }: { asm: Assembly }) {
       telemetry.speed = 0
       telemetry.distance = 0
       telemetry.airborne = false
+      telemetry.stuck = false
       scrub.seek = null
       scrub.s = 0
+      scrub.chain = 0
+      scrub.total = 0
     },
     [],
   )
@@ -666,14 +769,15 @@ function Marble({ asm }: { asm: Assembly }) {
     const m = state.current
     // The scrubber has the wheel whenever it has posted somewhere to be.
     if (scrub.seek !== null) {
-      seekMarble(m, asm, scrub.seek, friction, rest, radius)
+      seekMarble(m, asm, scrub.seek, phys)
       scrub.seek = null
     } else if (running) {
       const dt = Math.min(delta, 1 / 30) * timeScale
-      // Fixed sub-steps keep the joint hand-off stable at high speed.
+      // Fixed sub-steps keep the joint hand-off stable at high speed, and keep a
+      // fast marble from stepping clean through a wall between two frames.
       const steps = 4
       for (let i = 0; i < steps; i++) {
-        const { lost } = stepMarble(m, dt / steps, asm, friction, rest, radius)
+        const { lost } = stepMarble(m, dt / steps, asm, world, phys)
         if (lost) {
           if (loop) resetMarble(m, asm, rest)
           break
@@ -682,11 +786,16 @@ function Marble({ asm }: { asm: Assembly }) {
     }
     mesh.current?.position.copy(m.position)
     if (mesh.current) mesh.current.rotation.x = m.spin
-    telemetry.speed = m.airborne ? m.velocity.length() : m.v
+    telemetry.speed = m.airborne ? m.velocity.length() : Math.abs(m.v)
     telemetry.distance = m.s
     telemetry.airborne = m.airborne
-    // Off the end there is no arc length left to report, so the slider sits at the stop.
-    scrub.s = m.airborne ? asm.totalLength : m.s
+    telemetry.stuck = m.stuck
+    // The slider measures the run the marble is actually on, which is not always
+    // the one it set off down. In the air there is no arc length to report, so
+    // it holds where it left the run.
+    scrub.chain = m.chain
+    scrub.total = asm.chains[m.chain]?.length ?? 0
+    if (!m.airborne) scrub.s = m.s
   })
 
   return (
@@ -972,9 +1081,14 @@ function CameraRig({
  * go anywhere and it carries on as if it had rolled to that point.
  */
 function Scrubber({ asm, shifted }: { asm: Assembly; shifted: boolean }) {
-  const { running, toggleRunning, scrubSim, resetSim, units } = useRun()
-  const total = asm.totalLength
+  const { running, toggleRunning, scrubSim, resetSim, units, friction } = useRun()
   const [s, setS] = useState(0)
+  /**
+   * The run the marble is on and how long it is. Held in state rather than read
+   * off the assembly, because the marble can be caught by a run other than the
+   * one it set off down and the slider has to follow it there.
+   */
+  const [run, setRun] = useState({ chain: 0, total: asm.chains[0]?.length ?? 0 })
   /**
    * Where the thumb has been dragged to, held until the marble reports back from
    * there — without it the slider snaps back for the frame between asking and
@@ -992,11 +1106,29 @@ function Scrubber({ asm, shifted }: { asm: Assembly; shifted: boolean }) {
       const want = pending.current
       if (!want) setS(scrub.s)
       else if (Math.abs(scrub.s - want.at) < 0.5 || ++want.age > 10) pending.current = null
+      setRun((was) =>
+        was.chain === scrub.chain && was.total === scrub.total
+          ? was
+          : { chain: scrub.chain, total: scrub.total },
+      )
       id = requestAnimationFrame(tick)
     }
     id = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(id)
   }, [])
+
+  /**
+   * How far a marble let go at the head of this run actually gets before the
+   * fall runs out from under it. Everything past it is run the marble cannot
+   * reach on its own, which is worth showing rather than leaving to be
+   * discovered.
+   */
+  const stall = useMemo(
+    () => stallPoint(asm, run.chain, friction),
+    [asm, run.chain, friction],
+  )
+
+  const total = run.total || asm.chains[0]?.length || 0
 
   // A run with nothing on it has no timeline to scrub.
   if (total <= 0) return null
@@ -1022,22 +1154,35 @@ function Scrubber({ asm, shifted }: { asm: Assembly; shifted: boolean }) {
         {running ? '❚❚' : '▶'}
       </button>
       <div className="scrub-track">
-        <input
-          type="range"
-          min={0}
-          max={total}
-          step={0.1}
-          value={s}
-          onChange={(e) => seek(Number(e.target.value))}
-          aria-label="Marble position along the run"
-          aria-valuetext={`${coarseText(s, units)} of ${formatCoarse(total, units)}`}
-        />
+        <div className="scrub-rail">
+          {stall !== null && (
+            // Dead ground: the marble stops here and rolls back, so the run past
+            // it never gets used. Behind the slider, so the thumb still reads.
+            <div
+              className="scrub-stall"
+              style={{ left: `${(stall / total) * 100}%` }}
+              title={`The marble stalls here — the fall past ${formatCoarse(stall, units)} is too shallow to carry it`}
+            />
+          )}
+          <input
+            type="range"
+            min={0}
+            max={total}
+            step={0.1}
+            value={s}
+            onChange={(e) => seek(Number(e.target.value))}
+            aria-label="Marble position along the run"
+            aria-valuetext={`${coarseText(s, units)} of ${formatCoarse(total, units)}`}
+          />
+        </div>
         <div className="scrub-ends">
           <span>Start · {formatCoarse(0, units)}</span>
           <b>
             {formatCoarse(s, units)} · {pct}%
           </b>
-          <span>End · {formatCoarse(total, units)}</span>
+          <span>
+            {stall !== null ? `Stalls · ${formatCoarse(stall, units)}` : `End · ${formatCoarse(total, units)}`}
+          </span>
         </div>
       </div>
       <button
@@ -1274,7 +1419,7 @@ function Land({ color, y }: { color: string; y: number }) {
 }
 
 export default function Scene3D() {
-  const { pieces, innerDiameter, wallThickness, variant, selectedId, select, theme, pieceColor, shading, rightPanel, simStarted, tool, overlays, workplane } =
+  const { pieces, innerDiameter, wallThickness, variant, selectedId, selectedIds, select, pickPart, theme, pieceColor, shading, rightPanel, simStarted, tool, overlays, workplane } =
     useRun()
   // Either slide-out takes the same gutter, so the corner controls step aside for both.
   const docked = rightPanel !== null
@@ -1321,15 +1466,22 @@ export default function Scene3D() {
     pad: HOME_PAD,
   })
 
-  /** The selected piece's own bounds, padded out to the tube wall; null if nothing is picked. */
+  /**
+   * The bounds of everything picked, padded out to the tube wall; null if
+   * nothing is. A set frames as one, so Fit on several parts takes them all in
+   * rather than cropping to whichever one leads.
+   */
   const selectionBox = () => {
-    const p = asm.placed.find((x) => x.piece.id === selectedId)
-    if (!p) return null
-    // Every chord, so a bent part frames on what it really occupies.
-    const points = [p.start, p.end, ...p.segments.map((seg) => seg.end)]
-    // Padded out to that part's own wall, which is not the run's if it has been
-    // sized on its own.
-    return new THREE.Box3().setFromPoints(points).expandByScalar(specOf(p.piece).outerR)
+    const box = new THREE.Box3()
+    for (const p of asm.placed) {
+      if (!selectedIds.includes(p.piece.id)) continue
+      // Every chord, so a bent part frames on what it really occupies.
+      const points = [p.start, p.end, ...p.segments.map((seg) => seg.end)]
+      // Padded out to that part's own wall, which is not the run's if it has
+      // been sized on its own.
+      box.union(new THREE.Box3().setFromPoints(points).expandByScalar(specOf(p.piece).outerR))
+    }
+    return box.isEmpty() ? null : box
   }
 
   // Home stands back at the fixed angle and takes in the whole workplane.
@@ -1482,17 +1634,18 @@ export default function Scene3D() {
             piece={p.piece}
             position={p.start}
             quaternion={p.quaternion}
-            selected={p.piece.id === selectedId}
+            selected={selectedIds.includes(p.piece.id)}
+            lead={p.piece.id === selectedId}
             tint={tints.get(colorOf(p.piece, pieceColor))!}
             xray={xray}
             pickable={picking}
-            onClick={() => select(p.piece.id === selectedId ? null : p.piece.id)}
+            onClick={(additive) => pickPart(p.piece.id, additive)}
             onRightDown={(x, y) => (pressed.current = { pieceId: p.piece.id, x, y })}
           />
         ))}
 
         {/* No marble until the Simulator button has asked for one. */}
-        {simStarted && asm.placed.length > 0 && <Marble asm={asm} />}
+        {simStarted && asm.placed.length > 0 && <Marble asm={asm} specOf={specOf} />}
         <Joints asm={asm} specOf={specOf} />
         {/* The handles are the tools themselves, so each is only on stage with its own in hand. */}
         {tool === 'move' && <MoveGizmo asm={asm} specOf={specOf} />}

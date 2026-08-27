@@ -53,6 +53,8 @@ import {
   pieceTypeLabel,
   PART_LABEL,
   DEFAULT_PIECE_COLOR,
+  JOINT_LOCK,
+  turnLimitsFor,
   type TubeVariant,
 } from '../store'
 import { UNIT_LABEL, UNIT_WORD, coarseText, formatCoarse, formatLength, lengthText } from '../lib/units'
@@ -153,14 +155,18 @@ export default function Sidebar() {
           ? 'stood on edge'
           : 'stood on edge the other way about'
         : `rolled ${degLabel(hook.roll)}° off level`
-  // What the part before hands this one, if the two are actually joined. With
-  // Keep connected off they can drift apart, and the joint is what opens up; an
+  // What the part before hands this one, if the two are actually joined. An
   // unjoined part has no joint behind it at all.
   const upstream =
     selected && selectedIndex > 0 && selected.joined ? s.pieces[selectedIndex - 1] : null
   const handedOn = upstream ? exitSlope(upstream) : 0
+  // How far this part stands off what it is fed — in fall, and in heading. The
+  // connector itself is straight either way: what this really measures is the
+  // break the part takes a lock past its socket to come round to its own aim.
+  // See JOINT_LOCK. Zero on both counts and the part runs straight through.
   const kink = selected && upstream ? selected.slope - handedOn : 0
-  const open = Math.abs(kink) > 0.05
+  const swing = selected && upstream ? selected.turn : 0
+  const led = Math.abs(kink) > 0.05 || Math.abs(swing) > 0.05
   // The angle a connector leaves at is its two legs added up, so it can be set
   // from either end: type the exit angle and the break takes up the difference.
   const bendLimits = selected ? bendLimitsFor(selected) : PIECE_LIMITS.bend
@@ -179,17 +185,37 @@ export default function Sidebar() {
    * exit out from its own turn, and there is no one number here that lands it.
    */
   const matchable =
-    !fixedSlope || (!!upstream && (upstream.type === 'straight' || upstream.type === 'angle'))
+    !fixedSlope ||
+    // A heading is this part's own however its fall is pinned, so a break that
+    // is only a turn is always ours to straighten out.
+    Math.abs(kink) <= 0.05 ||
+    (!!upstream && (upstream.type === 'straight' || upstream.type === 'angle'))
 
   const hold = (v: number, lim: { min: number; max: number }) =>
     Math.min(lim.max, Math.max(lim.min, v))
 
+  // How far this part may be turned off the run before the bend would be one
+  // its own tube cannot be cut round. Wide open at the head of a run, where the
+  // heading is where the run sets off rather than a bend in anything.
+  const turnLimits = selected
+    ? turnLimitsFor(
+        selected,
+        selected.entrySlope ?? (upstream ? handedOn : undefined),
+        boreOf(selected, s.innerDiameter) / 2 + wallOf(selected, s.wallThickness),
+      )
+    : PIECE_LIMITS.turn
+
   const closeJoint = () => {
     if (!selected) return
     if (!fixedSlope) {
-      s.updatePiece(selected.id, { slope: hold(handedOn, slopeLimitsFor(selected)) })
+      // The heading goes back to straight-on with the fall: both halves of the
+      // break, so the part comes out running straight through.
+      s.updatePiece(selected.id, { slope: hold(handedOn, slopeLimitsFor(selected)), turn: 0 })
       return
     }
+    // A part on a fall of its own still gets its heading straightened here —
+    // that half of the break is nobody's but this part's.
+    if (selected.turn) s.updatePiece(selected.id, { turn: 0 })
     if (!upstream) return
     if (upstream.type === 'angle') {
       const wanted = Math.round((selected.slope - upstream.slope) * 1e3) / 1e3
@@ -1215,11 +1241,17 @@ export default function Sidebar() {
 
             <NumberField
               label="Turn"
-              hint="heading at the inlet, off the part before it"
+              hint={
+                !upstream
+                  ? 'heading the run sets off on'
+                  : turnLimits.max < PIECE_LIMITS.turn.max
+                    ? `heading off the part before it — held to ±${degLabel(turnLimits.max)}°, as far as this part's tube can be cut round`
+                    : `heading off the part before it — taken up past the socket, not on it`
+              }
               unit="°"
               value={selected.turn}
               onChange={(v) => s.updatePiece(selected.id, { turn: v })}
-              {...PIECE_LIMITS.turn}
+              {...turnLimits}
             />
 
             <div className="readout">
@@ -1239,8 +1271,10 @@ export default function Sidebar() {
               </div>
             </div>
 
-            {/* The joint behind this part: two angles that should agree, and
-                one button for when they do not. */}
+            {/* The joint behind this part. The connector itself is always
+                straight — see JOINT_LOCK — so what this reports is where the
+                part takes up its own aim, and one button for moving that break
+                out of the part altogether. */}
             <span className="field-label">
               Inlet joint
               <em>{upstream ? pieceLabel(upstream, selectedIndex - 1) : 'not joined'}</em>
@@ -1252,38 +1286,41 @@ export default function Sidebar() {
                   angle is the one that run sets off at. Join it on with the Connector in the
                   toolbar.
                 </>
-              ) : open ? (
+              ) : led ? (
                 <>
                   {pieceLabel(upstream, selectedIndex - 1)} hands on {degLabel(handedOn)}° and this
-                  part starts at {degLabel(selected.slope)}° — the joint is open by{' '}
-                  {degLabel(Math.abs(kink))}°.
+                  part {Math.abs(kink) > 0.05 ? `runs at ${degLabel(selected.slope)}°` : ''}
+                  {Math.abs(kink) > 0.05 && Math.abs(swing) > 0.05 ? ' and ' : ''}
+                  {Math.abs(swing) > 0.05 ? `turns ${degLabel(Math.abs(swing))}°` : ''}, so it plugs
+                  in straight and comes round {JOINT_LOCK} mm past the socket. The connector is
+                  sound — the bend is in solid tube, clear of the snap.
                   {fixedSlope && (
                     <>
                       {' '}
-                      This part cannot come to meet it —{' '}
+                      The break is in this part because it cannot be anywhere else —{' '}
                       {funnel
                         ? 'a funnel is fed dead level, and its bowl has to stay level'
-                        : 'its fall is its coil’s'}{' '}
-                      — so it is the part before that has to be brought round
+                        : 'its fall is its coil’s'}
                       {matchable
-                        ? '.'
+                        ? ' — so straightening it out means swinging the part before.'
                         : `, and ${PART_LABEL[upstream.type]} leaves at an angle worked out from its own turn. Put a tube or an angle connector between the two.`}
                     </>
                   )}
                 </>
               ) : (
                 <>
-                  Sits flush on {pieceLabel(upstream, selectedIndex - 1)} — both sides of the joint
-                  are at {degLabel(handedOn)}°.
+                  Runs straight on out of {pieceLabel(upstream, selectedIndex - 1)} — both sides of
+                  the joint are at {degLabel(handedOn)}°, and the part carries on the way it is fed
+                  with no break in it at all.
                 </>
               )}
             </p>
             <button
               onClick={closeJoint}
-              disabled={!open || !matchable}
+              disabled={!led || !matchable}
               title={
-                !open
-                  ? 'The joint is already closed'
+                !led
+                  ? 'This part already runs straight on out of the one before'
                   : !matchable
                     ? 'Neither side of this joint is free to move'
                     : fixedSlope

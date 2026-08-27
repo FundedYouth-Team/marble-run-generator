@@ -1308,6 +1308,28 @@ input[type='range'] {
   display: block;
 }
 
+/* A screenshot left beside a template. Cropped to fill the tile rather than
+   letterboxed inside it: a picture of a run is whatever shape the window was,
+   and a row of cards each boxing its picture differently reads as a mess. */
+.lib-card-shot {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: inherit;
+}
+
+/* Why a file on the templates shelf could not be read. */
+.lib-card-bad {
+  color: var(--danger);
+}
+
+/* Filenames and directories, where a note has to name one exactly. */
+.note code {
+  font-family: var(--mono);
+  font-size: 0.92em;
+  color: var(--ink-dim);
+}
+
 .lib-card-name {
   display: flex;
   align-items: center;
@@ -2176,6 +2198,12 @@ button.danger {
   stroke: var(--draw-stroke-on);
 }
 
+/* The part leading the picked set — the one the panels and the handles follow —
+   is outlined heavier than the rest of the set. */
+.draft-canvas .seg.lead .wall {
+  stroke-width: 2;
+}
+
 .draft-canvas .seg .bore {
   stroke: var(--draw-bore);
   stroke-width: 1;
@@ -2626,6 +2654,31 @@ button.danger {
   cursor: pointer;
 }
 
+/* Holds the slider over the dead-ground band, which is drawn behind it. */
+.scrub-rail {
+  position: relative;
+  display: flex;
+}
+
+/*
+ * Where the run stops carrying the marble: from the stall to the far end is run
+ * it never reaches, so it is hatched out rather than left looking travelable.
+ */
+.scrub-stall {
+  position: absolute;
+  top: 50%;
+  right: 0;
+  height: 5px;
+  transform: translateY(-50%);
+  pointer-events: none;
+  border-radius: 2px;
+  background: repeating-linear-gradient(
+    -45deg,
+    color-mix(in srgb, var(--danger) 55%, transparent) 0 3px,
+    transparent 3px 6px
+  );
+}
+
 /* Start on the left, end on the right, and where the marble is between them. */
 .scrub-ends {
   display: flex;
@@ -2732,6 +2785,15 @@ button.danger {
   color: var(--ink-mute);
 }
 
+/* How many parts are in the picked set — only ever shown for a set of several. */
+.active-parts-picked {
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--accent-soft);
+  font-size: 10px;
+  color: var(--accent-text);
+}
+
 .active-parts-body {
   flex: 1 1 auto;
   overflow-y: auto;
@@ -2752,9 +2814,20 @@ button.danger {
   background: var(--tree-row-hover);
 }
 
+/* In the picked set. */
 .active-part.on {
   border-color: var(--accent);
   background: var(--accent-soft);
+}
+
+/* Leading it: the row the parameters panel is showing, marked apart from the
+   rest of the set by the bar down its edge. */
+.active-part.lead {
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.active-part.lead .active-part-name {
+  font-weight: 600;
 }
 
 /* Hidden parts stay in the tree, just greyed back. */
@@ -2945,6 +3018,21 @@ button.danger {
 }
 
 .part-menu button.on > svg {
+  color: var(--accent-text);
+}
+
+/* The keyboard binding for an item that has one, parked on the trailing edge so
+   the item's name still starts on the same column as every other item's. */
+.part-menu-key {
+  margin-left: auto;
+  padding-left: 10px;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--ink-mute);
+  white-space: nowrap;
+}
+
+.part-menu button:hover:not(:disabled) .part-menu-key {
   color: var(--accent-text);
 }
 

@@ -198,6 +198,25 @@ export function DuplicateIcon({ size = 17 }: { size?: number }) {
   )
 }
 
+/**
+ * The same copy, with an arrow carrying it onto the end of the run — "make
+ * another of these and join it on". The bar is the end it lands against, which
+ * is what separates this from a copy that is merely nudged aside.
+ */
+export function DuplicateJoinIcon({ size = 17 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+      {/* The original, behind — drawn as the three sides that stay visible. */}
+      <path d="M12.2 6.2V4.1a1.4 1.4 0 0 0-1.4-1.4H3.4A1.4 1.4 0 0 0 2 4.1v7.4a1.4 1.4 0 0 0 1.4 1.4h2" />
+      <rect x="5.6" y="6.2" width="8.4" height="8.4" rx="1.4" fill="currentColor" fillOpacity="0.16" />
+      {/* Onto the run: the way the copy travels, and the end it meets. */}
+      <path d="M15.4 10.4h3.4" />
+      <path d="m17 8.4 2 2-2 2" />
+      <path d="M21.4 6.6v7.6" />
+    </svg>
+  )
+}
+
 /** Waste bin — "take this part out of the run". */
 export function TrashIcon({ size = 14 }: { size?: number }) {
   return (

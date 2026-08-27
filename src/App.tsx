@@ -42,7 +42,8 @@ export default function App() {
       else if (action === 'undo') s.undo()
       // Nothing selected is nothing to copy, but the key is still ours: swallowing
       // it beats handing Ctrl+D back to the browser's bookmark bar mid-build.
-      else if (action === 'duplicate' && s.selectedId) s.duplicatePiece(s.selectedId)
+      else if (action === 'duplicate') s.duplicateParts(s.selectedIds)
+      else if (action === 'duplicateJoined') s.duplicateParts(s.selectedIds, { join: true })
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)

@@ -6,7 +6,7 @@
  */
 
 /** Every command that can be re-bound, in the order the settings list them. */
-export const SHORTCUT_ACTIONS = ['undo', 'redo', 'duplicate'] as const
+export const SHORTCUT_ACTIONS = ['undo', 'redo', 'duplicate', 'duplicateJoined'] as const
 export type ShortcutAction = (typeof SHORTCUT_ACTIONS)[number]
 
 /**
@@ -28,14 +28,16 @@ export type ShortcutMap = Record<ShortcutAction, Shortcut>
 export const SHORTCUT_LABEL: Record<ShortcutAction, string> = {
   undo: 'Undo',
   redo: 'Redo',
-  duplicate: 'Duplicate part',
+  duplicate: 'Duplicate',
+  duplicateJoined: 'Duplicate joined',
 }
 
 /** A word on what the command does, for the row under its name. */
 export const SHORTCUT_HINT: Record<ShortcutAction, string> = {
   undo: 'step back one change',
   redo: 'step forward again',
-  duplicate: 'copy the selected part',
+  duplicate: 'copy the selected parts, beside the run',
+  duplicateJoined: 'copy them onto the end of the run',
 }
 
 /** The stock bindings — what a fresh install answers to, and what Reset restores. */
@@ -43,6 +45,7 @@ export const DEFAULT_SHORTCUTS: ShortcutMap = {
   undo: { mod: true, shift: false, alt: false, key: 'z' },
   redo: { mod: true, shift: false, alt: false, key: 'y' },
   duplicate: { mod: true, shift: false, alt: false, key: 'd' },
+  duplicateJoined: { mod: true, shift: true, alt: false, key: 'd' },
 }
 
 /**
@@ -124,6 +127,22 @@ export function matchesShortcut(e: KeyboardEvent, sc: Shortcut): boolean {
 /** Which command a key press is, if it is any of them. */
 export function actionFor(e: KeyboardEvent, map: ShortcutMap): ShortcutAction | null {
   return SHORTCUT_ACTIONS.find((action) => matchesShortcut(e, map[action])) ?? null
+}
+
+/**
+ * Whether a click on a part adds it to the selection rather than replacing it.
+ *
+ * The command key is what a set is built with elsewhere, and Shift is taken as
+ * the same thing rather than as a range: the parts list is the run's order, and
+ * a range down it would mean something different again on the stage, where there
+ * is no order to sweep along. One key, one meaning, in all three views.
+ */
+export function addsToSelection(e: {
+  ctrlKey: boolean
+  metaKey: boolean
+  shiftKey: boolean
+}): boolean {
+  return e.ctrlKey || e.metaKey || e.shiftKey
 }
 
 /** Held on their own these are half a shortcut, so recording waits for the rest. */

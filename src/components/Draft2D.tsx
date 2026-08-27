@@ -38,6 +38,7 @@ import {
   type DraftView,
 } from '../store'
 import { formatLength, lengthText } from '../lib/units'
+import { MOD_LABEL, addsToSelection } from '../lib/shortcuts'
 
 /* ------------------------------------------------------------------ */
 /* Shared drafting primitives                                          */
@@ -872,6 +873,7 @@ const draftMouse = (joint: string): MouseConfig => ({
   scroll: 'Zoom',
   hints: [
     ['left-click', 'select part'],
+    [`${MOD_LABEL.toLowerCase()}-click`, 'add to the set'],
     ['click empty', 'deselect'],
     ['right-click part', 'part menu'],
     ['right-drag', 'pan'],
@@ -923,7 +925,9 @@ function AssemblyDraft({ shifted }: { shifted: boolean }) {
     draftView,
     setDraftView,
     selectedId,
+    selectedIds,
     select,
+    pickPart,
     updatePiece,
     swingHead,
     restoreDrag,
@@ -1749,8 +1753,11 @@ function AssemblyDraft({ shifted }: { shifted: boolean }) {
           hint={
             <>
               On, the run is one assembly: swinging any part swings every part after it, so
-              the joints stay shut. Drag the first tube down 10° and the whole run tips with
-              it. Off, only the part you drag moves and the joint behind it opens up.
+              the run keeps the shape you gave it. Drag the first tube down 10° and the whole
+              run tips with it. Off, only the part you drag moves, and the parts either side
+              of it stay where they are. Either way the connectors themselves stay dead
+              straight — a part that has to change angle does it in solid tube a centimetre
+              past the socket, never on the snap.
             </>
           }
         >
@@ -1840,7 +1847,7 @@ function AssemblyDraft({ shifted }: { shifted: boolean }) {
           {visible.map((part) => {
             const tube = walls(part)
             if (!tube) return null
-            const on = part.id === selectedId
+            const on = selectedIds.includes(part.id)
             /** Model-space path → an SVG point list in screen space. */
             const screen = (pts: Pt[]) => pts.map((p) => `${px(p.x)},${py(p.y)}`).join(' ')
             /** This part's stretch of a path drawn along the whole of its run. */
@@ -1852,7 +1859,9 @@ function AssemblyDraft({ shifted }: { shifted: boolean }) {
             return (
               <g
                 key={part.id}
-                className={`seg ${on ? 'on' : ''}`}
+                // Every picked part is drawn in; the one leading the set is drawn
+                // in heavier still, since it is the one the panels are showing.
+                className={`seg ${on ? 'on' : ''} ${part.id === selectedId ? 'lead' : ''}`}
                 onPointerDown={(e) => {
                   // Held for the canvas to judge on release: a pan may well start
                   // on a part, and only a press that stays put asks for the menu.
@@ -1861,7 +1870,7 @@ function AssemblyDraft({ shifted }: { shifted: boolean }) {
                 onPointerUp={(e) => {
                   // Picking is a left-button gesture; releasing a pan here selects nothing.
                   if (e.button !== 0) return
-                  select(on ? null : part.id)
+                  pickPart(part.id, addsToSelection(e))
                 }}
               >
                 <polygon className="wall" points={screen(wall)} />

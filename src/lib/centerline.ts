@@ -1,8 +1,15 @@
 import * as THREE from 'three'
-import { hookPath } from './hook'
+import { hookPath, skyward, upright } from './hook'
 import { corkscrewPath } from './corkscrew'
 import { funnelPath } from './funnel'
+// Nothing here may read any of these while this module is being loaded. The
+// store imports the layout, the layout imports this, and this imports the store
+// — a cycle the three of them have always lived with, because every use is
+// inside a function and so happens long after all three are up. Hoist one read
+// to module scope and it comes back `undefined`, which is not an error anybody
+// sees: it is a NaN that quietly deletes a part.
 import {
+  JOINT_LOCK,
   angleSpec,
   cornerSpec,
   corkscrewSpec,
@@ -65,12 +72,6 @@ const ARC_MIN_CHORDS = 3
  * corner would multiply the whole part's mesh by the number of rings in it.
  */
 const COIL_STEP_DEG = 12
-/**
- * A corner radius may eat this much of the shorter leg and no more, so a big
- * radius on a short connector rounds off as far as it can rather than running
- * off the end of the part.
- */
-const LEG_BUDGET = 0.85
 
 /** Drops vertices that land on top of the one before, which would give a zero-length chord. */
 function dedupe(points: THREE.Vector3[]): THREE.Vector3[] {
@@ -110,22 +111,56 @@ interface Bent {
  * local +X, which tips the run up or down; the corner connector breaks about
  * local +Y — the tube's own up axis — which swings it right or left. The shape
  * is otherwise the same part, so both are built here.
+ *
+ * `up` is which way the sky lies in the part's own frame, and only the corner
+ * passes it. A corner turns about the tube's own up axis, and on a falling run
+ * that axis is not the upright: carry the section round such a turn and it comes
+ * out rolled, so the channel leaves the part facing off to one side and the
+ * marble runs into a wall at the next joint. Naming the way up at every chord is
+ * what stops that — the same answer a hook already uses, and for the same reason.
+ *
+ * An angle connector passes null and keeps the carried section, which is already
+ * right: it breaks about the level axis, so up stays in the plane of the break
+ * the whole way through, exactly as the frame the next part is stood up in does.
+ * Naming it here instead would flip the trough over the moment the outgoing leg
+ * tipped past the vertical — the very thing that frame is written the way it is
+ * to avoid. See `frameFor`.
  */
-function bentLine({ entry, angle, exit, fillet }: Bent, axis: THREE.Vector3): Centerline {
+function bentLine(
+  { entry, angle, exit, fillet }: Bent,
+  axis: THREE.Vector3,
+  up: THREE.Vector3 | null,
+  lead: number,
+): Centerline {
   const theta = THREE.MathUtils.degToRad(angle)
   const corner = new THREE.Vector3(0, 0, entry)
   const exitDir = LOCAL_Z.clone().applyAxisAngle(axis, theta)
   const end = corner.clone().addScaledVector(exitDir, exit)
 
+  const facing = (line: Centerline): Centerline =>
+    up ? { ...line, ups: line.dirs.map((d) => skyward(d, up)) } : line
+
   const half = Math.abs(theta) / 2
   const tan = Math.tan(half)
   // Straight through, or a break the user has asked to keep sharp.
   if (half < 1e-4 || fillet <= 0 || tan < 1e-6) {
-    return fromPoints(dedupe([new THREE.Vector3(), corner.clone(), end]), corner)
+    return facing(fromPoints(dedupe([new THREE.Vector3(), corner.clone(), end]), corner))
   }
 
-  // Tangent length: how far back down each leg the arc starts.
-  const tangent = Math.min(fillet * tan, LEG_BUDGET * Math.min(entry, exit))
+  // Tangent length: how far back down each leg the arc starts. Each leg keeps a
+  // lock to itself — the inlet's carries the socket and the joint lead, the
+  // outlet's carries the spigot — so the arc rounds off as far as it can
+  // between the two rather than running out over either. This used to be 85% of
+  // the shorter leg, which on a stock 40 mm leg left barely 6 mm of straight for
+  // an 8 mm spigot to stand on.
+  const tangent = Math.min(
+    fillet * tan,
+    Math.max(0, Math.min(entry - lead, exit - JOINT_LOCK)),
+  )
+  // Legs too short to round off at all keep the sharp break they were given.
+  if (tangent < 1e-6) {
+    return facing(fromPoints(dedupe([new THREE.Vector3(), corner.clone(), end]), corner))
+  }
   const radius = tangent / tan
   const arcStart = corner.clone().addScaledVector(LOCAL_Z, -tangent)
   // Square off the entry leg toward the inside of the bend to find the centre.
@@ -140,7 +175,7 @@ function bentLine({ entry, angle, exit, fillet }: Bent, axis: THREE.Vector3): Ce
   }
   points.push(end)
 
-  return fromPoints(dedupe(points), corner)
+  return facing(fromPoints(dedupe(points), corner))
 }
 
 /**
@@ -187,22 +222,163 @@ function funnelLine(piece: Piece): Centerline {
   return fromPoints(points, null, ups)
 }
 
+const DEG = Math.PI / 180
+
+/**
+ * How far a part's body is turned off the axis it plugs into, as a rotation in
+ * the frame of that axis — or null when it is not turned off it at all.
+ *
+ * A frame is the run's heading turned about the upright and then its fall
+ * tipped across that, so the step from the axis a part is fed on to the axis
+ * the part itself runs on is: the incoming fall taken back off, the part's own
+ * turn about the tube's up axis, then the part's own fall laid back on. It
+ * comes out the same wherever on the compass the joint happens to lie, which is
+ * why a part can carry it without knowing where in the world it stands.
+ */
+function leadBreak(piece: Piece): THREE.Quaternion | null {
+  if (piece.entrySlope === undefined) return null
+  const q = new THREE.Quaternion()
+    .setFromAxisAngle(LOCAL_X, -piece.entrySlope * DEG)
+    .multiply(new THREE.Quaternion().setFromAxisAngle(LOCAL_Y, piece.turn * DEG))
+    .multiply(new THREE.Quaternion().setFromAxisAngle(LOCAL_X, piece.slope * DEG))
+  // Rounding can leave a part nominally led but pointing exactly where it was.
+  return Math.abs(q.w) > 1 - 1e-12 ? null : q
+}
+
+/**
+ * A part re-aimed about the end of its lock: the first {@link JOINT_LOCK} mm
+ * run straight on down +Z, along the axis the part plugs into, and everything
+ * past that swung onto the part's own heading and fall.
+ *
+ * The part is not made longer and nothing is added to it — the lead is the
+ * part's own first stretch of tube, and the part simply pivots about the far
+ * end of it instead of about its socket. Every part in the library already
+ * opens with a straight stub for its socket to sit on, so there is always
+ * straight tube there to pivot about, and the total centreline length comes out
+ * exactly as it was: turning a path about a point on it moves no chord's
+ * length.
+ *
+ * What this buys is the whole point of the exercise. The socket, the spigot
+ * inside it and the barb that retains it all lie inside that first stretch, and
+ * they are now dead straight and coaxial with the part before whatever angle
+ * the run is asking this part to stand at. The angle is still made — it is just
+ * made in solid tube a centimetre downstream, where a bend is only a bend.
+ */
+/**
+ * Which way is up along each chord of a part that does not name it: the section
+ * starts square with the part's own frame and is carried from chord to chord by
+ * the shortest turn.
+ *
+ * This is the walk `geometry.ts` does when a centreline hands it no up axis,
+ * repeated here so that a lead can hand on the orientation the part would have
+ * had without one. A lead's break is a turn in two axes at once, and a turn in
+ * two axes has a twist in it: carried across it by the shortest turn, the
+ * section comes out of the break rolled, and the trough leaves the part facing
+ * somewhere other than up. Naming the axis outright is what stops that — the
+ * same fix, and for the same reason, as {@link Centerline.ups} on a helix.
+ */
+function carriedUps(line: Centerline): THREE.Vector3[] {
+  const ups = [LOCAL_Y.clone()]
+  for (let i = 1; i < line.dirs.length; i++) {
+    const q = new THREE.Quaternion().setFromUnitVectors(line.dirs[i - 1], line.dirs[i])
+    ups.push(ups[i - 1].clone().applyQuaternion(q))
+  }
+  return ups
+}
+
+/**
+ * Which way is up along each chord, squared against the chord — the axis the
+ * section is stood on, and so the axis the tube's opening is measured off.
+ *
+ * A part that names its own up is taken at its word and everything else is
+ * carried; squaring afterwards costs the carried walk nothing, because it starts
+ * square and every step of it is a rotation. What it does do is keep a named
+ * axis honest where the part leans it out of true with its own chord.
+ *
+ * The solid sweeps its section on this and the marble reads its opening off it,
+ * so the two can never disagree about which way a trough faces — which matters
+ * now that the marble can leave a part through its open side.
+ */
+export function chordUps(line: Centerline): THREE.Vector3[] {
+  const own = line.ups ?? carriedUps(line)
+  return own.map((up, i) => {
+    const dir = line.dirs[i]
+    const y = up.clone().addScaledVector(dir, -up.dot(dir))
+    return y.lengthSq() < 1e-12 ? up.clone() : y.normalize()
+  })
+}
+
+function withLead(line: Centerline, piece: Piece): Centerline {
+  const brk = leadBreak(piece)
+  if (!brk) return line
+  const first = line.distances[1] ?? 0
+  // As long as the break needs, which on a hard turn is a good deal more than
+  // the bare lock — see `leadLengthFor`. A part with no straight to give — a
+  // funnel fed by its own open mouth has no stub and no socket either — is left
+  // exactly as it was drawn.
+  const lock = Math.min(piece.leadLength ?? JOINT_LOCK, first)
+  if (lock < 1e-6) return line
+
+  const pivot = new THREE.Vector3(0, 0, lock)
+  const swing = (p: THREE.Vector3) => p.clone().sub(pivot).applyQuaternion(brk).add(pivot)
+  const turned = (v: THREE.Vector3) => v.clone().applyQuaternion(brk)
+  // The lock lands inside the opening chord unless that chord *is* the lock, in
+  // which case the chord is the lead entire and there is no stub of it left
+  // over to carry on with.
+  const split = first > lock + 1e-6
+  const rest = line.points.slice(1)
+  const points = [
+    new THREE.Vector3(),
+    ...(split ? [pivot.clone()] : []),
+    ...rest.map((p, i) => (split || i > 0 ? swing(p) : p.clone())),
+  ]
+  // Named outright even where the part left it to be carried, because the lead
+  // is exactly where carrying it goes wrong — see {@link carriedUps}. The lead
+  // itself keeps the part's own opening; everything past the break turns with
+  // the body, so the part's trough faces where it always would have.
+  const own = line.ups ?? carriedUps(line)
+  const ups = split
+    ? [own[0].clone(), ...own.map(turned)]
+    : [own[0].clone(), ...own.slice(1).map(turned)]
+  return fromPoints(points, line.corner ? swing(line.corner) : null, ups)
+}
+
 /**
  * The centreline of one part. A plain tube is a single chord; a connector is
  * two legs meeting at a break, with the break optionally rounded into an arc
  * tangent to both; a hook turns the run right round on a helix; a corkscrew
  * winds it down a tower of them.
+ *
+ * Whatever the part is, it comes back standing on the axis it plugs into rather
+ * than on its own, with the step between the two taken at the end of its lock —
+ * see {@link withLead}. A part fed at exactly the angle it runs at, which is
+ * most of them most of the time, is handed back untouched.
  */
 export function centerlineFor(piece: Piece): Centerline {
+  return withLead(ownLine(piece), piece)
+}
+
+/**
+ * The straight a part has to keep clear at its inlet: its joint lead where it
+ * carries one, and the bare lock where it does not. A fillet may not round off
+ * into it — the socket, and the break the lead exists to hold clear of the
+ * socket, both live in there.
+ */
+function leadOf(piece: Piece): number {
+  return Math.max(JOINT_LOCK, piece.leadLength ?? 0)
+}
+
+/** The part's own shape, in its own frame, before the joint has any say in it. */
+function ownLine(piece: Piece): Centerline {
   // Falling is -Y, so a positive bend is a positive rotation about local +X.
   if (piece.type === 'angle') {
     const { entry, bend, exit, fillet } = angleSpec(piece)
-    return bentLine({ entry, angle: bend, exit, fillet }, LOCAL_X)
+    return bentLine({ entry, angle: bend, exit, fillet }, LOCAL_X, null, leadOf(piece))
   }
   // Right is +X, so a positive sweep is a positive rotation about local +Y.
   if (piece.type === 'corner') {
     const { entry, sweep, exit, fillet } = cornerSpec(piece)
-    return bentLine({ entry, angle: sweep, exit, fillet }, LOCAL_Y)
+    return bentLine({ entry, angle: sweep, exit, fillet }, LOCAL_Y, upright(piece.slope), leadOf(piece))
   }
   if (piece.type === 'hook') return hookLine(piece)
   if (piece.type === 'corkscrew') return corkscrewLine(piece)
@@ -216,16 +392,28 @@ export function centerlineFor(piece: Piece): Centerline {
  * position or name never rebuilds it. `spec` is the tube the part is actually
  * cut from, already resolved: same shape in another style, bore or wall is
  * another solid, so all three are in the key.
+ *
+ * The lead is in it too, and has to be: a part bent past its lock to meet the
+ * joint it hangs off is a different solid from the same part run straight, and
+ * two of them in one run may well be bent differently. All three angles the
+ * break is built from go in, whether or not the part's own shape already names
+ * them — see {@link leadBreak}.
  */
 export function shapeKey(piece: Piece, spec: TubeSpec): string {
-  const tube = `${spec.variant}:${spec.innerR}:${spec.wall}`
+  const lead = piece.entrySlope === undefined ? '' : `${piece.entrySlope}>${piece.turn}>${piece.slope}`
+  const tube = `${spec.variant}:${spec.innerR}:${spec.wall}:${lead}`
   if (piece.type === 'angle') {
     const a = angleSpec(piece)
     return `${tube}:angle:${a.entry}:${a.bend}:${a.exit}:${a.fillet}`
   }
+  // A corner's fall is part of its shape, the way a hook's is: it turns about
+  // the tube's own up axis, and how far that axis is off the upright — which is
+  // how far the trough has to wind through the turn to stay open to the sky — is
+  // exactly the fall. Two corners bent the same but tipped differently are two
+  // different solids.
   if (piece.type === 'corner') {
     const c = cornerSpec(piece)
-    return `${tube}:corner:${c.entry}:${c.sweep}:${c.exit}:${c.fillet}`
+    return `${tube}:corner:${c.entry}:${c.sweep}:${c.exit}:${c.fillet}:${piece.slope}`
   }
   // The one shape whose slope is part of the shape: a hook falls as it turns,
   // so how steeply it falls is how tightly the turn winds — and which way the

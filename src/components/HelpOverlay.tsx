@@ -123,10 +123,15 @@ const HELP: Record<HelpTab, Group[]> = {
       title: 'Parts',
       rows: [
         { keys: ['Left-click a part'], action: 'Select it and open its settings in the sidebar' },
+        {
+          keys: [`${MOD_LABEL}-click a part`],
+          action: 'Add it to the selection, or take it back out',
+          note: 'Shift does the same; Duplicate and Delete then take the whole set, while the settings, the arrows and the ring stay on the last part picked',
+        },
         { keys: ['Left-click empty space'], action: 'Deselect' },
         {
           keys: ['Right-click a part'],
-          action: 'Part menu — select, hide, rename or delete it on the spot',
+          action: 'Part menu — select, hide, rename, duplicate or delete it on the spot',
           note: 'a right-drag still rotates the camera; only a press that stays put opens the menu',
         },
         {
@@ -147,12 +152,12 @@ const HELP: Record<HelpTab, Group[]> = {
         {
           keys: ['Move'],
           action: 'Drag the three axis arrows to move the selected part about the workplane',
-          note: 'red is X, green Y, blue Z; anything joined to that part travels with it',
+          note: `red is X, green Y, blue Z; anything joined to that part travels with it, and with a set picked (${MOD_LABEL}-click) every run in the set travels the same distance`,
         },
         {
           keys: ['Rotate'],
           action: 'Drag the green ring to swing the selected part’s run round the upright',
-          note: 'it turns about the part you picked, so that one stands still while the rest comes round it',
+          note: 'it turns about the part you picked, so that one stands still while the rest comes round it — a set picked alongside it is carried round that same point, holding its arrangement',
         },
         {
           keys: ['Drop to Workplane'],
@@ -228,6 +233,11 @@ const HELP: Record<HelpTab, Group[]> = {
       title: 'Editing',
       rows: [
         { keys: ['Click a piece'], action: 'Select it and open its settings in the sidebar' },
+        {
+          keys: [`${MOD_LABEL}-click a piece`],
+          action: 'Add it to the selection, or take it back out',
+          note: 'the same set the 3D stage picks — what is picked here is picked there',
+        },
         { keys: ['Click empty space'], action: 'Clear the selection' },
         {
           keys: ['Angles and Joints'],
@@ -329,10 +339,21 @@ const HOWTO: Partial<Record<HelpTab, HowTo[]>> = {
     },
     {
       question: 'Which run does the marble roll down?',
-      lead: 'The first one in Active Parts. There is one marble, so with several separate runs on the stage it has to be given one, and it takes the run the parts list starts with.',
+      lead: 'It sets off down the first one in Active Parts — there is one marble, so with several separate runs on the stage it has to be given one to start on. After that it goes wherever it lands: thrown off the end of one run it falls, and if it comes down inside another one, that run carries it on.',
       steps: [
-        'Join the parts you want it to travel into one run.',
+        'Join the parts you want it to travel through into one run.',
+        'Leave a gap where you want it to jump, and stand the catching run under where it lands.',
         'Press ▶ Simulator.',
+      ],
+      note: 'A marble in the air bounces off anything solid it meets on the way — the outside of a tube, the rim of a funnel — so a near miss deflects it rather than passing through.',
+    },
+    {
+      question: 'Why has my marble stopped halfway down?',
+      lead: 'It has run out of fall. A marble is driven by how steeply the tube drops and held back by the tube’s grip, and below about five degrees at the stock grip the grip wins. It does not stop dead where it stands: on a climb it rolls back down, and it settles wherever it can go no further.',
+      steps: [
+        'Watch the bar along the bottom — the stretch past the stall is hatched out, and the readout says STUCK.',
+        'Steepen the parts before the stall, or drop the Tube grip in Settings.',
+        'Check for a sharp corner just before it: a hard turn bleeds off speed the run then has to make up again.',
       ],
     },
   ],
@@ -377,8 +398,13 @@ function alwaysGroup(keys: ShortcutMap): Group {
       },
       {
         keys: [formatShortcut(keys.duplicate)],
-        action: 'Duplicate the selected part',
-        note: 'the copy lands unjoined, beside the run',
+        action: 'Duplicate what is selected',
+        note: 'the copies land unjoined, beside the run — a joint between two parts that were both picked comes over with them',
+      },
+      {
+        keys: [formatShortcut(keys.duplicateJoined)],
+        action: 'Duplicate what is selected, joined onto the run',
+        note: 'the copies land on the open end a new part would land on, bonded there',
       },
       { keys: ['?'], action: 'Open this help' },
       { keys: ['Esc'], action: 'Close this help' },

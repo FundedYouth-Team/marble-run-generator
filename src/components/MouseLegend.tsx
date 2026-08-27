@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { MOD_LABEL } from '../lib/shortcuts'
 
 /** Which parts of the mouse are lit up right now. */
 interface Lit {
@@ -30,6 +31,7 @@ export const ORBIT_MOUSE: MouseConfig = {
   scroll: 'Zoom',
   hints: [
     ['left-click', 'select'],
+    [`${MOD_LABEL.toLowerCase()}-click`, 'add to the set'],
     ['click end', 'join / unjoin'],
     ['drag arrow', 'move the run'],
     ['drag ring', 'turn the run'],

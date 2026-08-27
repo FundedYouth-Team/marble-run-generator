@@ -48,6 +48,14 @@ function gripWord(friction: number) {
   return 'slow, draggy roll'
 }
 
+/** The same for the bounce slider — what a landing off a gap actually looks like. */
+function bounceWord(bounce: number) {
+  if (bounce <= 0.05) return 'dead landing'
+  if (bounce <= 0.3) return 'glass on plastic'
+  if (bounce <= 0.6) return 'lively'
+  return 'rubber ball'
+}
+
 function speedWord(timeScale: number) {
   if (timeScale < 0.7) return 'slow motion'
   if (timeScale <= 1.3) return 'normal speed'
@@ -221,7 +229,25 @@ export default function SettingsPanel({ open, onClose }: { open: boolean; onClos
           />
           <InfoNote label="What does grip do?">
             How much the tube slows the marble down. Slippery tubes let it fly; grippy ones hold it
-            back. This changes the run itself — a grippy tube may not make it round a loop.
+            back. This changes the run itself — a grippy tube may not make it round a loop, and one
+            that runs out of speed on a climb rolls back down rather than stopping where it stood.
+          </InfoNote>
+          <NumberField
+            label="Bounce"
+            hint={bounceWord(s.bounce)}
+            value={s.bounce}
+            onChange={s.setBounce}
+            min={0}
+            max={0.9}
+            step={0.05}
+            unit=""
+            ends={['Dead — lands and stays', 'Lively — kicks off walls']}
+          />
+          <InfoNote label="What does bounce do?">
+            How much speed the marble keeps when it hits something in mid-air — the rim of a funnel,
+            the outside of a tube, the floor of the part it has just been thrown into. Nought is a
+            dead landing; high enough and it will skip straight back out of a catch. A glass marble
+            on printed plastic is somewhere near a quarter.
           </InfoNote>
           <NumberField
             label="Watch speed"

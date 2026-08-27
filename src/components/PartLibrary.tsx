@@ -1,6 +1,13 @@
 import { useEffect, useMemo, useState, type ReactElement } from 'react'
 import { attachPort, pieceLabel, useRun, UNTITLED_PROJECT } from '../store'
-import { TEMPLATES, buildTemplate, type Template, type TemplateBuild } from '../lib/templates'
+import {
+  TEMPLATES,
+  TEMPLATE_DIR,
+  buildTemplate,
+  type Template,
+  type TemplateBuild,
+} from '../lib/templates'
+import { PROJECT_EXT } from '../lib/project'
 import { formatCoarse } from '../lib/units'
 
 /**
@@ -207,64 +214,15 @@ const PARTS: Part[] = [
   },
 ]
 
-/* ---------------- template previews ---------------- */
+/* ---------------- templates ---------------- */
 
 /**
- * A run seen from above: in one side, round the corner, and away. Templates are
- * drawn in the same weight as the parts, since a card is a card — what tells the
- * two apart is the section they are filed under and the figures under the name.
+ * What a template shows when no picture was left beside it: levels folding back
+ * over one another, seen side-on. It stands for a run rather than describing the
+ * one on the card — the file itself says nothing about what it looks like, and a
+ * template that wants a likeness gets a screenshot dropped in next to it.
  */
-function FirstRunPreview() {
-  return (
-    <svg width="78" height="50" viewBox="0 0 46 30" aria-hidden="true">
-      <path className="pp-line" d="M4 6h13a8 8 0 0 1 8 8v10" />
-    </svg>
-  )
-}
-
-/** Out along the top, round the turn, and back underneath — seen from above. */
-function SwitchbackPreview() {
-  return (
-    <svg width="78" height="50" viewBox="0 0 46 30" aria-hidden="true">
-      <path className="pp-line" d="M4 8h22a7 7 0 0 1 0 14H4" />
-    </svg>
-  )
-}
-
-/** A feed into the top of a tapering tower, and the run-out from under it. */
-function TowerDropPreview() {
-  return (
-    <svg width="78" height="50" viewBox="0 0 46 30" aria-hidden="true">
-      <path className="pp-line" d="M2 5h10" />
-      {/* Thinner than the stock weight, as the corkscrew's own card is: three
-          rings this close would blob into one another. */}
-      <g className="pp-line" strokeWidth="2.4">
-        <ellipse cx="22" cy="8" rx="11" ry="3.6" />
-        <ellipse cx="22" cy="14.5" rx="8.5" ry="3" />
-        <ellipse cx="22" cy="20" rx="6" ry="2.4" />
-      </g>
-      <path className="pp-line" d="M28 22.5h14" />
-    </svg>
-  )
-}
-
-/** The bowl, fed level from the side, drained down the throat and away. */
-function BowlFeedPreview() {
-  return (
-    <svg width="78" height="50" viewBox="0 0 46 30" aria-hidden="true">
-      <g className="pp-line" strokeWidth="2.6">
-        <path d="M2 6h7" />
-        <ellipse cx="17" cy="7" rx="8" ry="2.9" />
-        <path d="M9 7v2.4a8 2.9 0 0 0 16 0V7" />
-        <path d="M10.2 12.4 16.4 18M23.8 12.4 17.6 18" />
-        <path d="M17 18v4a4 4 0 0 0 4 4h21" />
-      </g>
-    </svg>
-  )
-}
-
-/** Level under level, each one folding back over the one above it. */
-function GrandTourPreview() {
+function TemplateGlyph() {
   return (
     <svg width="78" height="50" viewBox="0 0 46 30" aria-hidden="true">
       <path
@@ -276,13 +234,8 @@ function GrandTourPreview() {
   )
 }
 
-const TEMPLATE_PREVIEW: Record<string, () => ReactElement> = {
-  'first-run': FirstRunPreview,
-  switchback: SwitchbackPreview,
-  'tower-drop': TowerDropPreview,
-  'bowl-feed': BowlFeedPreview,
-  'grand-tour': GrandTourPreview,
-}
+/** A template read in, or why it could not be. */
+type BuildResult = { ok: true; build: TemplateBuild } | { ok: false; message: string }
 
 /* ---------------- the rail ---------------- */
 
@@ -292,23 +245,21 @@ const TEMPLATE_PREVIEW: Record<string, () => ReactElement> = {
  * *is* the run — so they are filed under headings of their own rather than
  * mixed into a single list of categories.
  */
-type Section = 'all' | Category | 'starter' | 'model'
+type Section = 'all' | Category | 'templates'
 
 const SECTION_LABEL: Record<Section, string> = {
   all: 'All parts',
   track: 'Track',
   feature: 'Features',
-  starter: 'Starter templates',
-  model: 'Finished models',
+  templates: 'Saved runs',
 }
 
 const RAIL: { heading: string; sections: Section[] }[] = [
   { heading: 'Parts', sections: ['all', 'track', 'feature'] },
-  { heading: 'Templates', sections: ['starter', 'model'] },
+  { heading: 'Templates', sections: ['templates'] },
 ]
 
-const isTemplateSection = (s: Section): s is 'starter' | 'model' =>
-  s === 'starter' || s === 'model'
+const isTemplateSection = (s: Section): s is 'templates' => s === 'templates'
 
 /**
  * Browse the catalogue and drop a part on the stage — or take a whole run off
@@ -343,12 +294,27 @@ export default function PartLibrary() {
   } = useRun()
 
   /**
-   * Every template welded up and measured, once. A build walks the whole run to
-   * stand it on the workplane, so doing it on the first open beats doing it per
-   * card — and the figures each card reads out fall out of the same walk.
+   * Every template read in and measured, once. A build walks the whole run, so
+   * doing it on the first open beats doing it per card — and the figures each
+   * card reads out fall out of the same walk.
+   *
+   * A file that cannot be read keeps its card and says why instead: these are
+   * files somebody dropped into a directory by hand, and one that quietly failed
+   * to appear would leave them with nothing to go on.
    */
   const builds = useMemo(
-    () => (open ? new Map(TEMPLATES.map((t) => [t.id, buildTemplate(t)])) : null),
+    () =>
+      open
+        ? new Map<string, BuildResult>(
+            TEMPLATES.map((t) => {
+              try {
+                return [t.id, { ok: true, build: buildTemplate(t) }]
+              } catch (err) {
+                return [t.id, { ok: false, message: (err as Error).message }]
+              }
+            }),
+          )
+        : null,
     [open],
   )
 
@@ -415,7 +381,7 @@ export default function PartLibrary() {
   const shownTemplates = useMemo(() => {
     const q = query.trim().toLowerCase()
     if (!isTemplateSection(section)) return []
-    return TEMPLATES.filter((t) => t.category === section && matches(q, t.name, t.blurb, t.detail))
+    return TEMPLATES.filter((t) => matches(q, t.name, t.blurb, t.file))
   }, [section, query])
 
   const pick = (part: Part) => {
@@ -449,8 +415,8 @@ export default function PartLibrary() {
           something called Add Part. Both open the same window. */}
       <button
         className="templates-btn"
-        onClick={() => openOn('starter')}
-        title="Start from a ready-made run — a starter to build on, or a finished model"
+        onClick={() => openOn('templates')}
+        title="Start from one of your saved runs"
       >
         Templates
       </button>
@@ -500,17 +466,28 @@ export default function PartLibrary() {
               <div className="lib-body">
                 <div className="lib-grid">
                   {shownTemplates.map((t) => {
-                    const Preview = TEMPLATE_PREVIEW[t.id]
-                    const build = builds?.get(t.id)
-                    const showing = detailId === t.id
+                    const result = builds?.get(t.id)
+                    const build = result?.ok ? result.build : null
+                    const problem = result && !result.ok ? result.message : null
                     return (
                       <div key={t.id} className="lib-card">
                         <button
                           className="lib-card-pick"
+                          disabled={!build}
                           onClick={() => build && setPending({ template: t, build })}
-                          title={`Put ${t.name} on the stage`}
+                          title={problem ? t.file : `Put ${t.name} on the stage`}
                         >
-                          <span className="lib-card-art">{Preview ? <Preview /> : null}</span>
+                          <span className="lib-card-art">
+                            {t.image ? (
+                              /* The picture the user left beside the run, shown
+                                 as they saved it — cropped to the tile rather
+                                 than squashed into it, since a screenshot of a
+                                 run is any shape at all. */
+                              <img className="lib-card-shot" src={t.image} alt="" />
+                            ) : (
+                              <TemplateGlyph />
+                            )}
+                          </span>
                           <span className="lib-card-name">
                             <b>{t.name}</b>
                           </span>
@@ -520,20 +497,13 @@ export default function PartLibrary() {
                               {formatCoarse(build.drop, units)} drop
                             </span>
                           )}
-                          <span className="lib-card-blurb">{t.blurb}</span>
+                          {t.blurb && <span className="lib-card-blurb">{t.blurb}</span>}
+                          {problem && (
+                            <span className="lib-card-blurb lib-card-bad">
+                              {t.file} could not be read — {problem}
+                            </span>
+                          )}
                         </button>
-                        {t.detail && (
-                          <>
-                            <button
-                              className="link-btn lib-card-more"
-                              aria-expanded={showing}
-                              onClick={() => setDetailId(showing ? null : t.id)}
-                            >
-                              {showing ? 'Less' : 'Details'}
-                            </button>
-                            {showing && <p className="lib-card-detail">{t.detail}</p>}
-                          </>
-                        )}
                       </div>
                     )
                   })}
@@ -580,10 +550,25 @@ export default function PartLibrary() {
                     )
                   })}
                 </div>
-                {!shownParts.length && !shownTemplates.length && (
+                {/* An empty shelf and a search that found nothing are different
+                    things to be told: there is nothing built in here, so a shelf
+                    with nothing on it is the normal state until somebody puts a
+                    run on it, and it says how. */}
+                {isTemplateSection(section) && !TEMPLATES.length ? (
                   <p className="note">
-                    No {isTemplateSection(section) ? 'templates' : 'parts'} match “{query}”.
+                    <b>Nothing on the shelf yet.</b> Templates are your own runs:{' '}
+                    <b>Save</b> a project and drop the <code>{PROJECT_EXT}</code> file into the{' '}
+                    <code>{TEMPLATE_DIR}/</code> directory at the root of the app, and it turns up
+                    here. Leave a picture beside it under the same name — say{' '}
+                    <code>my-run.png</code> — and the card shows that instead of the outline.
                   </p>
+                ) : (
+                  !shownParts.length &&
+                  !shownTemplates.length && (
+                    <p className="note">
+                      No {isTemplateSection(section) ? 'templates' : 'parts'} match “{query}”.
+                    </p>
+                  )
                 )}
               </div>
             </div>
@@ -592,10 +577,11 @@ export default function PartLibrary() {
               {isTemplateSection(section) ? (
                 <p className="note">
                   <b>A template is a whole run, so taking one replaces what is on the stage.</b>{' '}
-                  It arrives welded up and standing on the workplane, under the template's own
-                  name — every part in it is yours to edit, move, disconnect or delete from there,
-                  and Save writes it out like any other project. Save what you have first if you
-                  want to keep it.
+                  It arrives exactly as it was saved, under its own name — every part in it is
+                  yours to edit, move, disconnect or delete, and Save writes it out like any other
+                  project. Save what you have first if you want to keep it. These are your own
+                  runs: anything saved into <code>{TEMPLATE_DIR}/</code> is on this shelf, with an
+                  image of the same name beside it if you want one on the card.
                 </p>
               ) : (
                 <>

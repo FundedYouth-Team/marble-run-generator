@@ -6,6 +6,7 @@ import {
   DisconnectIcon,
   DropToPlaneIcon,
   DuplicateIcon,
+  DuplicateJoinIcon,
   MoveIcon,
   RotateIcon,
   SelectIcon,
@@ -13,7 +14,7 @@ import {
 } from './icons'
 import { telemetry } from '../lib/telemetry'
 import { UNIT_WORD, coarseText } from '../lib/units'
-import { formatShortcut } from '../lib/shortcuts'
+import { MOD_LABEL, formatShortcut } from '../lib/shortcuts'
 import { exportPrintPlate } from '../lib/exporters'
 import type { Assembly } from '../lib/layout'
 import {
@@ -103,9 +104,10 @@ export default function Toolbar({ spec, asm }: { spec: TubeSpec; asm: Assembly }
     pendingPort,
     pieces,
     selectedId,
+    selectedIds,
     dropToWorkplane,
-    duplicatePiece,
-    removePiece,
+    duplicateParts,
+    removeParts,
     running,
     toggleRunning,
     resetSim,
@@ -117,7 +119,7 @@ export default function Toolbar({ spec, asm }: { spec: TubeSpec; asm: Assembly }
   // Same name the Export panel would give it — the toolbar is just a shortcut.
   const basename = useRun(exportBasename)
   const units = useRun((s) => s.units)
-  const [t, setT] = useState({ speed: 0, distance: 0, airborne: false })
+  const [t, setT] = useState({ speed: 0, distance: 0, airborne: false, stuck: false })
 
   useEffect(() => {
     const id = setInterval(() => setT({ ...telemetry }), 100)
@@ -125,12 +127,19 @@ export default function Toolbar({ spec, asm }: { spec: TubeSpec; asm: Assembly }
   }, [])
 
   const selectedIndex = pieces.findIndex((p) => p.id === selectedId)
-  const selected = selectedIndex >= 0 ? pieceLabel(pieces[selectedIndex], selectedIndex) : null
+  const lead = selectedIndex >= 0 ? pieceLabel(pieces[selectedIndex], selectedIndex) : null
+  // What the buttons that take the whole set are about — the one part by name
+  // while that is all there is, and the count once picking has gone wider.
+  const selected = !lead ? null : selectedIds.length > 1 ? `${selectedIds.length} parts` : lead
   // Two separate runs are what the Connector has to work with; one part on its
   // own has both an inlet and an outlet, but joining them to each other would
   // only close it into a loop.
-  const runs = chainsOf(pieces).length
+  const chains = chainsOf(pieces)
+  const runs = chains.length
   const joined = pieces.some((p) => p.joined)
+  // How many runs the handles have in hand: the runs the picked parts stand in,
+  // counted once each however many of their parts were picked.
+  const runsPicked = chains.filter((c) => c.some((i) => selectedIds.includes(pieces[i].id))).length
 
   /**
    * What the tool in hand is waiting for, said in the bar rather than in a
@@ -138,11 +147,19 @@ export default function Toolbar({ spec, asm }: { spec: TubeSpec; asm: Assembly }
    * be given any width.
    */
   const hint = (): string => {
+    // A set of parts is a set of runs to the handles, since a bonded part cannot
+    // travel on its own — so the bar says what is actually about to move.
     if (tool === 'move') {
-      return selected ? `Drag an arrow to move ${selected}'s run` : 'Select a part to move its run'
+      if (!lead) return 'Select a part to move its run'
+      return runsPicked > 1
+        ? `Drag an arrow to move ${runsPicked} runs together`
+        : `Drag an arrow to move ${lead}'s run`
     }
     if (tool === 'rotate') {
-      return selected ? `Drag the ring to turn ${selected}'s run` : 'Select a part to turn its run'
+      if (!lead) return 'Select a part to turn its run'
+      return runsPicked > 1
+        ? `Drag the ring to turn ${runsPicked} runs about ${lead}`
+        : `Drag the ring to turn ${lead}'s run`
     }
     if (tool === 'connect') {
       if (runs < 2) return 'A joint needs two separate runs'
@@ -152,7 +169,12 @@ export default function Toolbar({ spec, asm }: { spec: TubeSpec; asm: Assembly }
     if (tool === 'disconnect') {
       return joined ? 'Click a joint to break it open' : 'Nothing is joined yet'
     }
-    return 'Pick a part — parts land unjoined'
+    // Once a set is in hand the bar says so, since the two buttons that take the
+    // whole set are the only place that shows.
+    if (selectedIds.length > 1) {
+      return `${selectedIds.length} parts picked — Duplicate and Delete take the set`
+    }
+    return `Pick a part — ${MOD_LABEL}-click to pick more`
   }
 
   const pick = (next: Tool) => setTool(tool === next ? 'select' : next)
@@ -175,14 +197,14 @@ export default function Toolbar({ spec, asm }: { spec: TubeSpec; asm: Assembly }
           on={tool === 'move'}
           label="Move"
           icon={<MoveIcon />}
-          title="Move the selected part's run about the workplane on the three axis arrows"
+          title="Move the picked part's run about the workplane on the three axis arrows — pick parts in several runs and they all travel together"
           onClick={() => pick('move')}
         />
         <ToolButton
           on={tool === 'rotate'}
           label="Rotate"
           icon={<RotateIcon />}
-          title="Turn the selected part's run about the upright, with the part you picked standing still"
+          title="Turn the picked part's run about the upright, with the part you picked standing still — anything else picked swings round it too"
           onClick={() => pick('rotate')}
         />
         <ToolButton
@@ -190,8 +212,8 @@ export default function Toolbar({ spec, asm }: { spec: TubeSpec; asm: Assembly }
           icon={<DropToPlaneIcon />}
           disabled={!selectedId}
           title={
-            selected
-              ? `Set ${selected}'s run straight down on the workplane, until its lowest wall rests on it`
+            lead
+              ? `Set ${lead}'s run straight down on the workplane, until its lowest wall rests on it`
               : 'Select a part to set its run down on the workplane'
           }
           onClick={() => selectedId && dropToWorkplane(selectedId)}
@@ -199,25 +221,36 @@ export default function Toolbar({ spec, asm }: { spec: TubeSpec; asm: Assembly }
         <ToolButton
           label="Duplicate"
           icon={<DuplicateIcon />}
-          disabled={!selectedId}
+          disabled={!selected}
           title={
             selected
               ? `Set a copy of ${selected} down beside the run, unjoined, and select it — ${formatShortcut(shortcuts.duplicate)}`
-              : 'Select a part to copy it'
+              : `Select a part to copy it — ${MOD_LABEL}-click picks more than one`
           }
-          onClick={() => selectedId && duplicatePiece(selectedId)}
+          onClick={() => duplicateParts(selectedIds)}
+        />
+        <ToolButton
+          label="Duplicate Joined"
+          icon={<DuplicateJoinIcon />}
+          disabled={!selected}
+          title={
+            selected
+              ? `Copy ${selected} onto the open end of the run, joined on where a new part would land — ${formatShortcut(shortcuts.duplicateJoined)}`
+              : `Select a part to copy it onto the run — ${MOD_LABEL}-click picks more than one`
+          }
+          onClick={() => duplicateParts(selectedIds, { join: true })}
         />
         <ToolButton
           danger
           label="Delete"
           icon={<TrashIcon size={17} />}
-          disabled={!selectedId}
+          disabled={!selected}
           title={
             selected
               ? `Take ${selected} out of the run — what was joined to it closes up`
               : 'Select a part to take it out of the run'
           }
-          onClick={() => selectedId && removePiece(selectedId)}
+          onClick={() => removeParts(selectedIds)}
         />
       </ToolGroup>
 
@@ -290,7 +323,11 @@ export default function Toolbar({ spec, asm }: { spec: TubeSpec; asm: Assembly }
           <span>{UNIT_WORD[units]} travelled</span>
         </div>
         <div>
-          <b>{t.airborne ? 'AIR' : 'IN TUBE'}</b>
+          {/* Stuck outranks the other two: a marble at rest on a fall too shallow
+              to start it again is the one state a speed of nought hides. */}
+          <b className={t.stuck ? 'warn' : undefined}>
+            {t.stuck ? 'STUCK' : t.airborne ? 'AIR' : 'IN TUBE'}
+          </b>
           <span>state</span>
         </div>
       </div>

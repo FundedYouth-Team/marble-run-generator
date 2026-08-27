@@ -18,6 +18,7 @@ import {
   type TubeVariant,
 } from '../store'
 import { formatLength, lengthText, type Unit } from '../lib/units'
+import { addsToSelection } from '../lib/shortcuts'
 
 /** What the part is, in one line, for the row's tooltip. */
 function summarise(p: Piece, style: TubeVariant, units: Unit): string {
@@ -104,7 +105,8 @@ export default function ActiveParts() {
     pieces,
     variant,
     selectedId,
-    select,
+    selectedIds,
+    pickPart,
     renamePiece,
     togglePieceHidden,
     showAllPieces,
@@ -143,6 +145,11 @@ export default function ActiveParts() {
           <ChevronIcon />
         </button>
         <h3>Active Parts</h3>
+        {/* A set is easy to lose track of once it is scrolled past, so the header
+            says how many are in it. One on its own needs no saying. */}
+        {open && selectedIds.length > 1 && (
+          <span className="active-parts-picked">{selectedIds.length} picked</span>
+        )}
         {open && hiddenCount > 0 && (
           <button
             className="active-parts-all"
@@ -166,7 +173,10 @@ export default function ActiveParts() {
           const editing = p.id === editingId
           const shown = !p.hidden
           const classes = ['active-part']
-          if (p.id === selectedId) classes.push('on')
+          // Every picked row is marked; the one leading the set is marked again,
+          // since that is the row the parameters panel is showing.
+          if (selectedIds.includes(p.id)) classes.push('on')
+          if (p.id === selectedId) classes.push('lead')
           if (!shown) classes.push('off')
           if (editing) classes.push('editing')
           return (
@@ -174,7 +184,7 @@ export default function ActiveParts() {
               key={p.id}
               className={classes.join(' ')}
               title={`${renamed ? `${label} — ` : ''}${typeLabel} · ${summarise(p, variantOf(p, variant), units)}`}
-              onClick={() => !editing && select(p.id === selectedId ? null : p.id)}
+              onClick={(e) => !editing && pickPart(p.id, addsToSelection(e))}
               onDoubleClick={() => startEdit(p.id, p.name)}
             >
               <button

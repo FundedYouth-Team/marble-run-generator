@@ -1,6 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import {
   DropToPlaneIcon,
+  DuplicateIcon,
+  DuplicateJoinIcon,
   EyeOffIcon,
   MoveIcon,
   PencilIcon,
@@ -8,6 +10,7 @@ import {
   RotateIcon,
   TrashIcon,
 } from './icons'
+import { formatShortcut } from '../lib/shortcuts'
 import { useRun, pieceLabel, pieceTypeLabel, type Tool } from '../store'
 
 /** Kept this far off the stage edges, so a menu opened in a corner still fits. */
@@ -22,7 +25,16 @@ export interface MenuTarget {
 }
 
 /** One thing the menu can do to the part it was opened on. */
-export type MenuAction = 'select' | 'move' | 'rotate' | 'drop' | 'hide' | 'rename' | 'delete'
+export type MenuAction =
+  | 'select'
+  | 'move'
+  | 'rotate'
+  | 'drop'
+  | 'hide'
+  | 'rename'
+  | 'duplicate'
+  | 'duplicateJoined'
+  | 'delete'
 
 /**
  * What the 3D stage offers, which is everything: it has the handles the move and
@@ -36,6 +48,8 @@ const STAGE_ACTIONS: MenuAction[] = [
   'drop',
   'hide',
   'rename',
+  'duplicate',
+  'duplicateJoined',
   'delete',
 ]
 
@@ -67,13 +81,18 @@ export default function PartContextMenu({
   const {
     pieces,
     selectedId,
+    selectedIds,
     select,
+    toggleSelect,
+    leadPart,
     tool,
     setTool,
     dropToWorkplane,
     togglePieceHidden,
     renamePiece,
-    removePiece,
+    duplicateParts,
+    removeParts,
+    shortcuts,
   } = useRun()
   const ref = useRef<HTMLDivElement>(null)
   const [renaming, setRenaming] = useState(false)
@@ -149,6 +168,15 @@ export default function PartContextMenu({
   const typeLabel = pieceTypeLabel(piece, index)
   const label = pieceLabel(piece, index)
   const picked = piece.id === selectedId
+  /**
+   * What the items that take a whole set act on: the selection when the part
+   * under the cursor is in it, and that part alone when it is not — a right-click
+   * out on its own is about the part it landed on, not about a set picked
+   * somewhere else.
+   */
+  const inSet = selectedIds.includes(piece.id)
+  const set = inSet ? selectedIds : [piece.id]
+  const setLabel = set.length > 1 ? `${set.length} parts` : label
 
   /** Every item does its one thing and gets out of the way. */
   const run = (fn: () => void) => () => {
@@ -162,6 +190,10 @@ export default function PartContextMenu({
    * the part under the cursor is the one you meant. Pressing the tool already in
    * hand puts it back down, the way the toolbar buttons do — so the menu is also
    * the way back to plain picking, without a Select-tool item of its own.
+   *
+   * A part already in a set only takes the lead, keeping the set: the handles
+   * move and turn everything picked, so picking this one alone would quietly
+   * drop the rest of what the drag was meant to take.
    */
   const hold = (next: Tool) =>
     run(() => {
@@ -169,7 +201,7 @@ export default function PartContextMenu({
         setTool('select')
         return
       }
-      select(piece.id)
+      leadPart(piece.id)
       setTool(next)
     })
 
@@ -218,9 +250,14 @@ export default function PartContextMenu({
       ) : (
         <>
           {has('select') && (
-            <button role="menuitem" onClick={run(() => select(picked ? null : piece.id))}>
+            <button
+              role="menuitem"
+              // In the set, the item takes this one part back out of it and
+              // leaves the rest picked; outside it, it picks this part alone.
+              onClick={run(() => (inSet ? toggleSelect(piece.id) : select(piece.id)))}
+            >
               <PickIcon />
-              {picked ? 'Deselect' : 'Select'}
+              {inSet ? 'Deselect' : 'Select'}
             </button>
           )}
           {has('move') && (
@@ -228,7 +265,7 @@ export default function PartContextMenu({
               className={picked && tool === 'move' ? 'on' : ''}
               role="menuitemcheckbox"
               aria-checked={picked && tool === 'move'}
-              title="Pick this part and take up the arrows that move its run"
+              title={`Pick this part and take up the arrows that move ${set.length > 1 ? 'every run picked' : 'its run'}`}
               onClick={hold('move')}
             >
               <MoveIcon size={14} />
@@ -240,7 +277,7 @@ export default function PartContextMenu({
               className={picked && tool === 'rotate' ? 'on' : ''}
               role="menuitemcheckbox"
               aria-checked={picked && tool === 'rotate'}
-              title="Pick this part and take up the ring that turns its run about the upright"
+              title={`Pick this part and take up the ring that turns ${set.length > 1 ? 'every run picked, about this one' : 'its run about the upright'}`}
               onClick={hold('rotate')}
             >
               <RotateIcon size={14} />
@@ -278,10 +315,34 @@ export default function PartContextMenu({
               Rename
             </button>
           )}
+          {has('duplicate') && (
+            <button
+              role="menuitem"
+              title={`Set a copy of ${setLabel} down beside the run, unjoined, and select it`}
+              onClick={run(() => duplicateParts(set))}
+            >
+              <DuplicateIcon size={14} />
+              Duplicate
+              {/* The same binding the toolbar prints, so the menu teaches the key
+                  rather than only standing in for it. */}
+              <kbd className="part-menu-key">{formatShortcut(shortcuts.duplicate)}</kbd>
+            </button>
+          )}
+          {has('duplicateJoined') && (
+            <button
+              role="menuitem"
+              title={`Copy ${setLabel} onto the open end of the run, joined on where a new part would land`}
+              onClick={run(() => duplicateParts(set, { join: true }))}
+            >
+              <DuplicateJoinIcon size={14} />
+              Duplicate Joined
+              <kbd className="part-menu-key">{formatShortcut(shortcuts.duplicateJoined)}</kbd>
+            </button>
+          )}
           {has('delete') && (
-            <button className="danger" role="menuitem" onClick={run(() => removePiece(piece.id))}>
+            <button className="danger" role="menuitem" onClick={run(() => removeParts(set))}>
               <TrashIcon />
-              Delete
+              {set.length > 1 ? `Delete ${set.length} Parts` : 'Delete'}
             </button>
           )}
         </>
