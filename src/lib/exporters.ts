@@ -5,7 +5,15 @@ import { buildPartGeometry } from './geometry'
 import { centerlineFor, shapeKey } from './centerline'
 import { buildThreeMF } from './threemf'
 import type { PlacedPiece } from './layout'
-import { OPEN_SIDE_ANGLE, angleSpec, pieceSpec, type Piece, type TubeSpec } from '../store'
+import {
+  OPEN_SIDE_ANGLE,
+  angleSpec,
+  baseSpec,
+  pieceSpec,
+  supportSpec,
+  type Piece,
+  type TubeSpec,
+} from '../store'
 
 /**
  * All three formats are written at 1 unit = 1 mm, which is already this app's
@@ -71,6 +79,17 @@ const LAY_FLAT = new THREE.Matrix4()
  * level, so its own up axis and the world's are the same one.
  */
 function layFlat(piece: Piece, own: TubeSpec): THREE.Matrix4 {
+  // A base is already lying the way it prints: flat on its own underside, with
+  // nothing overhanging and no opening to point anywhere. All it wants is the
+  // turn from this app's Y-up world into the slicer's Z-up one, which is the
+  // very same turn the assembly export gives the whole stage.
+  //
+  // A support prints the way it stands, and for once that is the whole point of
+  // the shape: it is a post on a flat footprint with its cradle looking at the
+  // ceiling, so every wall in it goes down square and the one curved face is the
+  // one face pointing up. Standing it any other way would need supports under
+  // the support.
+  if (piece.type === 'base' || piece.type === 'support') return Y_TO_Z.clone()
   const roll = own.closed || piece.type === 'funnel' ? 0 : OPEN_SIDE_ANGLE[own.openSide]
   const m = roll === 0 ? LAY_FLAT.clone() : LAY_FLAT.clone().multiply(new THREE.Matrix4().makeRotationZ(roll))
   if (piece.type !== 'angle') return m
@@ -80,6 +99,22 @@ function layFlat(piece: Piece, own: TubeSpec): THREE.Matrix4 {
 
 /** Gap between parts on the print plate, mm. */
 const PLATE_GAP = 5
+
+/**
+ * How far a part reaches either side of the row it is laid in, mm — half its
+ * width across the plate, which is what the rows are stepped by.
+ *
+ * A tube reaches its own outer radius, whichever way its bend arches, because
+ * the rows run along the axis it is laid on. A base reaches half its depth: laid
+ * flat by {@link layFlat} its own +Z ends up along the row axis, and a plate the
+ * width of a table stepped by a tube's radius would land on top of the next four
+ * parts.
+ */
+function plateReach(piece: Piece, own: TubeSpec): number {
+  if (piece.type === 'base') return baseSpec(piece).depth / 2
+  if (piece.type === 'support') return supportSpec(piece).depth / 2
+  return own.outerR
+}
 
 export interface ExportResult {
   filename: string
@@ -224,13 +259,13 @@ export function exportPrintPlate(
 
   // Longest first, so the plate reads tidily.
   const parts = placed.slice().sort((a, b) => b.length - a.length)
-  // Rows are stepped by the two tubes either side of the gap rather than by one
+  // Rows are stepped by the two parts either side of the gap rather than by one
   // pitch, so a part sized on its own still lands clear of its neighbours.
   let y = 0
   let previousR = 0
   parts.forEach((p, i) => {
     const own = pieceSpec(spec, p.piece)
-    const r = own.outerR
+    const r = plateReach(p.piece, own)
     if (i > 0) y += previousR + r + PLATE_GAP
     previousR = r
     const mesh = new THREE.Mesh(cache.get(p.piece))

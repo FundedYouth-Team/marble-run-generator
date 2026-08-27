@@ -13,6 +13,92 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **The Support.** A post that stands on the ground and cradles the tube above
+  it — the other half of the base, and the part that makes a run printable at
+  all: every tube on this stage hangs in mid-air, and a printed tube hanging in
+  mid-air falls on the floor. The groove across its top is cut to the shape of
+  the pipe it carries, a shade wide so the tube beds down in it rather than
+  perching on the arms. Set how high the tube it holds sits, how thick the post
+  is across the run and how far it reaches along it, how far the arms wrap round
+  — from a flat seat to a half-round cup — and how far its own corners are
+  rounded. Found under Structure, beside the base.
+- **It stands square.** A printed post leaning over is a post that needs propping
+  itself, so a support stands dead upright whatever the run above it is doing and
+  the fall of that run goes into the *cradle* instead: the groove is cut on the
+  slope and drops through the top at the angle the tube is already falling at. It
+  states its own fall the way a base and a coil do, and the fall it states is
+  none. Its underside is on the workplane and stays there — stand one on a base
+  and the two overlap and print as one solid.
+- **Where the run is stacked over itself, the posts stack too.** The floor under
+  the upper level of a switchback already has the lower level on it, and a post
+  driven down to the plate would go straight through the pipe it was meant to
+  pass. So it stands on that pipe: its underside becomes a saddle cut to the same
+  tube, straddling it by the same wrap the cradle cups with, and the load goes
+  down through the run to whatever is holding *that* up. Posts stack as many deep
+  as the run does. The saddle is cut where the lower pipe really passes rather
+  than through the middle of the post, because a post is centred under what it
+  carries and almost never over what it stands on.
+- **⌶ Supports**, on the toolbar: paces out every run on the stage and stands a
+  post wherever one will fit. It declines three kinds of spot — where the ground
+  is already holding the tube up, where a post is standing already, and where the
+  column would have to go through the run to get there. Where the last is only
+  true of the *plate*, it stacks instead. New posts are cut to match the last one
+  on the stage, so shaping one by hand and pressing it again gives a stage of
+  posts that agree. Three spots it declines outright, and says so: a tube
+  crossing underneath at more than a few degrees off parallel, which a straight
+  groove would balance on rather than sit along; a gap between two levels too
+  small to leave a post worth printing; and a lower tube of a different size from
+  the one being carried, since one post cuts one groove radius. In each case that
+  stretch is propped from the next place along it.
+- **Fit to the Run Above**, in Part Parameters: reads the height, the fall and
+  the heading straight off whatever tube is passing over the post, and works out
+  whether it should be standing on the plate or on the run. Where it stands in
+  plan is left alone — sliding a post about the floor is something you can see
+  yourself doing, and reading a height off a run to a tenth of a millimetre is
+  not.
+- The cradle and the saddle are solved rather than carved. A cylinder lying
+  across a post cuts a surface that is straight in one axis at every point across
+  the other, so one closed form gives the whole of the top face at once — the
+  groove, the two arms, the flat shoulders outside them and the way all four tilt
+  with the run — and the same form upside down gives the underside. The solid is
+  those slices lofted, which makes it watertight by construction whatever the
+  numbers.
+- The marble meets a post as a rounded box, like a base, but only between the
+  crown of its saddle and the floor of its cradle: over the pipe and under the
+  pipe there is nothing to hit, and a box drawn any further would stand in the
+  bore of the very tube the post is holding.
+- It goes everywhere a part goes: picked and moved on the stage, listed in Active
+  Parts, drawn in the six ortho views of the 2D draft, saved with the project,
+  and laid on the print plate standing the way it prints — flat footprint down,
+  cradle looking at the ceiling, every wall square. Project files are now v11.
+
+- **The Base.** A flat plate that stands on the workplane and fills the space
+  under the run. It is the first part in the library that is not a length of
+  tube: nothing plugs into it, the marble never travels it, it takes no part in
+  any joint, and it has no bore, no wall and no style. Set how wide, how deep
+  and how thick it is, and how far the four upright corners are rounded — a
+  square plate rounded as far as it goes is a disc. Found under Structure, a new
+  shelf in the part library.
+- **It stays on the ground.** A base's underside is the workplane, and that is a
+  fact about the part rather than somewhere it happens to have been put: the
+  move arrows slide it about and the green ring turns it, and nothing — a drag,
+  a dropped run, a saved file — lifts it off the plane or buries it under one.
+  It also states its own fall, the way a corkscrew and a funnel do, and the fall
+  it states is none.
+- **Fit Under the Run**, in Part Parameters: sizes the plate to everything on the
+  stage that is not a base and slides it under the middle of it, measured to the
+  outside of the tube rather than to the centreline. Thickness and corners are
+  left alone — it is a question about footprint and nothing else.
+- The marble meets a base the way it meets any other wall, solved rather than
+  sampled: a slab is a rounded rectangle in plan pulled up through its own
+  thickness, so one closed form answers for its faces, its edges and its corners
+  at once. A run that spills lands on the plinth rather than falling past it.
+- It goes everywhere a part goes: picked and moved on the stage, listed in Active
+  Parts, drawn as a solid outline in the six ortho views of the 2D draft — left
+  off the developed elevation, which has no place for something that travels
+  nowhere — saved with the project, and written to the print plate lying the way
+  it prints. Project files are now v10.
+
 - **Open side.** A cut tube can now open on any of its four sides — top, right,
   bottom or left, read looking along the run — instead of always on top. Set on
   the run in the Tube Style panel, overridable per part, with Apply to All, and

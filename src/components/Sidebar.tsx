@@ -1,8 +1,11 @@
+import { useMemo } from 'react'
+import * as THREE from 'three'
 import NumberField from './NumberField'
 import ColorField from './ColorField'
 import CollapsiblePanel from './CollapsiblePanel'
 import HoverHint from './HoverHint'
 import { pieceAxisLength } from '../lib/centerline'
+import { buildAssembly, placedBox } from '../lib/layout'
 import { FUNNEL_LEAST_CONE, funnelFeedRadius } from '../lib/funnel'
 import {
   useRun,
@@ -12,8 +15,19 @@ import {
   PIECE_LIMITS,
   TUBE_LIMITS,
   ANGLE_DEFAULTS,
+  BASE_DEFAULTS,
+  BASE_LIMITS,
+  SUPPORT_DEFAULTS,
+  SUPPORT_LIMITS,
   CORNER_DEFAULTS,
   angleSpec,
+  baseSpec,
+  supportSpec,
+  supportFloor,
+  supportArms,
+  isStructure,
+  placementOf,
+  tubeOverPost,
   cornerSpec,
   hookSpec,
   hookLength,
@@ -52,6 +66,7 @@ import {
   variantOf,
   openSideOf,
   jointSpec,
+  pieceSpec,
   pieceLabel,
   pieceTypeLabel,
   PART_LABEL,
@@ -123,8 +138,12 @@ export default function Sidebar() {
     (p) => boreOf(p, s.innerDiameter) !== bore || wallOf(p, s.wallThickness) !== wall,
   )
   const spec = tubeSpec(bore, wall, style, side)
-  // Centreline length, so a bent part counts what it actually carries.
-  const totalLength = s.pieces.reduce((a, p) => a + pieceAxisLength(p), 0)
+  // Centreline length, so a bent part counts what it actually carries — and
+  // structure counts nothing, having no run down it to carry anything.
+  const totalLength = s.pieces.reduce(
+    (a, p) => a + (isStructure(p) ? 0 : pieceAxisLength(p)),
+    0,
+  )
   const selectedLength = selected ? pieceAxisLength(selected) : 100
   const joint = jointSpec(spec, selectedLength)
   const angle = selected && selected.type === 'angle' ? angleSpec(selected) : null
@@ -148,6 +167,56 @@ export default function Sidebar() {
    * has not the height for even the quarter turn it is floored at.
    */
   const coilGap = selected && coil ? corkscrewRingPitch(selected) - spec.outerR * 2 : 0
+  /**
+   * The slab, when a base is what is picked. It is the one part here that is not
+   * cut from the tube at all, so where it is showing the panels that describe the
+   * tube — its size, its style, and the angles it meets the run at — are put away:
+   * every one of them would be a control that does nothing.
+   */
+  const slab = selected && selected.type === 'base' ? baseSpec(selected) : null
+  /**
+   * The post, when a support is what is picked — the other part on the stage
+   * that is not cut from the tube. The tube panels go away for it exactly as
+   * they go away for a slab, and for one more reason besides: what a post is cut
+   * to is not a choice but a reading, taken off whatever run it was fitted to.
+   */
+  const post = selected && selected.type === 'support' ? supportSpec(selected) : null
+  /** Whether what is picked is structure rather than run — see {@link isStructure}. */
+  const ground = !!slab || !!post
+  /**
+   * What is passing over the post, if anything — the run it would stand up to.
+   * Read here rather than in the action so the panel can say what pressing the
+   * button would do, and say why it would do nothing.
+   */
+  const overhead = useMemo(() => {
+    if (!selected || !post) return null
+    const at = placementOf(selected)
+    return tubeOverPost(
+      { pieces: s.pieces, innerDiameter: s.innerDiameter, wallThickness: s.wallThickness },
+      at.x,
+      at.z,
+      { width: post.width / 2, depth: post.depth / 2 },
+    )
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected, post?.width, post?.depth, s.pieces, s.innerDiameter, s.wallThickness])
+  /**
+   * What the run standing on the stage covers, x and z, or null if there is no
+   * run to cover — a stage of nothing but bases has no footprint to fit to.
+   * Padded out to the tube, so a plate sized to it is under the whole pipe rather
+   * than under its centreline.
+   */
+  const footprint = useMemo(() => {
+    const run = tubeSpec(s.innerDiameter, s.wallThickness, s.variant, s.openSide)
+    const asm = buildAssembly(s.pieces)
+    const box = new THREE.Box3()
+    for (const p of asm.placed) {
+      // The posts are ground as much as the plate is: a base sized to its own
+      // supports would grow to cover parts that are only standing on it.
+      if (isStructure(p.piece)) continue
+      box.union(placedBox(p, pieceSpec(run, p.piece).outerR))
+    }
+    return box.isEmpty() ? null : box
+  }, [s.pieces, s.innerDiameter, s.wallThickness, s.variant, s.openSide])
   const funnel = selected && selected.type === 'funnel' ? funnelSpec(selected) : null
   const funnelFall = selected && funnel ? funnelDropOf(selected) : 0
   /** The bowl as it is actually cut, off this part's own tube. */
@@ -286,6 +355,11 @@ export default function Sidebar() {
         </HoverHint>
       </header>
 
+      {/* The three panels that describe the tube, and the one that describes how a
+          part meets the run. A base has none of that — no bore, no wall, no
+          style, no joints — so with one picked they are put away rather than
+          left standing as controls that would do nothing to what is selected. */}
+      {!ground && (
       <CollapsiblePanel title="Tube Size">
         <span className="field-label">
           {selected ? pieceLabel(selected, selectedIndex) : 'Run tube'}
@@ -348,7 +422,9 @@ export default function Sidebar() {
           </p>
         )}
       </CollapsiblePanel>
+      )}
 
+      {!ground && (
       <CollapsiblePanel title="Tube Style">
         <span className="field-label">
           {selected ? pieceLabel(selected, selectedIndex) : 'Run style'}
@@ -419,6 +495,7 @@ export default function Sidebar() {
               : 'No parts yet — this is the side the first one opens on.'}
         </p>
       </CollapsiblePanel>
+      )}
 
       <CollapsiblePanel title="Color">
         <ColorField
@@ -457,7 +534,11 @@ export default function Sidebar() {
                 {pieceLabel(selected, selectedIndex) !== pieceTypeLabel(selected, selectedIndex) && (
                   <span className="piece-type">{PART_LABEL[selected.type]}</span>
                 )}
-                <span className="piece-dim">{formatCoarse(selectedLength, s.units)}</span>
+                <span className="piece-dim">
+                  {slab
+                    ? `${formatCoarse(slab.width, s.units)} × ${formatCoarse(slab.depth, s.units)}`
+                    : formatCoarse(selectedLength, s.units)}
+                </span>
               </div>
               <div className="piece-body">
                 {angle ? (
@@ -1162,6 +1243,282 @@ export default function Sidebar() {
                       carries one.
                     </p>
                   </>
+                ) : slab ? (
+                  <>
+                    <NumberField
+                      label="Width"
+                      hint="side to side"
+                      value={slab.width}
+                      onChange={(v) => s.updatePiece(selected.id, { width: v })}
+                      {...BASE_LIMITS.width}
+                    />
+                    <NumberField
+                      label="Depth"
+                      hint="front to back"
+                      value={slab.depth}
+                      onChange={(v) => s.updatePiece(selected.id, { length: v })}
+                      {...BASE_LIMITS.depth}
+                    />
+                    <NumberField
+                      label="Thickness"
+                      hint="up off the workplane"
+                      value={slab.height}
+                      onChange={(v) => s.updatePiece(selected.id, { height: v })}
+                      {...BASE_LIMITS.height}
+                    />
+                    <span className="field-label">
+                      Corners
+                      <em>rounded takes the sharp edge off a printed plate</em>
+                    </span>
+                    <div className="segmented small">
+                      <button
+                        className={slab.radius > 0 ? 'on' : ''}
+                        onClick={() =>
+                          s.updatePiece(selected.id, { radius: BASE_DEFAULTS.radius })
+                        }
+                        title="Round the four upright corners off with an arc tangent to both sides"
+                      >
+                        Rounded
+                      </button>
+                      <button
+                        className={slab.radius > 0 ? '' : 'on'}
+                        onClick={() => s.updatePiece(selected.id, { radius: 0 })}
+                        title="Leave the four upright corners square"
+                      >
+                        Square
+                      </button>
+                    </div>
+                    <NumberField
+                      label="Corner radius"
+                      hint="0 is a square corner"
+                      value={slab.radius}
+                      onChange={(v) => s.updatePiece(selected.id, { radius: v })}
+                      {...BASE_LIMITS.radius}
+                      max={Math.min(BASE_LIMITS.radius.max, Math.min(slab.width, slab.depth) / 2)}
+                    />
+                    <button
+                      onClick={() => footprint && s.fitBaseToRun(selected.id)}
+                      disabled={!footprint}
+                    >
+                      Fit Under the Run
+                    </button>
+                    <p className="note">
+                      {footprint ? (
+                        <>
+                          Sizes the plate to everything on the stage that is not a base and slides
+                          it under the middle of it —{' '}
+                          {formatCoarse(footprint.max.x - footprint.min.x, s.units)} ×{' '}
+                          {formatCoarse(footprint.max.z - footprint.min.z, s.units)} as it stands,
+                          measured to the outside of the tube. The thickness and the corners are
+                          left as they are.
+                        </>
+                      ) : (
+                        <>
+                          Nothing to fit to yet — there is no run on the stage, only ground. Add a
+                          part and the plate can be sized to what it covers.
+                        </>
+                      )}
+                    </p>
+                    <p className="note">
+                      <b>A base is not part of the run.</b> Nothing plugs into it, the marble never
+                      travels it, and it takes no part in any joint — it is the ground the run
+                      stands on, which is why it has no bore, no style and no angles. Its underside
+                      sits on the workplane and stays there: the move arrows slide it about and the
+                      green ring turns it, and neither lifts it off the plane.
+                    </p>
+                    {slab.radius >= Math.min(slab.width, slab.depth) / 2 - 1e-6 && (
+                      <p className="note">
+                        Rounded as far as this plate will take —{' '}
+                        {slab.width === slab.depth
+                          ? 'a square rounded this far is a disc.'
+                          : 'the two ends are half-round, which is as far as the short side goes.'}
+                      </p>
+                    )}
+                  </>
+                ) : post ? (
+                  <>
+                    <NumberField
+                      label="Seat height"
+                      hint="where the tube’s axis sits"
+                      value={post.height}
+                      onChange={(v) => s.updatePiece(selected.id, { height: v })}
+                      {...SUPPORT_LIMITS.height}
+                    />
+                    <NumberField
+                      label="Thickness"
+                      hint="across the run"
+                      value={post.width}
+                      onChange={(v) => s.updatePiece(selected.id, { width: v })}
+                      {...SUPPORT_LIMITS.width}
+                    />
+                    <NumberField
+                      label="Reach"
+                      hint="along the run"
+                      value={post.depth}
+                      onChange={(v) => s.updatePiece(selected.id, { length: v })}
+                      {...SUPPORT_LIMITS.depth}
+                    />
+                    <NumberField
+                      label="Cradle wrap"
+                      hint="0° is a flat seat, 90° a half-round cup"
+                      value={post.wrap}
+                      onChange={(v) => s.updatePiece(selected.id, { sweep: v })}
+                      {...SUPPORT_LIMITS.wrap}
+                    />
+                    <NumberField
+                      label="Cradle tilt"
+                      hint="the fall of the tube it holds"
+                      value={post.tilt}
+                      onChange={(v) => s.updatePiece(selected.id, { tilt: v })}
+                      {...SUPPORT_LIMITS.tilt}
+                    />
+                    <span className="field-label">
+                      Stands on
+                      <em>the plate, or the run where the plate is taken</em>
+                    </span>
+                    <div className="segmented small">
+                      <button
+                        className={post.foot > 0 ? '' : 'on'}
+                        onClick={() => s.updatePiece(selected.id, { foot: 0, footTilt: 0 })}
+                        title="Flat foot on the workplane"
+                      >
+                        The ground
+                      </button>
+                      <button
+                        className={post.foot > 0 ? 'on' : ''}
+                        onClick={() =>
+                          s.updatePiece(selected.id, {
+                            foot: post.foot > 0 ? post.foot : Math.max(0.5, post.height / 2),
+                          })
+                        }
+                        title="Saddle under the post, straddling a tube below it"
+                      >
+                        The run
+                      </button>
+                    </div>
+                    {post.foot > 0 && (
+                      <>
+                        <NumberField
+                          label="Foot height"
+                          hint="axis of the tube it stands on"
+                          value={post.foot}
+                          onChange={(v) => s.updatePiece(selected.id, { foot: v })}
+                          {...SUPPORT_LIMITS.foot}
+                          max={Math.min(SUPPORT_LIMITS.foot.max, post.height)}
+                        />
+                        <NumberField
+                          label="Foot tilt"
+                          hint="the fall of the tube it stands on"
+                          value={post.footTilt}
+                          onChange={(v) => s.updatePiece(selected.id, { footTilt: v })}
+                          {...SUPPORT_LIMITS.footTilt}
+                        />
+                      </>
+                    )}
+                    <span className="field-label">
+                      Corners
+                      <em>rounded takes the sharp edge off a printed post</em>
+                    </span>
+                    <div className="segmented small">
+                      <button
+                        className={post.radius > 0 ? 'on' : ''}
+                        onClick={() =>
+                          s.updatePiece(selected.id, { radius: SUPPORT_DEFAULTS.radius })
+                        }
+                        title="Round the four upright corners off with an arc tangent to both sides"
+                      >
+                        Rounded
+                      </button>
+                      <button
+                        className={post.radius > 0 ? '' : 'on'}
+                        onClick={() => s.updatePiece(selected.id, { radius: 0 })}
+                        title="Leave the four upright corners square"
+                      >
+                        Square
+                      </button>
+                    </div>
+                    <NumberField
+                      label="Corner radius"
+                      hint="0 is a square corner"
+                      value={post.radius}
+                      onChange={(v) => s.updatePiece(selected.id, { radius: v })}
+                      {...SUPPORT_LIMITS.radius}
+                      max={Math.min(
+                        SUPPORT_LIMITS.radius.max,
+                        Math.min(post.width, post.depth) / 2,
+                      )}
+                    />
+                    <button
+                      onClick={() => overhead && s.fitSupportToRun(selected.id)}
+                      disabled={!overhead}
+                    >
+                      Fit to the Run Above
+                    </button>
+                    <p className="note">
+                      {overhead ? (
+                        <>
+                          Stands this post up to the tube passing over it — a seat of{' '}
+                          {formatLength(overhead.seat.seat, s.units)}, a cradle tilted{' '}
+                          {degLabel(overhead.seat.tilt)}° and the post squared onto the heading
+                          the run is on there.{' '}
+                          {!overhead.footing
+                            ? 'What is under it crosses at too sharp an angle to be stood on, so the foot is left exactly as you have set it.'
+                            : overhead.footing.foot > 0
+                              ? `There is run in the way of the plate, so it stands on that instead — a saddle at ${formatLength(
+                                  overhead.footing.foot,
+                                  s.units,
+                                )}, straddling the tube below.`
+                              : 'The floor under it is clear, so it stands on the plate.'}{' '}
+                          Where it stands in plan is left alone: sliding it about is yours.
+                        </>
+                      ) : (
+                        <>
+                          Nothing overhead to stand up to — this post is out from under the run,
+                          or what is over it is already on the ground. Slide it under a tube and
+                          it can read its own height off it.
+                        </>
+                      )}
+                    </p>
+                    <p className="note">
+                      <b>A support is not part of the run either.</b> Nothing plugs into it and
+                      the marble never travels it — it is what holds the run off the floor, which
+                      is why it has no bore and no style of its own. The cradle across its top is
+                      cut to whatever tube it is carrying, a shade wide so the pipe beds down in
+                      it rather than perching on the arms.
+                    </p>
+                    <p className="note">
+                      <b>It stands square.</b> A printed post leaning over is a post that needs
+                      propping itself, so the fall of the run goes into the cradle rather than
+                      into the post: the groove is cut on the slope instead, and drops through the
+                      top at the angle the tube is already falling at. Stand it on a base and the
+                      two overlap and print as one solid.
+                    </p>
+                    <p className="note">
+                      <b>Where the run is stacked over itself</b>, the floor under the upper level
+                      already has the lower level on it, and a post driven down to the plate would
+                      go straight through the pipe it was meant to pass. So it stands on that pipe
+                      instead: the underside becomes a saddle cut to the same tube, straddling it
+                      by the same wrap the cradle cups with, and the load goes down through the run
+                      to whatever is holding <em>that</em> up. Posts can be stacked as many deep as
+                      the run is.
+                    </p>
+                    {supportFloor(post, spec.outerR) <= 0 && (
+                      <p className="warn">
+                        The seat is lower than the tube is fat, so there is no post left under the
+                        cradle — the groove has eaten through the floor. Raise the seat, or drop
+                        the wrap and the tilt back.
+                      </p>
+                    )}
+                    {post.wrap > 0 && post.width <= supportArms(post, spec.outerR) && (
+                      <p className="note">
+                        Too narrow for its own arms: the groove cuts clean through a post{' '}
+                        {formatLength(post.width, s.units)} across before the wrap has had a
+                        chance to climb, so the top is a scoop with no sides to it. Widen it past{' '}
+                        {formatLength(supportArms(post, spec.outerR), s.units)} and the arms come
+                        up round the tube.
+                      </p>
+                    )}
+                  </>
                 ) : (
                   <NumberField
                     label="Length"
@@ -1206,6 +1563,7 @@ export default function Sidebar() {
       {/* Every angle the draft sets by dragging a joint, typed in exactly —
           read along the run: the angle it starts at, what it does in the
           middle, and the angle it hands on. */}
+      {!ground && (
       <CollapsiblePanel title="Angles and Joints">
         {selected ? (
           <>
@@ -1456,6 +1814,7 @@ export default function Sidebar() {
           </p>
         )}
       </CollapsiblePanel>
+      )}
     </aside>
   )
 }

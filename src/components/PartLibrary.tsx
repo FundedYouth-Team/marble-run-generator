@@ -119,7 +119,46 @@ function FunnelPreview() {
   )
 }
 
-type Category = 'track' | 'feature'
+/**
+ * The plinth seen from a little above: a plate with its corners rounded off,
+ * with the thickness showing along the front edge and a dimension bar under it
+ * for the span it is really there to cover.
+ */
+function BasePreview() {
+  return (
+    <svg width="78" height="50" viewBox="0 0 46 30" aria-hidden="true">
+      <g className="pp-line" strokeWidth="2.4">
+        {/* The top face, in plan-ish perspective — rounded at all four corners. */}
+        <path d="M13 4h14a5 5 0 0 1 4 2l7 8a2.6 2.6 0 0 1-2 4H10a2.6 2.6 0 0 1-2-4l7-8a5 5 0 0 1 4-2z" />
+        {/* The front edge dropping away, which is the whole of its thickness. */}
+        <path d="M8.4 17.4v3.4a2.6 2.6 0 0 0 2.6 2.6h24a2.6 2.6 0 0 0 2.6-2.6v-3.4" />
+      </g>
+      <path className="pp-arrow" d="M5 26.4h36v1.2H5z M4.4 24h1.2v6H4.4z M40.4 24h1.2v6h-1.2z" />
+    </svg>
+  )
+}
+
+/**
+ * A post seen square on from the end of the run: a length of tube resting in the
+ * cradle at the top of it, the arms coming up either side of the pipe, and the
+ * plate it stands on ruled underneath.
+ */
+function SupportPreview() {
+  return (
+    <svg width="78" height="50" viewBox="0 0 46 30" aria-hidden="true">
+      <g className="pp-line" strokeWidth="2.4">
+        {/* The tube it carries, seen end on and sitting down in the cradle. */}
+        <circle cx="23" cy="9.5" r="5.4" />
+        {/* The post: two arms curling round the pipe, down to a flat foot. */}
+        <path d="M17.6 10.6a5.4 5.4 0 0 0 10.8 0v2.6a2 2 0 0 1-.6 1.4l-1.2 1.2v9.4h-7v-9.4l-1.2-1.2a2 2 0 0 1-.8-1.4z" />
+      </g>
+      {/* The plate under it — where the post lands, and why it is there. */}
+      <path className="pp-arrow" d="M6 25.2h34v1.4H6z" />
+    </svg>
+  )
+}
+
+type Category = 'track' | 'feature' | 'structure'
 
 interface Part {
   id: string
@@ -212,6 +251,28 @@ const PARTS: Part[] = [
     preview: FunnelPreview,
     add: () => useRun.getState().addPiece('funnel'),
   },
+  {
+    id: 'base',
+    name: 'Base',
+    category: 'structure',
+    axis: 'Ground',
+    blurb: 'Flat plate that fills the space under the run and stands on the workplane.',
+    detail:
+      'Not a length of run: nothing plugs into it, the marble never travels it, and it takes no part in any joint — it is the ground the rest of it stands on. Set how wide, how deep and how thick it is, and how far the four upright corners are rounded off; rounded as far as it will go, a square plate is a disc. It sits on the workplane and stays there — the move arrows slide it about and the green ring turns it, but nothing lifts it off the plane or buries it under one. The marble bounces off it like any other wall, so a run that spills lands on the plinth rather than falling through the floor.',
+    preview: BasePreview,
+    add: () => useRun.getState().addPiece('base'),
+  },
+  {
+    id: 'support',
+    name: 'Support',
+    category: 'structure',
+    axis: 'Up',
+    blurb: 'Post that stands on the ground and cradles the tube above it.',
+    detail:
+      'The other half of the base, and the reason a run can be printed at all: every tube on this stage is hanging in mid-air, and a printed tube hanging in mid-air falls on the floor. A post stands from the workplane up to the underside of the pipe, with a cradle across its top cut to the shape of that pipe — set how far its arms wrap round, from a flat seat to a half-round cup. Set how high the tube it holds sits, how thick the post is across the run and how far it reaches along it, and how far its own corners are rounded. It stands dead upright whatever the run above it is doing; the fall of the run goes into the tilt of the cradle instead, so the groove drops through the post at the angle the tube is already falling at. Sit it on a base and the two overlap and print as one. Where the run doubles back over itself the floor is already taken, so a post stands on the pipe below instead: its underside becomes a saddle straddling that tube, and posts stack as many deep as the run does. Fit to the Run Above reads the height, the fall and the heading straight off whatever tube is over it — or press Supports on the toolbar and every run on the stage gets propped at once.',
+    preview: SupportPreview,
+    add: () => useRun.getState().addPiece('support'),
+  },
 ]
 
 /* ---------------- templates ---------------- */
@@ -251,11 +312,12 @@ const SECTION_LABEL: Record<Section, string> = {
   all: 'All parts',
   track: 'Track',
   feature: 'Features',
+  structure: 'Structure',
   templates: 'Saved runs',
 }
 
 const RAIL: { heading: string; sections: Section[] }[] = [
-  { heading: 'Parts', sections: ['all', 'track', 'feature'] },
+  { heading: 'Parts', sections: ['all', 'track', 'feature', 'structure'] },
   { heading: 'Templates', sections: ['templates'] },
 ]
 
@@ -621,7 +683,8 @@ export default function PartLibrary() {
                         </>
                       )}{' '}
                       The part is selected once it lands, so its measurements are ready to edit in
-                      the sidebar.
+                      the sidebar. A base is the one exception to all of it: it has no ends to be
+                      bonded by, so it always lands on its own, on the workplane.
                     </p>
                   ) : (
                     <p className="note">

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import * as THREE from 'three'
 import HoverHint from './HoverHint'
 import MouseLegend, { type MouseConfig } from './MouseLegend'
 import RightDock from './RightDock'
@@ -7,7 +8,7 @@ import PartContextMenu, { type MenuAction, type MenuTarget } from './PartContext
 import UndoRedo from './UndoRedo'
 import { FitIcon } from './icons'
 import { crossSectionPath } from '../lib/geometry'
-import { buildAssembly } from '../lib/layout'
+import { buildAssembly, structureBox } from '../lib/layout'
 import {
   VIEWS,
   VIEW_ORDER,
@@ -21,6 +22,7 @@ import {
   useRun,
   tubeSpec,
   angleSpec,
+  isStructure,
   cornerSpec,
   hookSpec,
   corkscrewSpec,
@@ -704,6 +706,48 @@ interface DraftPart {
 }
 
 /**
+ * A base or a support on the paper: its own outline, projected.
+ *
+ * Kept apart from {@link DraftPart} rather than squeezed into it, because
+ * structure is nothing the rest of the drawing is about. Every other part on the
+ * sheet is a centreline with a wall offset either side of it and dimensions hung
+ * off its legs; a slab and a post have no centreline, no wall and no legs — each
+ * is a solid outline, and that is all there is to draw of one.
+ */
+interface DraftSlab {
+  id: string
+  index: number
+  /** The silhouette, closed — the hull of the eight corners as this view sees them. */
+  outline: Pt[]
+  /** False when the part's eye is off in the parts list. */
+  shown: boolean
+}
+
+/**
+ * The convex hull of a handful of points, anticlockwise — Andrew's monotone
+ * chain, which is exact and needs no tuning.
+ *
+ * A box seen from anywhere is a convex silhouette, so its outline is the hull of
+ * its eight projected corners: square on it comes out a rectangle of four, and
+ * from a corner a hexagon of six. That saves the drawing having to know which
+ * faces this particular view can see.
+ */
+function hull(points: Pt[]): Pt[] {
+  const pts = points.slice().sort((a, b) => a.x - b.x || a.y - b.y)
+  const cross = (o: Pt, a: Pt, b: Pt) => (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x)
+  const half = (list: Pt[]) => {
+    const out: Pt[] = []
+    for (const p of list) {
+      while (out.length > 1 && cross(out[out.length - 2], out[out.length - 1], p) <= 0) out.pop()
+      out.push(p)
+    }
+    out.pop()
+    return out
+  }
+  return pts.length < 3 ? pts : [...half(pts), ...half(pts.slice().reverse())]
+}
+
+/**
  * A draggable joint. Which piece field the drag writes depends on where the
  * joint sits: a part's outlet swings the whole part, while the break in an
  * angle connector swings only the leg after it — the entry leg is what makes
@@ -981,10 +1025,11 @@ function AssemblyDraft({ shifted }: { shifted: boolean }) {
   const [menu, setMenu] = useState<MenuTarget | null>(null)
   const pressed = useRef<{ pieceId: string; x: number; y: number } | null>(null)
 
-  const { parts, chains, grips } = useMemo(() => {
+  const { parts, slabs, chains, grips } = useMemo(() => {
     const asm = buildAssembly(pieces)
     const flat = proj.developed === true
     const parts: DraftPart[] = []
+    const slabs: DraftSlab[] = []
     const grips: Grip[] = []
     // Developed elevation: x is horizontal run, so every turn is flattened out
     // of the drawing and the run reads as one continuous side-on section. Every
@@ -999,6 +1044,35 @@ function AssemblyDraft({ shifted }: { shifted: boolean }) {
 
     for (const p of asm.placed) {
       const piece = p.piece
+      // Structure is drawn as the solid it is and nothing else — no centreline,
+      // no walls, no dimensions. It is left off the developed elevation
+      // altogether: that view's across axis is distance travelled along the run,
+      // and neither a slab nor a post travels anywhere, so there is no honest
+      // place on the page to put one.
+      //
+      // A post is boxed rather than cradled. The groove across its top is a
+      // curve on a face pointing away from every one of these views, so drawing
+      // it would put a line on the paper that says nothing about where the part
+      // stands or how big it is — which is the whole of what an ortho view of a
+      // support is for. See {@link supportRise} for the box.
+      if (isStructure(piece)) {
+        if (flat) continue
+        const box = structureBox(piece)
+        if (!box) continue
+        const corners: Pt[] = []
+        for (const sx of [-1, 1]) {
+          for (const sy of [box.low, box.high]) {
+            for (const sz of [-1, 1]) {
+              const v = new THREE.Vector3((sx * box.width) / 2, sy, (sz * box.depth) / 2)
+                .applyQuaternion(p.quaternion)
+                .add(p.start)
+              corners.push(at(v, 0))
+            }
+          }
+        }
+        slabs.push({ id: piece.id, index: p.index, outline: hull(corners), shown: !piece.hidden })
+        continue
+      }
       const angle = piece.type === 'angle'
       const corner = piece.type === 'corner'
       const hook = piece.type === 'hook'
@@ -1347,7 +1421,7 @@ function AssemblyDraft({ shifted }: { shifted: boolean }) {
       line.push(...(part.from === 0 ? part.points : part.points.slice(1)))
     }
 
-    return { parts, chains, grips }
+    return { parts, slabs, chains, grips }
   }, [pieces, draftView])
 
   /**
@@ -1388,9 +1462,14 @@ function AssemblyDraft({ shifted }: { shifted: boolean }) {
 
   /** Only the parts whose eye is on — what the drawing is actually about. */
   const visible = useMemo(() => parts.filter((p) => p.shown), [parts])
+  /** The same, for the ground under them. */
+  const grounds = useMemo(() => slabs.filter((b) => b.shown), [slabs])
 
   const fit = useCallback(() => {
-    const pts = visible.flatMap((p) => p.points)
+    // The structure counts towards the framing as much as the run does: a plate
+    // or a post that the sheet cropped off would be a part of the drawing nobody
+    // could see.
+    const pts = [...visible.flatMap((p) => p.points), ...grounds.flatMap((b) => b.outline)]
     if (!pts.length) {
       setView({ scale: 1, tx: size.w / 2, ty: size.h / 2 })
       return
@@ -1408,11 +1487,11 @@ function AssemblyDraft({ shifted }: { shifted: boolean }) {
       tx: size.w / 2 - ((minX + maxX) / 2) * scale,
       ty: size.h / 2 - ((minY + maxY) / 2) * scale,
     })
-  }, [visible, size.w, size.h, outerReach])
+  }, [visible, grounds, size.w, size.h, outerReach])
 
   // Re-framed when the drawn set changes, so switching parts off zooms in on
   // whatever is left rather than leaving it adrift in the old frame.
-  useEffect(fit, [size.w, size.h, draftView, pieces.length, visible.length])
+  useEffect(fit, [size.w, size.h, draftView, pieces.length, visible.length, grounds.length])
 
   /**
    * True physical size: one model mm becomes one real mm on the glass. Zooms
@@ -1856,6 +1935,29 @@ function AssemblyDraft({ shifted }: { shifted: boolean }) {
             </pattern>
           </defs>
           <rect width={size.w} height={size.h} fill="url(#grid-coarse)" />
+
+          {/* The ground first, so the run is drawn over the plates rather than
+              under them — which is how it stands in the world. */}
+          {grounds.map((slab) => (
+            <g
+              key={slab.id}
+              className={`seg ground ${selectedIds.includes(slab.id) ? 'on' : ''} ${
+                slab.id === selectedId ? 'lead' : ''
+              }`}
+              onPointerDown={(e) => {
+                if (e.button === 2) pressed.current = { pieceId: slab.id, x: e.clientX, y: e.clientY }
+              }}
+              onPointerUp={(e) => {
+                if (e.button !== 0) return
+                pickPart(slab.id, addsToSelection(e))
+              }}
+            >
+              <polygon
+                className="wall"
+                points={slab.outline.map((q) => `${px(q.x)},${py(q.y)}`).join(' ')}
+              />
+            </g>
+          ))}
 
           {visible.map((part) => {
             const tube = walls(part)

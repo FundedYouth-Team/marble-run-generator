@@ -1,5 +1,9 @@
 import {
   ANGLE_DEFAULTS,
+  BASE_DEFAULTS,
+  BASE_LIMITS,
+  SUPPORT_DEFAULTS,
+  SUPPORT_LIMITS,
   CORKSCREW_DEFAULTS,
   CORNER_DEFAULTS,
   FUNNEL_DEFAULTS,
@@ -87,8 +91,17 @@ export const PROJECT_FORMAT = 'marble-run-generator'
  * per-part colour rode along inside v3: a reader that has never heard of it puts
  * every opening back on top, which is where every opening was until now — the
  * run comes back the shape it always was, only rolled about its own axis.
+ * v10 added the base, which is the first part in one of these files that is not
+ * a length of tube at all. A v9 reader turns a type it has never heard of into a
+ * straight tube, so it would open a project with bases in it as lengths of pipe
+ * lying about the floor — and on a file old enough to be welded end to end,
+ * welded into the run itself. It is told to stay out rather than do that.
+ * v11 added the support, which is the second such part and would be mangled the
+ * same way: a v10 reader turns a type it has never heard of into a straight
+ * tube, so a stage of posts holding the run up would open as a heap of pipes
+ * standing on end. Told to stay out for the same reason.
  */
-export const PROJECT_VERSION = 9
+export const PROJECT_VERSION = 11
 
 /** Double-barrelled so a saved run reads as a project, not as loose data. */
 export const PROJECT_EXT = '.mrun.json'
@@ -247,6 +260,14 @@ function readPiece(raw: unknown, joined: boolean): Piece {
   const at = joined ? undefined : readPlacement(o.at)
   const name = typeof o.name === 'string' && o.name.trim() ? o.name.slice(0, 60) : undefined
   const type: PieceType = isType(o.type) ? o.type : 'straight'
+  // A base is read on its own terms and nothing else's: it has no bore, no wall,
+  // no style, no joints and no angles, so every field below would be answering a
+  // question a slab was never asked.
+  if (type === 'base') return readBase(o, at, name)
+  // A support is read on its own terms too, and for the same reasons — it has no
+  // bore, no wall, no style and no joints — but it does have angles of a kind:
+  // the tilt of its cradle, which is the fall of the run it is holding up.
+  if (type === 'support') return readSupport(o, at, name)
   return makePiece({
     type,
     ...(name ? { name } : {}),
@@ -413,6 +434,68 @@ function readPiece(raw: unknown, joined: boolean): Piece {
 }
 
 /**
+ * A base read back: four sizes, a colour, a name and somewhere to stand.
+ *
+ * Never joined, whatever the file says. A base has no ends to bond — see
+ * {@link isOpenPort} — so a file claiming a joint on one is describing something
+ * this app cannot build, and it is stood on its own instead. Its height is
+ * dropped as it comes in for the same reason: a base lies on the workplane, and
+ * that is a fact about the part rather than a place it was put.
+ */
+function readBase(o: Record<string, unknown>, at: Placement | undefined, name?: string): Piece {
+  const B = BASE_LIMITS
+  return makePiece({
+    type: 'base',
+    ...(name ? { name } : {}),
+    length: num(o.length, B.depth.min, B.depth.max, BASE_DEFAULTS.depth),
+    width: num(o.width, B.width.min, B.width.max, BASE_DEFAULTS.width),
+    height: num(o.height, B.height.min, B.height.max, BASE_DEFAULTS.height),
+    radius: num(o.radius, B.radius.min, B.radius.max, BASE_DEFAULTS.radius),
+    slope: 0,
+    turn: num(o.turn, PIECE_LIMITS.turn.min, PIECE_LIMITS.turn.max, 0),
+    ...(isHexColor(o.color) ? { color: o.color.toLowerCase() } : {}),
+    ...(o.hidden === true ? { hidden: true } : {}),
+    at: at ? { ...at, y: 0 } : { x: 0, y: 0, z: 0, yaw: 0 },
+  })
+}
+
+/**
+ * A support read back: four sizes, two angles, a colour, a name and somewhere to
+ * stand.
+ *
+ * Never joined and never lifted, exactly as a base is never either — a post has
+ * no ends to bond and its underside is the workplane by definition, so a file
+ * claiming otherwise is describing something this app cannot build.
+ *
+ * Its fall is dropped as it comes in and its two tilts are kept: the three are
+ * easily confused and only two of them are a support's. A post stands square
+ * whatever the run around it does; what follows the run is the groove across its
+ * top and, where it is standing on the run rather than on the plate, the saddle
+ * under it.
+ */
+function readSupport(o: Record<string, unknown>, at: Placement | undefined, name?: string): Piece {
+  const S = SUPPORT_LIMITS
+  return makePiece({
+    type: 'support',
+    ...(name ? { name } : {}),
+    length: num(o.length, S.depth.min, S.depth.max, SUPPORT_DEFAULTS.depth),
+    width: num(o.width, S.width.min, S.width.max, SUPPORT_DEFAULTS.width),
+    height: num(o.height, S.height.min, S.height.max, SUPPORT_DEFAULTS.height),
+    radius: num(o.radius, S.radius.min, S.radius.max, SUPPORT_DEFAULTS.radius),
+    sweep: num(o.sweep, S.wrap.min, S.wrap.max, SUPPORT_DEFAULTS.wrap),
+    tilt: num(o.tilt, S.tilt.min, S.tilt.max, SUPPORT_DEFAULTS.tilt),
+    foot: num(o.foot, S.foot.min, S.foot.max, SUPPORT_DEFAULTS.foot),
+    footTilt: num(o.footTilt, S.footTilt.min, S.footTilt.max, SUPPORT_DEFAULTS.footTilt),
+    footShift: num(o.footShift, S.footShift.min, S.footShift.max, SUPPORT_DEFAULTS.footShift),
+    slope: 0,
+    turn: num(o.turn, PIECE_LIMITS.turn.min, PIECE_LIMITS.turn.max, 0),
+    ...(isHexColor(o.color) ? { color: o.color.toLowerCase() } : {}),
+    ...(o.hidden === true ? { hidden: true } : {}),
+    at: at ? { ...at, y: 0 } : { x: 0, y: 0, z: 0, yaw: 0 },
+  })
+}
+
+/**
  * Reads a saved run back. Throws with something worth showing the user when
  * the file is not one of ours; past that it repairs rather than refuses, since
  * a run with one odd value in it is still the run they wanted back.
@@ -469,9 +552,16 @@ export function parseProject(text: string): LoadedProject {
       ? { shortcuts: readShortcuts(o.shortcuts) }
       : {}),
     // The first part is never joined to anything: there is nothing ahead of it.
-    pieces: o.pieces.map((raw, i) =>
-      readPiece(raw, i > 0 && (welded || (raw as Record<string, unknown> | null)?.joined === true)),
-    ),
+    // Nor is the part after a base or a support — neither has an outlet to be
+    // bonded to, so whatever the file claims, the run starts afresh past one.
+    // That matters most for a v9-and-earlier file, which was welded end to end
+    // by definition.
+    pieces: o.pieces.map((raw, i) => {
+      const after = (o.pieces as unknown[])[i - 1] as Record<string, unknown> | null
+      const grounded = after?.type === 'base' || after?.type === 'support'
+      const own = (raw as Record<string, unknown> | null)?.joined === true
+      return readPiece(raw, i > 0 && !grounded && (welded || own))
+    }),
   }
 }
 

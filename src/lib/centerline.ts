@@ -11,12 +11,14 @@ import { funnelPath } from './funnel'
 import {
   JOINT_LOCK,
   angleSpec,
+  baseSpec,
   cornerSpec,
   corkscrewSpec,
   funnelSpec,
   hookSpec,
   jointFilletOf,
   socketReach,
+  supportSpec,
   type Piece,
   type TubeSpec,
 } from '../store'
@@ -465,7 +467,47 @@ function ownLine(piece: Piece): Centerline {
   if (piece.type === 'hook') return hookLine(piece)
   if (piece.type === 'corkscrew') return corkscrewLine(piece)
   if (piece.type === 'funnel') return funnelLine(piece)
+  if (piece.type === 'base') return baseLine(piece)
+  if (piece.type === 'support') return supportLine(piece)
   return fromPoints([new THREE.Vector3(), new THREE.Vector3(0, 0, piece.length)], null)
+}
+
+/**
+ * A base's line, such as it is: the slab's bottom face down its middle, from the
+ * front edge to the back one.
+ *
+ * A base has no centreline in the sense the rest of the app means — nothing runs
+ * along it, and the marble is never on it. What it needs is a frame, because
+ * everything that stands a part up in the world does so on one: the origin sits
+ * on the workplane at the middle of the plate, +Z runs into the page and +Y is
+ * the way the slab is thick. That is the same frame every other part is stood up
+ * in, which is what lets a base be moved, turned, drawn and exported by exactly
+ * the code that moves, turns, draws and exports a length of tube.
+ *
+ * Nothing sweeps it. The solid is built from the slab's own four numbers — see
+ * `buildBaseGeometry` — and the layout drops the chords this describes on the
+ * floor rather than handing them to the marble, so a base is never a stretch of
+ * run that something could roll down.
+ */
+function baseLine(piece: Piece): Centerline {
+  const half = baseSpec(piece).depth / 2
+  return fromPoints([new THREE.Vector3(0, 0, -half), new THREE.Vector3(0, 0, half)], null)
+}
+
+/**
+ * A support's line, such as it is: the post's own footprint down its middle,
+ * from the end the run comes in at to the end it leaves by.
+ *
+ * The same bargain `baseLine` strikes, and for the same reason — a post is not
+ * run either, and nothing travels down this. What it buys is a frame: the origin
+ * on the workplane at the middle of the post, +Z along the run it holds up and
+ * +Y the way it stands. Its heading is therefore the run's heading, which is
+ * exactly what has to be true for a cradle cut across the top to lie along the
+ * pipe rather than across it.
+ */
+function supportLine(piece: Piece): Centerline {
+  const half = supportSpec(piece).depth / 2
+  return fromPoints([new THREE.Vector3(0, 0, -half), new THREE.Vector3(0, 0, half)], null)
 }
 
 /**
@@ -482,6 +524,21 @@ function ownLine(piece: Piece): Centerline {
  * them — see {@link leadBreak}.
  */
 export function shapeKey(piece: Piece, spec: TubeSpec): string {
+  // A base is cut from nothing: it has no bore, no wall and no style, so the
+  // tube is left out of its key entirely and two slabs of a size share one mesh
+  // however the run around them is set.
+  if (piece.type === 'base') {
+    const b = baseSpec(piece)
+    return `base:${b.width}:${b.depth}:${b.height}:${b.radius}`
+  }
+  // A support is cut from nothing either, but the tube is in its shape all the
+  // same: the groove across its top is the pipe it has to hold, so how fat that
+  // pipe is tells two otherwise identical posts apart. Nothing else about the
+  // tube reaches it — a post has no bore of its own and no side to open.
+  if (piece.type === 'support') {
+    const t = supportSpec(piece)
+    return `support:${t.width}:${t.depth}:${t.height}:${t.radius}:${t.wrap}:${t.tilt}:${t.foot}:${t.footTilt}:${t.footShift}:${spec.outerR}`
+  }
   // All three angles the break is built from, and the radius it is cut at: a
   // joint rounded off is a different solid from the same joint mitred.
   const lead =

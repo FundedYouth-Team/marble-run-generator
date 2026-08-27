@@ -6,6 +6,7 @@ import {
   ConnectIcon,
   DisconnectIcon,
   DropToPlaneIcon,
+  SupportIcon,
   DuplicateIcon,
   DuplicateJoinIcon,
   MoveIcon,
@@ -23,6 +24,7 @@ import {
   PIECE_LIMITS,
   ROTATE_STEPS,
   chainsOf,
+  isStructure,
   exportBasename,
   isChainRoot,
   pieceLabel,
@@ -286,6 +288,7 @@ export default function Toolbar({ spec, asm }: { spec: TubeSpec; asm: Assembly }
     selectedId,
     selectedIds,
     dropToWorkplane,
+    addSupports,
     duplicateParts,
     removeParts,
     running,
@@ -320,6 +323,12 @@ export default function Toolbar({ spec, asm }: { spec: TubeSpec; asm: Assembly }
   // only close it into a loop.
   const chains = chainsOf(pieces)
   const runs = chains.length
+  /**
+   * Whether there is any actual run on the stage — tube, as against the ground
+   * under it. A stage of nothing but plates and posts is a stage with nothing to
+   * prop, and every chain on it is a run of one that no marble travels.
+   */
+  const anyRun = pieces.some((p) => !isStructure(p))
   const joined = pieces.some((p) => p.joined)
   // How many runs the handles have in hand: the runs the picked parts stand in,
   // counted once each however many of their parts were picked.
@@ -479,6 +488,21 @@ export default function Toolbar({ spec, asm }: { spec: TubeSpec; asm: Assembly }
               : 'Select a part to set its run down on the workplane'
           }
           onClick={() => selectedId && dropToWorkplane(selectedId)}
+        />
+        {/* Not scoped to what is picked, unlike everything either side of it.
+            Propping a run is a question about the whole stage — a post has to
+            know what else is standing where it wants to stand — so it is asked
+            of the stage and answered once. */}
+        <ToolButton
+          label="Supports"
+          icon={<SupportIcon />}
+          disabled={!anyRun}
+          title={
+            anyRun
+              ? 'Stand posts under every run on the stage, wherever one will fit — so the tubes are held off the plate rather than printed hanging in mid-air. Posts already standing are left alone, and none is put where the column would have to go through the run to get there'
+              : 'Nothing to prop yet — add a part and its run can be stood on posts'
+          }
+          onClick={addSupports}
         />
         {/* Both ways of copying under the one button: they are the same tool
             answering "where does the copy land", and asking that on click keeps

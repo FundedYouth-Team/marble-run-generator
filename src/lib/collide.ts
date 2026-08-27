@@ -3,8 +3,12 @@ import type { Assembly, PlacedPiece, Segment } from './layout'
 import { funnelShell } from './funnel'
 import {
   OPEN_SIDE_ANGLE,
+  baseSpec,
   funnelDrainSpec,
   funnelSpec,
+  supportFloor,
+  supportLift,
+  supportSpec,
   tubeSpec,
   type Piece,
   type TubeSpec,
@@ -84,9 +88,49 @@ interface Bowl {
   whirl: Segment[]
 }
 
+/**
+ * A base or a support, as the flying marble meets it: a box with its four
+ * upright edges rounded off, held in the part's own frame.
+ *
+ * Solved the same way everything else here is. A rounded box is the set of
+ * points within `radius` of an inner box — shrink the box by the radius on the
+ * two axes that are rounded, and the distance to the solid is the distance to
+ * that inner box, less the radius. So one clamp answers for the faces, the
+ * edges and the corners alike, and the marble is never handed a triangle.
+ */
+interface Slab {
+  /** Where the part stands on the workplane, world — its own origin. */
+  centre: THREE.Vector3
+  /** The part's own frame, for taking a world point into the slab's. */
+  inverse: THREE.Quaternion
+  /** The part's frame, for handing a normal back out to the world. */
+  quaternion: THREE.Quaternion
+  /**
+   * Half the box the corner radius is grown from, in the slab's own frame, with
+   * its origin at the middle of the box rather than at {@link Slab.centre} —
+   * `y` is half the thickness, and `mid` is how far up that middle is.
+   */
+  half: THREE.Vector3
+  /**
+   * How far above the part's own origin the middle of the box sits, mm.
+   *
+   * Half the thickness on a base, whose underside is the workplane. Not on a
+   * post standing on the run: its box starts at the crown of the saddle, well
+   * clear of the plate, and this is what carries it up there.
+   */
+  mid: number
+  /** How far the four upright edges are rounded off, mm. */
+  radius: number
+}
+
 export interface World {
   shells: Shell[]
   bowls: Bowl[]
+  /**
+   * Every base and every support on the stage — structure the marble lands on
+   * rather than run it travels.
+   */
+  slabs: Slab[]
   /**
    * The tube round each chord, for asking what a chord can hold. A chord with
    * no entry has no tube round it at all — a funnel's whirl, where the bowl does
@@ -127,6 +171,44 @@ function tubeAlong(placed: PlacedPiece, own: TubeSpec): (seg: Segment) => TubeSp
   // `enclosedChords` gives: a funnel bent onto its joint has its feed split in
   // two, and everything counted from the front is then off by one.
   return (seg) => (seg.startS - placed.startS + seg.length / 2 < entry ? feed : drain)
+}
+
+/**
+ * The rounded box a piece of structure is met as, or null for anything that is
+ * run. Its own frame, standing on the workplane.
+ *
+ * A slab is met as the slab it is. A post is met only as far up as the *lowest*
+ * point of its cradle, and that is the whole of the care here: the arms of a
+ * cradle stand up either side of the pipe, and a box drawn up to them would fill
+ * the bore of the very tube the post is holding — the marble would run down its
+ * own support and slam into it. Under the pipe there is nothing to hit, so under
+ * the pipe is where the box stops. See {@link supportFloor}.
+ *
+ * What that gives up is the arms themselves: a marble that has already spilled
+ * out of the run can pass through them rather than clipping one. A marble in
+ * open air a hair either side of a post is not a thing anybody is watching, and
+ * the alternative is a wall across the inside of the tube.
+ */
+function groundBox(
+  piece: Piece,
+  spec: (piece: Piece) => TubeSpec,
+): { width: number; depth: number; low: number; high: number; radius: number } | null {
+  if (piece.type === 'base') {
+    const { width, depth, height, radius } = baseSpec(piece)
+    return { width, depth, low: 0, high: height, radius }
+  }
+  if (piece.type === 'support') {
+    const post = supportSpec(piece)
+    const cradle = spec(piece).outerR
+    return {
+      width: post.width,
+      depth: post.depth,
+      low: supportLift(post, cradle),
+      high: supportFloor(post, cradle),
+      radius: post.radius,
+    }
+  }
+  return null
 }
 
 /**
@@ -191,7 +273,33 @@ export function buildWorld(asm: Assembly, spec: (piece: Piece) => TubeSpec): Wor
     })
   }
 
-  return { shells, bowls, byChord }
+  const slabs: Slab[] = []
+  for (const placed of asm.placed) {
+    const box = groundBox(placed.piece, spec)
+    if (!box) continue
+    const { width, depth, low, high, radius } = box
+    // A post whose cradle has eaten through its own floor has no solid core left
+    // to be met as. There is nothing there to hit, and a box of negative
+    // thickness would be met inside out.
+    if (high <= low) continue
+    // The rounding is on the upright edges only, so it comes off the two spans
+    // and never off the thickness — a base a millimetre thick is still a plate
+    // with a flat top, not a rod.
+    slabs.push({
+      centre: placed.start.clone(),
+      inverse: placed.quaternion.clone().invert(),
+      quaternion: placed.quaternion.clone(),
+      half: new THREE.Vector3(
+        Math.max(0, width / 2 - radius),
+        (high - low) / 2,
+        Math.max(0, depth / 2 - radius),
+      ),
+      mid: (low + high) / 2,
+      radius,
+    })
+  }
+
+  return { shells, bowls, slabs, byChord }
 }
 
 /**
@@ -257,7 +365,81 @@ export function contact(world: World, p: THREE.Vector3, r: number): Contact | nu
   }
   for (const shell of world.shells) keep(shellContact(shell, p, r))
   for (const bowl of world.bowls) keep(bowlContact(bowl, p, r))
+  for (const slab of world.slabs) keep(slabContact(slab, p, r))
   return best
+}
+
+/** Scratch for the slab test, which is asked of every base every step. */
+const slabLocal = new THREE.Vector3()
+const slabOut = new THREE.Vector3()
+
+/**
+ * A base, met from anywhere.
+ *
+ * The rounding is on the four upright edges and nowhere else, so the slab is a
+ * rounded rectangle in plan pulled straight up through its own thickness — and
+ * the distance to it separates cleanly into those two. In plan, the point is
+ * clamped into the rectangle the rounding is grown from and the radius taken off
+ * what is left over; up the thickness, it is a slab and nothing more. Whichever
+ * of the two the point is outside, it is outside by the two together; inside
+ * both, it is inside by whichever is the shallower.
+ *
+ * Doing it as one clamp against a shrunk box instead would round the top and
+ * bottom faces by the same radius, and a plate is not a pillow: the marble would
+ * be stopped a corner radius clear of a face it should be resting on.
+ *
+ * A marble that has somehow got inside — a run moved over a plate that was
+ * already there — is pushed out through the nearest face rather than left
+ * buried, which is the same courtesy the tube's bore does one.
+ */
+function slabContact(slab: Slab, p: THREE.Vector3, r: number): Contact | null {
+  slabLocal.subVectors(p, slab.centre).applyQuaternion(slab.inverse)
+  slabLocal.y -= slab.mid
+  const { half } = slab
+
+  // In plan: how far out of the inner rectangle, and which way that is.
+  const qx = slabLocal.x - THREE.MathUtils.clamp(slabLocal.x, -half.x, half.x)
+  const qz = slabLocal.z - THREE.MathUtils.clamp(slabLocal.z, -half.z, half.z)
+  const reach = Math.hypot(qx, qz)
+  let nx = 0
+  let nz = 0
+  let plan: number
+  if (reach > 1e-9) {
+    nx = qx / reach
+    nz = qz / reach
+    plan = reach - slab.radius
+  } else {
+    // Inside the inner rectangle, so the way out in plan is through its nearest
+    // side, and the distance to the outline is that side plus the radius.
+    const gx = half.x - Math.abs(slabLocal.x)
+    const gz = half.z - Math.abs(slabLocal.z)
+    if (gx <= gz) nx = slabLocal.x < 0 ? -1 : 1
+    else nz = slabLocal.z < 0 ? -1 : 1
+    plan = -slab.radius - Math.min(gx, gz)
+  }
+  // Up the thickness, where nothing is rounded.
+  const rise = Math.abs(slabLocal.y) - half.y
+  const up = slabLocal.y < 0 ? -1 : 1
+
+  const outPlan = Math.max(plan, 0)
+  const outRise = Math.max(rise, 0)
+  if (outPlan > 0 || outRise > 0) {
+    // Outside one or both: the distance is the two together, and the way out
+    // leans between them in the same proportion.
+    const away = Math.hypot(outPlan, outRise)
+    if (away >= r) return null
+    slabOut.set((nx * outPlan) / away, (up * outRise) / away, (nz * outPlan) / away)
+    return { normal: slabOut.applyQuaternion(slab.quaternion).clone(), depth: r - away }
+  }
+
+  // Inside both, so inside the slab. The shallower of the two is the way out,
+  // and the marble overlaps by its own radius plus however far in it is.
+  if (plan > rise) slabOut.set(nx, 0, nz)
+  else slabOut.set(0, up, 0)
+  return {
+    normal: slabOut.applyQuaternion(slab.quaternion).clone(),
+    depth: r - Math.max(plan, rise),
+  }
 }
 
 /** Scratch, so a frame's worth of tests allocates nothing. */

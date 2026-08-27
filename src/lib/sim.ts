@@ -91,7 +91,10 @@ export interface Physics {
 }
 
 export function resetMarble(m: MarbleState, asm: Assembly, rest: RestOffset) {
-  m.chain = 0
+  // The run the assembly hands the marble, which is the first one with any tube
+  // in it — a stage whose parts list opens with a base has a run of one standing
+  // in front of it that nothing can roll down. See {@link Assembly.run}.
+  m.chain = asm.run
   m.s = 0
   m.v = 0
   m.airborne = false

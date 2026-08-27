@@ -363,6 +363,36 @@ const HOWTO: Partial<Record<HelpTab, HowTo[]>> = {
       note: 'A marble in the air bounces off anything solid it meets on the way — the outside of a tube, the rim of a funnel — so a near miss deflects it rather than passing through.',
     },
     {
+      question: 'How do I put a floor under the run?',
+      lead: 'With a Base, in the Structure shelf of the part library. It is a flat plate that stands on the workplane and fills the space under everything — not a length of run: nothing plugs into it, the marble never travels it, and it takes no part in any joint.',
+      steps: [
+        'Click ＋ Add Part, open Structure and pick Base. It lands on the workplane on its own, whether or not Join onto the run is ticked.',
+        'With it selected, press Fit Under the Run in Part Parameters. It sizes itself to everything on the stage that is not a base and slides under the middle of it.',
+        'Set the thickness and the corner radius to taste, and use Move to slide it about — it stays on the plane however far it goes.',
+      ],
+      note: 'The marble bounces off a base the way it bounces off anything else solid, so a run that spills lands on the plinth rather than falling past it. Add as many as you like: each one is its own plate, and none of them are part of any run.',
+    },
+    {
+      question: 'My tubes are floating in mid-air — how do I hold them up?',
+      lead: 'With Supports: posts that stand on the ground and cradle the tube above them. Every run on this stage hangs in the air, and a printed tube hanging in the air falls on the floor, so this is what turns a run on screen into a run that can be built. Each post has a groove across its top cut to the shape of the pipe it carries, with arms coming up either side so the run sits down in it.',
+      steps: [
+        'Press ⌶ Supports on the toolbar. It paces out every run and stands a post wherever one will fit — under the joints, down the long spans, and never where a post would have to go through the run to get there.',
+        'Or add one by hand from Structure in the part library, slide it where you want it with Move, and press Fit to the Run Above: it reads the height, the fall and the heading straight off whatever tube is over it.',
+        'Adjust any post in Part Parameters — how thick it is across the run, how far it reaches along it, and how far its arms wrap round the tube, from a flat seat to a half-round cup.',
+      ],
+      note: 'Posts already standing are left alone when you press it again, and a new one is cut to match the last one you set up — so shape one post to taste and the rest of the stage follows it.',
+    },
+    {
+      question: 'My run doubles back over itself. What holds up the upper level?',
+      lead: 'The lower level does. The floor under a switchback or a spiral tower already has run on it, so a post driven down to the plate would go straight through the pipe it was meant to pass. Instead the post stands on that pipe: its underside becomes a saddle cut to the same tube, straddling it just as the cradle on top cups the one above, and the load goes down through the run to whatever is holding that up.',
+      steps: [
+        'Press ⌶ Supports and it works this out for itself — it stands each post on the highest thing under it, which is the plate where the plate is clear and the run where it is not.',
+        'By hand, switch Stands on to The run in Part Parameters and set the foot height to the axis of the tube it is standing on.',
+        'Posts stack as many deep as the run does: a three-level tower gets a post on the plate, a post on that level, and a post on the one above it.',
+      ],
+      note: 'It will not stand a post on a tube crossing underneath at a sharp angle — a straight groove sits across such a pipe on two points rather than along it — nor squeeze one into a gap too small to be worth printing. Where it declines, the run is propped from the next place along instead.',
+    },
+    {
       question: 'Why did my marble fall out of the tube?',
       lead: 'Because the part is a Half pipe, and a half pipe is a trough rather than a tube: its walls stand straight up with nothing overhanging, so the marble sits in it rather than inside it and can leave through the open side. Only a half pipe can do this. A 3/4 tube keeps more than half its wall, which curls over the marble and holds it exactly as closed tube does — its slot is there to see through, and the marble still leaves at the ends and nowhere else.',
       steps: [

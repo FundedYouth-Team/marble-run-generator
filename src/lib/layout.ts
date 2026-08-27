@@ -1,6 +1,16 @@
 import * as THREE from 'three'
 import { centerlineFor, chordUps, type Centerline } from './centerline'
-import { exitTurn, funnelSpec, isChainRoot, placementOf, type Piece } from '../store'
+import {
+  baseSpec,
+  exitTurn,
+  funnelSpec,
+  isChainRoot,
+  isStructure,
+  placementOf,
+  supportBand,
+  supportSpec,
+  type Piece,
+} from '../store'
 
 /**
  * One straight chord of the run. A plain tube is a single chord; a bent part
@@ -124,6 +134,15 @@ export interface Assembly {
    * the parts list starts with is the one the run reads as starting from.
    */
   segments: Segment[]
+  /**
+   * Which run that is — its index in {@link Assembly.chains}.
+   *
+   * The first one is very nearly always the answer, and is not quite always: a
+   * base is a run of one with no chords in it, so a stage whose parts list opens
+   * with a base would otherwise hand the marble a plate to roll down. The first
+   * run with any chords at all is the one the marble is given.
+   */
+  run: number
   totalLength: number
   bounds: THREE.Box3
   /** Axis polyline, one point per chord end, run by run. */
@@ -222,8 +241,13 @@ export function buildAssembly(pieces: Piece[]): Assembly {
     const ups = chordUps(line).map((up) => up.clone().applyQuaternion(quaternion))
     const walled = enclosedChords(piece, line)
 
+    // Structure is standing under the run, not part of it: a base and a support
+    // each have a place and a frame like anything else, and no chords at all.
+    // Without that the marble would find a stretch of run laid along the slab's
+    // underside — or along the top of a post — and roll off down it, and the
+    // parts list would have a plate in the middle of a pipeline.
     const own: Segment[] = []
-    for (let i = 1; i < world.length; i++) {
+    for (let i = 1; i < world.length && !isStructure(piece); i++) {
       const from = world[i - 1]
       const to = world[i]
       const step = new THREE.Vector3().subVectors(to, from)
@@ -288,18 +312,83 @@ export function buildAssembly(pieces: Piece[]): Assembly {
   const bounds = new THREE.Box3()
   if (polyline.length) bounds.setFromPoints(polyline)
   else bounds.set(new THREE.Vector3(), new THREE.Vector3())
+  // Structure contributes no chords, so the axis polyline knows nothing about
+  // the ground it covers or the posts under it. Their own footprints are unioned
+  // in here, which is what keeps a plate inside the framing and inside the floor
+  // the marble is lost through.
+  for (const p of placed) if (isStructure(p.piece)) bounds.union(placedBox(p, 0))
 
-  // The marble is given the first run; the rest are parts waiting to be joined
-  // on, and there is only one marble.
-  const run = chains[0]
+  // The marble is given the first run with any chords in it; the rest are parts
+  // waiting to be joined on — and bases, which are not run at all.
+  const at = chains.findIndex((c) => c.segments.length)
+  const run = at < 0 ? null : chains[at]
   return {
     placed,
     chains,
     segments: run ? run.segments : [],
+    run: at < 0 ? 0 : at,
     totalLength: run ? run.length : 0,
     bounds,
     polyline,
   }
+}
+
+/**
+ * The box a piece of structure fills in its own frame — its footprint, and the
+ * band of height it stands in — or null for anything that is run.
+ *
+ * A slab's is the slab, from the plane up. A post's is its footprint by
+ * {@link supportBand}, which is *not* its seat and is not always the plane
+ * either: the material stops a tube's radius short of the seat, a tilted cradle
+ * carries one end of it back above the seat again, and a post standing on the
+ * run starts well above the floor. The band is deliberately the generous answer
+ * at both ends — this box frames the camera and bounds the drawing, and a few
+ * millimetres too much crops nothing.
+ */
+export function structureBox(
+  piece: Piece,
+): { width: number; depth: number; low: number; high: number } | null {
+  if (piece.type === 'base') {
+    const { width, depth, height } = baseSpec(piece)
+    return { width, depth, low: 0, high: height }
+  }
+  if (piece.type === 'support') {
+    const post = supportSpec(piece)
+    return { width: post.width, depth: post.depth, ...supportBand(post) }
+  }
+  return null
+}
+
+/**
+ * The box one part actually occupies in the world, mm.
+ *
+ * Every part that is run is a tube swept along a centreline, so its chords
+ * padded out to its own wall is the whole of it. Structure has no chords and no
+ * wall: a base is a slab and a support is a post, and what each takes up is its
+ * own eight corners, stood up in its own frame.
+ *
+ * `outerR` is the tube that part is cut to, which structure ignores.
+ */
+export function placedBox(p: PlacedPiece, outerR: number): THREE.Box3 {
+  const box = structureBox(p.piece)
+  if (box) {
+    const out = new THREE.Box3()
+    for (const sx of [-1, 1]) {
+      for (const sy of [box.low, box.high]) {
+        for (const sz of [-1, 1]) {
+          out.expandByPoint(
+            new THREE.Vector3((sx * box.width) / 2, sy, (sz * box.depth) / 2)
+              .applyQuaternion(p.quaternion)
+              .add(p.start),
+          )
+        }
+      }
+    }
+    return out
+  }
+  // Every chord, so a bent part counts on what it really occupies.
+  const points = [p.start, p.end, ...p.segments.map((seg) => seg.end)]
+  return new THREE.Box3().setFromPoints(points).expandByScalar(outerR)
 }
 
 /**
@@ -383,9 +472,7 @@ export function chainBox(
   const box = new THREE.Box3()
   for (const i of asm.chains[chain]?.pieces ?? []) {
     const p = asm.placed[i]
-    // Every chord, so a bent part counts on what it really occupies.
-    const points = [p.start, p.end, ...p.segments.map((seg) => seg.end)]
-    box.union(new THREE.Box3().setFromPoints(points).expandByScalar(radiusOf(p.piece)))
+    box.union(placedBox(p, radiusOf(p.piece)))
   }
   return box
 }

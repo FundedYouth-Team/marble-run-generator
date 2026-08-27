@@ -17,7 +17,14 @@ import PartContextMenu, { type MenuTarget } from './PartContextMenu'
 import { FitIcon, HomeIcon } from './icons'
 import { buildEndBandGeometry, buildPartGeometry } from '../lib/geometry'
 import { centerlineFor, shapeKey } from '../lib/centerline'
-import { buildAssembly, chainBox, directionFor, frameFor, type Assembly } from '../lib/layout'
+import {
+  buildAssembly,
+  chainBox,
+  directionFor,
+  frameFor,
+  placedBox,
+  type Assembly,
+} from '../lib/layout'
 import { createMarble, resetMarble, stepMarble } from '../lib/sim'
 import { buildWorld } from '../lib/collide'
 import { telemetry } from '../lib/telemetry'
@@ -32,6 +39,7 @@ import {
   canConnect,
   colorOf,
   pieceSpec,
+  isStructure,
   placementOf,
   samePort,
   type Piece,
@@ -349,6 +357,10 @@ function Joints({ asm, specOf }: { asm: Assembly; specOf: (piece: Piece) => Tube
     for (const chain of asm.chains) {
       const head = asm.placed[chain.pieces[0]]
       const tail = asm.placed[chain.pieces[chain.pieces.length - 1]]
+      // Structure is a run of one with no ends: a base is the ground under the
+      // run and a support is what holds it up, rather than a length of it, and
+      // there is nothing on either to plug into.
+      if (head && isStructure(head.piece)) continue
       if (head && !head.piece.hidden) list.push(mark(head, 'in'))
       if (tail && !tail.piece.hidden) list.push(mark(tail, 'out'))
     }
@@ -1461,11 +1473,9 @@ export default function Scene3D() {
     const box = new THREE.Box3()
     for (const p of asm.placed) {
       if (!selectedIds.includes(p.piece.id)) continue
-      // Every chord, so a bent part frames on what it really occupies.
-      const points = [p.start, p.end, ...p.segments.map((seg) => seg.end)]
       // Padded out to that part's own wall, which is not the run's if it has
-      // been sized on its own.
-      box.union(new THREE.Box3().setFromPoints(points).expandByScalar(specOf(p.piece).outerR))
+      // been sized on its own — and a base, having no wall, framed on its slab.
+      box.union(placedBox(p, specOf(p.piece).outerR))
     }
     return box.isEmpty() ? null : box
   }

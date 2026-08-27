@@ -3,6 +3,7 @@ import { CheckIcon, EyeIcon, EyeOffIcon, PencilIcon } from './icons'
 import {
   useRun,
   angleSpec,
+  baseSpec,
   cornerSpec,
   hookSpec,
   corkscrewSpec,
@@ -17,6 +18,7 @@ import {
   VARIANT_LABEL,
   OPEN_SIDE_LABEL,
   type OpenSide,
+  supportSpec,
   type Piece,
   type TubeVariant,
 } from '../store'
@@ -31,6 +33,25 @@ function summarise(p: Piece, style: TubeVariant, side: OpenSide, units: Unit): s
       ? VARIANT_LABEL[style]
       : `${VARIANT_LABEL[style]}, opens ${OPEN_SIDE_LABEL[side].toLowerCase()}`
   const n = (mm: number) => lengthText(mm, units)
+  // A base is described before the tube is ever mentioned, because it is not cut
+  // from the tube: it has no bore, no wall and no style to name.
+  if (p.type === 'base') {
+    const b = baseSpec(p)
+    return `${n(b.width)} × ${n(b.depth)} × ${formatLength(b.height, units)} thick · ${
+      b.radius > 0 ? `r${n(b.radius)} corners` : 'square corners'
+    } · on the workplane`
+  }
+  // A support is described the same way and for the same reason — it is not cut
+  // from the tube either. Its seat comes first because that is the number that
+  // matters: it is what the post is holding, and everything else about it is how.
+  if (p.type === 'support') {
+    const t = supportSpec(p)
+    return `seat ${formatLength(t.height, units)} · ${n(t.width)} across × ${n(
+      t.depth,
+    )} along · cradle ${degLabel(t.wrap)}° wrap, ${degLabel(t.tilt)}° tilt · ${
+      t.foot > 0 ? `stands on the run at ${formatLength(t.foot, units)}` : 'stands on the ground'
+    }`
+  }
   if (p.type === 'angle') {
     const a = angleSpec(p)
     return `${n(a.entry)}+${formatLength(a.exit, units)} · ${degLabel(p.slope)}° in, ${degLabel(

@@ -2209,6 +2209,13 @@ button.danger {
   stroke-width: 2;
 }
 
+/* The ground the run stands on. The same outline as a part's wall, held back a
+   little: a base is the biggest thing on the sheet and the drawing is about
+   what stands on it, not about the plate. */
+.draft-canvas .seg.ground .wall {
+  opacity: 0.5;
+}
+
 .draft-canvas .seg .bore {
   stroke: var(--draw-bore);
   stroke-width: 1;

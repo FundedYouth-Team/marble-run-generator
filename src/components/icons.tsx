@@ -193,6 +193,30 @@ export function DropToPlaneIcon({ size = 17 }: { size?: number }) {
 }
 
 /**
+ * A length of run with two posts standing under it — "prop this up".
+ *
+ * The tube is the line across the top and the posts are the two uprights, each
+ * meeting it in a little cradle. The plate they land on is the rule underneath,
+ * which is what makes it read as standing on something rather than as a bracket
+ * floating in space.
+ */
+export function SupportIcon({ size = 17 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+      {/* The run, falling gently the way a run does. */}
+      <path d="M2.6 6.4h18.8" />
+      {/* Two posts, each cupping the tube where it meets it. */}
+      <path d="M6 19.4v-9a2.4 2.4 0 0 1 2.4-2.4" />
+      <path d="M6 8h2.4" />
+      <path d="M16.6 19.4v-9a2.4 2.4 0 0 0-2.4-2.4" />
+      <path d="M16.6 8h-2.4" />
+      {/* The ground they stand on. */}
+      <path d="M3 19.4h17" />
+    </svg>
+  )
+}
+
+/**
  * One part with a copy of itself set down behind it — "make another of these".
  * The copy is the one in front and faintly filled, because that is the part the
  * click leaves you holding.

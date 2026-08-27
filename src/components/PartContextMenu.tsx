@@ -11,7 +11,7 @@ import {
   TrashIcon,
 } from './icons'
 import { formatShortcut } from '../lib/shortcuts'
-import { useRun, pieceLabel, pieceTypeLabel, type Tool } from '../store'
+import { useRun, isStructure, pieceLabel, pieceTypeLabel, type Tool } from '../store'
 
 /** Kept this far off the stage edges, so a menu opened in a corner still fits. */
 const EDGE_PAD = 8
@@ -217,9 +217,17 @@ export default function PartContextMenu({
       setTool(next)
     })
 
-  const has = (a: MenuAction) => actions.includes(a)
+  /**
+   * What this part actually offers. Structure is on the workplane by definition,
+   * so there is nothing to drop it onto; and it has no ends, so there is no run
+   * end for a joined copy to land on. Both items would sit there doing nothing.
+   */
+  const offered = isStructure(piece)
+    ? actions.filter((a) => a !== 'drop' && a !== 'duplicateJoined')
+    : actions
+  const has = (a: MenuAction) => offered.includes(a)
   // A rule between two groups only, never one left hanging at an end.
-  const ruled = UPPER.some(has) && actions.some((a) => !UPPER.includes(a))
+  const ruled = UPPER.some(has) && offered.some((a) => !UPPER.includes(a))
 
   return (
     <div
