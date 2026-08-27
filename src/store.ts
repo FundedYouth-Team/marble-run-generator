@@ -98,6 +98,7 @@ const WORKPLANE_KEY = 'mrg.workplane'
 const SHADING_KEY = 'mrg.shading'
 const SCREEN_KEY = 'mrg.screenPxPerMm'
 const KEEP_CONNECTED_KEY = 'mrg.keepConnected'
+const AUTO_ATTACH_KEY = 'mrg.autoAttach'
 const UNITS_KEY = 'mrg.units'
 const SHORTCUTS_KEY = 'mrg.shortcuts'
 const OVERLAYS_KEY = 'mrg.overlays'
@@ -212,6 +213,16 @@ function initialShading(): Shading {
 /** Connected is the default; the run is one assembly until you say otherwise. */
 function initialKeepConnected(): boolean {
   const saved = typeof localStorage !== 'undefined' ? localStorage.getItem(KEEP_CONNECTED_KEY) : null
+  return saved !== 'off'
+}
+
+/**
+ * Attached is the default: a part out of the library lands on the end of the
+ * run rather than out in a field of its own, because that is where it was
+ * almost always going to be dragged to anyway.
+ */
+function initialAutoAttach(): boolean {
+  const saved = typeof localStorage !== 'undefined' ? localStorage.getItem(AUTO_ATTACH_KEY) : null
   return saved !== 'off'
 }
 
@@ -901,8 +912,12 @@ function reach(piece: Piece, innerR: number, wall: number): Piece {
  * This runs on the way out of every edit, so nothing has to remember which
  * fields a coil or a bowl watches: changing a height settles it, and so does
  * changing the tube under it from the other side of the sidebar.
+ *
+ * Exported for the template library, which has to know what fall a coil or a
+ * bowl will really run at before it can weld a run around one — see
+ * `lib/templates`.
  */
-function settleAll(pieces: Piece[], runBore: number, runWall: number): Piece[] {
+export function settleAll(pieces: Piece[], runBore: number, runWall: number): Piece[] {
   if (!pieces.some(slopeIsFixed)) return pieces
   let changed = false
   const next = pieces.map((p) => {
@@ -1285,6 +1300,84 @@ const otherEnd = (port: Port): Port => ({
   pieceId: port.pieceId,
   end: port.end === 'out' ? 'in' : 'out',
 })
+
+/**
+ * The end a part fresh out of the library is bonded onto, or null if the stage
+ * is empty and there is nothing to bond it to.
+ *
+ * The end held by the Connector comes first: picking one is the user saying, in
+ * so many words, where the next part goes. Failing that it is the far end of
+ * whichever run the selected part belongs to, and failing that the far end of
+ * the last run on the stage — which on a run built part by part is the same end
+ * either way, and is the one the hand was reaching for.
+ *
+ * A head can be picked as well as a tail. Pick one and the new part lands in
+ * front of the run rather than behind it, which is the only way to build a run
+ * backwards from the funnel it has to arrive at.
+ */
+export function attachPort(s: {
+  pieces: Piece[]
+  pendingPort: Port | null
+  selectedId: string | null
+}): Port | null {
+  if (s.pendingPort && isOpenPort(s.pieces, s.pendingPort)) return s.pendingPort
+  const picked = s.selectedId ? s.pieces.findIndex((p) => p.id === s.selectedId) : -1
+  const from = picked >= 0 ? picked : s.pieces.length - 1
+  if (from < 0) return null
+  return { pieceId: s.pieces[chainTailOf(s.pieces, from)].id, end: 'out' }
+}
+
+/**
+ * The two ends bonded together, or null if the pair cannot take a joint.
+ *
+ * Two like ends have nothing to mate: a spigot needs a socket. The end named
+ * first is the one that travels, so its run is the one turned end for end —
+ * which leaves that same end of that same part now facing the other way, and
+ * the pair a spigot and a socket after all.
+ *
+ * Split out of {@link RunState.connectPorts} because a part out of the library
+ * takes this very same joint on the way in — see {@link RunState.addPiece}. A
+ * joint made two ways is a joint that drifts apart.
+ */
+function joinPorts(pieces: Piece[], a: Port, b: Port, keepConnected: boolean): Piece[] | null {
+  if (!canConnect(pieces, a, b)) return null
+  const flip = a.end === b.end
+  const held = flip ? turnRunAround(pieces, a) : pieces
+  const first = flip ? otherEnd(a) : a
+  const outlet = first.end === 'out' ? first : b
+  const inlet = first.end === 'in' ? first : b
+  // Named by its inlet, the run behind it is carried onto the outlet anyway —
+  // that is what welding it on does. Named by its outlet, it is the run in
+  // front that has to come round, so it is swung and set down against the other
+  // one first, and the weld below then has nothing left to move.
+  const base = first.end === 'out' ? alignRun(held, outlet, inlet) : held
+  const from = base.findIndex((p) => p.id === outlet.pieceId)
+  const head = base.findIndex((p) => p.id === inlet.pieceId)
+  // The whole run hanging off that inlet travels, not just the one part.
+  const tail = chainTailOf(base, head)
+  const block = base.slice(head, tail + 1)
+  const rest = [...base.slice(0, head), ...base.slice(tail + 1)]
+  // Bonded parts follow the part they are bonded to, so the run that arrives is
+  // filed straight after the outlet it now hangs off.
+  const at = rest.findIndex((p) => p.id === outlet.pieceId) + 1
+  const S = PIECE_LIMITS.slope
+  // A snap-fit joint is coaxial: the part bonded on takes the angle the outlet
+  // hands over and picks up its heading, so the two sit flush.
+  block[0] = {
+    ...block[0],
+    joined: true,
+    at: undefined,
+    slope: clamp(exitSlope(base[from]), S.min, S.max),
+    turn: 0,
+  }
+  const next = [...rest.slice(0, at), ...block, ...rest.slice(at)]
+  if (!keepConnected || block.length < 2) return next
+  // Measured before anything moved, so the run that arrived keeps every kink it
+  // had rather than being pulled straight by the joint.
+  const was = kinksOf(base)
+  const kinks = next.map((_, i) => (i > at && i < at + block.length ? was[head + i - at] : 0))
+  return relink(next, kinks, at + 1, at + block.length - 1)
+}
 
 /**
  * The angle each joint stands at: what a part enters at, less what the part
@@ -1898,6 +1991,13 @@ interface RunState {
    * is free to open up.
    */
   keepConnected: boolean
+  /**
+   * Whether a part out of the library lands bonded onto the run. On — which is
+   * how it ships — it arrives on the end named by {@link attachPort} and the
+   * run grows by one part. Off, it lands on its own in clear space and joining
+   * it is the Connector's job.
+   */
+  autoAttach: boolean
 
   // 3D appearance. The piece colour is only what a part falls back to when it
   // has none of its own — a preference that outlives any one project.
@@ -2017,6 +2117,11 @@ interface RunState {
   setShading: (v: Shading) => void
   /** Turning it on pulls whatever joints have come open back together. */
   setKeepConnected: (v: boolean) => void
+  /**
+   * Switches whether a new part lands bonded onto the run or on its own. It
+   * says where the *next* part goes; nothing already on the stage moves.
+   */
+  setAutoAttach: (v: boolean) => void
   toggleShading: () => void
   setMarbleDiameter: (v: number) => void
   resetMarbleFit: () => void
@@ -2211,6 +2316,7 @@ export const useRun = create<RunState>((set, get) => {
     workplane: initialWorkplane(),
     shading: initialShading(),
     keepConnected: initialKeepConnected(),
+    autoAttach: initialAutoAttach(),
 
     marbleDiameter: INITIAL_SNAPSHOT.marbleDiameter,
     running: false,
@@ -2484,6 +2590,13 @@ export const useRun = create<RunState>((set, get) => {
         })
       }
     },
+    // A preference about the next part, not a change to this one: nothing on the
+    // stage moves, so there is nothing to file in the timeline.
+    setAutoAttach: (autoAttach) => {
+      if (get().autoAttach === autoAttach) return
+      remember(AUTO_ATTACH_KEY, autoAttach ? 'on' : 'off')
+      set({ autoAttach })
+    },
     toggleShading: () =>
       set((s) => {
         const shading: Shading = s.shading === 'solid' ? 'transparent' : 'solid'
@@ -2557,50 +2670,8 @@ export const useRun = create<RunState>((set, get) => {
 
     connectPorts: (a, b) =>
       commit(`Join ${nameOf(get(), a.pieceId)} to ${nameOf(get(), b.pieceId)}`, (s) => {
-        if (!canConnect(s.pieces, a, b)) return null
-        // Two like ends have nothing to mate: a spigot needs a socket. The end
-        // picked first is the one that travels, so its run is the one turned
-        // end for end — which leaves that same end of that same part now facing
-        // the other way, and the pair a spigot and a socket after all.
-        const flip = a.end === b.end
-        const held = flip ? turnRunAround(s.pieces, a) : s.pieces
-        const first = flip ? otherEnd(a) : a
-        const outlet = first.end === 'out' ? first : b
-        const inlet = first.end === 'in' ? first : b
-        // Picked by its inlet, the run behind it is carried onto the outlet
-        // anyway — that is what welding it on does. Picked by its outlet, it is
-        // the run in front that has to come round, so it is swung and set down
-        // against the other one first, and the weld below then has nothing left
-        // to move.
-        const base = first.end === 'out' ? alignRun(held, outlet, inlet) : held
-        const from = base.findIndex((p) => p.id === outlet.pieceId)
-        const head = base.findIndex((p) => p.id === inlet.pieceId)
-        // The whole run hanging off that inlet travels, not just the one part.
-        const tail = chainTailOf(base, head)
-        const block = base.slice(head, tail + 1)
-        const rest = [...base.slice(0, head), ...base.slice(tail + 1)]
-        // Bonded parts follow the part they are bonded to, so the run that
-        // arrives is filed straight after the outlet it now hangs off.
-        const at = rest.findIndex((p) => p.id === outlet.pieceId) + 1
-        const S = PIECE_LIMITS.slope
-        // A snap-fit joint is coaxial: the part bonded on takes the angle the
-        // outlet hands over and picks up its heading, so the two sit flush.
-        block[0] = {
-          ...block[0],
-          joined: true,
-          at: undefined,
-          slope: clamp(exitSlope(base[from]), S.min, S.max),
-          turn: 0,
-        }
-        const pieces = [...rest.slice(0, at), ...block, ...rest.slice(at)]
-        if (!s.keepConnected || block.length < 2) return { pieces, pendingPort: null }
-        // Measured before anything moved, so the run that arrived keeps every
-        // kink it had rather than being pulled straight by the joint.
-        const was = kinksOf(base)
-        const kinks = pieces.map((_, i) =>
-          i > at && i < at + block.length ? was[head + i - at] : 0,
-        )
-        return { pieces: relink(pieces, kinks, at + 1, at + block.length - 1), pendingPort: null }
+        const pieces = joinPorts(s.pieces, a, b, s.keepConnected)
+        return pieces ? { pieces, pendingPort: null } : null
       }),
 
     breakJoint: (pieceId, at) =>
@@ -2691,12 +2762,40 @@ export const useRun = create<RunState>((set, get) => {
         ...shape,
         at: spawnPlacement(s0.pieces, shape, outerR),
       }
-      // A part lands on its own, in clear space: joining it to the run is the
-      // Connector's job, so nothing already on the stage moves when one arrives.
-      commit(`Add ${PART_LABEL[piece.type]}`, (s) => ({
-        pieces: [...s.pieces, piece],
-        selectedId: piece.id,
-      }))
+      // Where it is going to be bonded, settled before the commit so the label
+      // in the timeline can say so — and so that a part landing on its own says
+      // that instead.
+      const target = s0.autoAttach ? attachPort(s0) : null
+      const label = target
+        ? `Add ${PART_LABEL[piece.type]} onto ${nameOf(s0, target.pieceId)}`
+        : `Add ${PART_LABEL[piece.type]}`
+      commit(label, (s) => {
+        // Stood down in clear space first and bonded on second, rather than
+        // placed at the joint outright: the joint is then made by exactly the
+        // code the Connector makes it with, kinks, welds, swings and all.
+        const standing = [...s.pieces, piece]
+        if (target) {
+          // The new part is the one that travels, so it is the end named first.
+          // Onto a tail it goes by its inlet; onto a head, by its outlet, and it
+          // lands in front of the run rather than behind it.
+          const own: Port = { pieceId: piece.id, end: target.end === 'out' ? 'in' : 'out' }
+          const pieces = joinPorts(standing, own, target, s.keepConnected)
+          // A pair that cannot take a joint — a run that will not turn end for
+          // end, say — still gets its part: it lands on its own, which is what
+          // this did before there was anywhere to land on.
+          if (pieces) {
+            // Growing a run's head is a direction rather than a one-off, so the
+            // new head is held ready for the next part. Left to the selection
+            // alone the next one would land at the far end of the run instead,
+            // and a run being built backwards would come apart at the second
+            // part. Growing a tail needs none of this: the far end of the part
+            // just added is the far end of the run.
+            const carry: Port | null = target.end === 'in' ? { pieceId: piece.id, end: 'in' } : null
+            return { pieces, selectedId: piece.id, pendingPort: carry }
+          }
+        }
+        return { pieces: standing, selectedId: piece.id }
+      })
     },
     // The copy lands beside the run rather than in it, the same as a part fresh
     // out of the library, and takes over the selection.

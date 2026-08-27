@@ -281,13 +281,22 @@ const HOWTO: Partial<Record<HelpTab, HowTo[]>> = {
   '3d': [
     {
       question: 'How do I join one part to another?',
-      lead: 'With the Connector, in the Joints group of the toolbar. A part out of the library lands on its own in free space — nothing is joined until you say so.',
+      lead: 'With the Connector, in the Joints group of the toolbar — for the joints Add Part has not already made. A part out of the library lands bonded onto the end of the run, so the Connector is for joining two separate runs, and for parts that landed on their own.',
       steps: [
         'Click Connector. The open ends light up blue: the inlet each run starts at, and the outlet each one finishes on.',
         'Click the end of the part you want to move. It turns orange, and any end that cannot mate with it goes grey.',
         'Click the end it should travel to. That one stays exactly where it is; the first part swings round and lands on it, bonded flush.',
       ],
       note: 'Whatever was joined behind the part you picked comes with it: a run joins onto a run in one piece, keeping every angle it had.',
+    },
+    {
+      question: 'How do I add a part somewhere other than the end of the run?',
+      lead: 'Pick the end you want it on first. Add Part goes to the end the Connector is holding, and failing that to the far end of whatever part is selected — so with several runs on the stage, or when you are building backwards from a funnel, say where it goes before you open the library.',
+      steps: [
+        'Click Connector and click the end you want to grow. It turns orange and stays held.',
+        'Click ＋ Add Part and pick the part. It lands bonded on that end.',
+      ],
+      note: 'An inlet works as well as an outlet: pick the head of a run and the new part lands in front of it, feeding in. To have parts land on their own again, untick Join onto the run at the foot of the library.',
     },
     {
       question: 'How do I move a part around the stage?',
@@ -341,7 +350,7 @@ function alwaysGroup(keys: ShortcutMap): Group {
       {
         keys: ['＋ Add Part'],
         action: 'Browse the part library and drop a part on the stage',
-        note: 'top of the window; it lands unjoined, in clear space beside whatever is already there',
+        note: 'top of the window; it lands bonded onto the end of the run — untick Join onto the run at the foot of the library to have parts land on their own instead',
       },
       { keys: ['2D Draft Mode', '3D Mode'], action: 'Switch workspace', note: 'top of the window' },
       {

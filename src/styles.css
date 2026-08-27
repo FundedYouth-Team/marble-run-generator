@@ -1105,6 +1105,17 @@ input[type='range'] {
   font-weight: 700;
 }
 
+/* Beside Add Part, and quieter than it: adding a part is the everyday move,
+   taking a whole run off the shelf is the one you make once. */
+.templates-btn {
+  flex: 0 0 auto;
+  padding: 7px 14px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
 .lib-backdrop {
   position: fixed;
   inset: 0;
@@ -1184,6 +1195,30 @@ input[type='range'] {
   padding: 12px 10px;
   border-right: 1px solid var(--line);
   background: var(--panel-2);
+}
+
+/* Parts and templates are two catalogues, so the rail is two lists under two
+   headings rather than one run of buttons. */
+.lib-cat-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.lib-cat-group + .lib-cat-group {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+
+.lib-cat-group h4 {
+  margin: 0 0 3px;
+  padding: 0 9px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-mute);
 }
 
 .lib-cats button {
@@ -1321,6 +1356,15 @@ input[type='range'] {
   color: var(--ink-dim);
 }
 
+/* What the run measures, under its name — the figures somebody picking between
+   two finished models is really choosing on. */
+.lib-card-stats {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.01em;
+  color: var(--ink-mute);
+}
+
 /* Straight under the blurb it belongs to. Pushing it to the foot of the card
    instead would line the links up across a row, at the price of a hand's width
    of empty card above each one. */
@@ -1348,6 +1392,29 @@ input[type='range'] {
   margin: 0;
 }
 
+/* The switch over the sentence it governs, set apart by a rule so the note
+   below reads as the explanation of it rather than more of the same. */
+.lib-attach {
+  align-items: flex-start;
+  margin-bottom: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--line);
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.lib-attach input {
+  margin-top: 1px;
+}
+
+.lib-attach em {
+  display: block;
+  font-style: normal;
+  font-weight: 400;
+  font-size: 11px;
+  color: var(--ink-faint);
+}
+
 .lib-card .pp-line {
   fill: none;
   stroke: var(--ink-faint);
@@ -1370,6 +1437,12 @@ input[type='range'] {
   fill: var(--accent);
 }
 
+/* The one question asked from inside the library, so it has to sit over it —
+   the shared backdrop is a rank below the library's own. */
+.lib-confirm {
+  z-index: 50;
+}
+
 @media (max-width: 620px) {
   .lib-main {
     grid-template-columns: 1fr;
@@ -1380,6 +1453,15 @@ input[type='range'] {
     flex-wrap: wrap;
     border-right: 0;
     border-bottom: 1px solid var(--line);
+  }
+
+  /* Side by side rather than stacked, since the rail itself is now a row. */
+  .lib-cat-group + .lib-cat-group {
+    margin-top: 0;
+    padding-top: 0;
+    border-top: 0;
+    border-left: 1px solid var(--line);
+    padding-left: 10px;
   }
 }
 
