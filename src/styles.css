@@ -1047,6 +1047,19 @@ body {
   display: block;
 }
 
+/* What the column of switches is, said once at the top of it, in the same small
+   caps the toolbar names its own groups in. */
+.rail-name {
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-mute);
+  line-height: 1;
+  white-space: nowrap;
+  margin-bottom: 2px;
+}
+
 /* Each switch stands in a box of its own, ruled and rounded, rather than being a
    glyph floating on the rail: five painted pictures in a row with nothing
    between them read as one strip of decoration, and the box is what says each

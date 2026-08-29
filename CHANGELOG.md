@@ -21,6 +21,12 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- **The rail says what it is.** The column of switches started straight in on
+  its icons, so what the five of them have in common was something to work out
+  from the menus they open. "Params" now stands at the top of the column, in the
+  same small caps the toolbar names History and Tools in. Nothing moves for it
+  but the first icon, which sits a couple of pixels lower.
+
 - **The page opens with the rail shut.** Tube Size was out the moment the app
   loaded, which answered a question nobody had asked yet and took a column of
   width to ask it in. Nothing on the rail is lit at the start now — the stage

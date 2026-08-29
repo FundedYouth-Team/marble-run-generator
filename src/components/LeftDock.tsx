@@ -89,6 +89,9 @@ export default function LeftDock() {
   return (
     <div className={active ? 'left-dock open' : 'left-dock'}>
       <nav className="icon-rail" aria-label="Part parameters">
+        <span className="rail-name" aria-hidden="true">
+          Params
+        </span>
         {MENUS.map((m) => {
           const off = !!m.tube && structure
           const on = leftPanel === m.id
