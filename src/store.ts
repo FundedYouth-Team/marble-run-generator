@@ -4625,9 +4625,10 @@ export const useRun = create<RunState>((set, get) => {
     })(),
 
     rightPanel: null,
-    // The parameters are what most of the work is typed into, so the column
-    // starts out — the tab is there to win the width back, not to find it.
-    leftPanel: 'tubeSize',
+    // Nothing is out at the start: the rail is five menus, and opening one of
+    // them for the user picks a question they have not asked yet while taking
+    // the width to ask it in. The stage is what the page should open on.
+    leftPanel: null,
 
     // The run always has somewhere to step back to, even before the first edit.
     history: [

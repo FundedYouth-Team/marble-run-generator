@@ -21,6 +21,12 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- **The page opens with the rail shut.** Tube Size was out the moment the app
+  loaded, which answered a question nobody had asked yet and took a column of
+  width to ask it in. Nothing on the rail is lit at the start now — the stage
+  has the full width until an icon is pressed, and the icons behave the same as
+  they always have once one is.
+
 - **The badge beside the name says which beta it is.** It read only "BETA",
   which said the app is unfinished but not how far along it is. It now reads
   "BETA V1" in the same pill, in the same place, at the same size.
