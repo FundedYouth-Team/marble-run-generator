@@ -1909,7 +1909,7 @@ function SizeFigures() {
 const SETTINGS_WIDTH = 312
 
 /** Width of the left icon rail — `--rail-w`. Always there, so the axis triad clears it. */
-const RAIL_WIDTH = 46
+const RAIL_WIDTH = 56
 
 /**
  * How far down the stage starts: the toolbar, plus the strip of settings a tool

@@ -126,7 +126,7 @@
   --rail-bg: #ffffff;
   /* Wide enough for a glyph and nothing else. Named because the stage furniture
      standing beside the rail has to clear it, and both have to agree on it. */
-  --rail-w: 46px;
+  --rail-w: 56px;
 
   --font: 'IBM Plex Sans', 'Segoe UI', system-ui, -apple-system, sans-serif;
   --mono: 'IBM Plex Mono', 'SF Mono', ui-monospace, Menlo, monospace;
@@ -1052,11 +1052,11 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 34px;
-  height: 34px;
+  width: 44px;
+  height: 44px;
   padding: 0;
   border: 1px solid transparent;
-  border-radius: 7px;
+  border-radius: 8px;
   background: transparent;
   color: var(--menu-dim);
 }
@@ -1078,7 +1078,7 @@ body {
 .rail-btn.on::after {
   content: '';
   position: absolute;
-  /* Hard against the rail's inner edge — the tile is 34 wide in a 46 rail, so
+  /* Hard against the rail's inner edge — the tile is 44 wide in a 56 rail, so
      six out lands it on the border it is meant to sit in. */
   right: -6px;
   top: 0;

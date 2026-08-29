@@ -386,39 +386,81 @@ export function TrashIcon({ size = 14 }: { size?: number }) {
    column reads as one row of switches rather than five borrowed pictures. Each
    one is the thing itself seen the way its panel talks about it: the tube down
    the barrel for its size and its style, along its length for a measurement,
-   and from the side for the angle it bends through. */
+   and from the side for the angle it bends through. The ones whose menu sets
+   two things that have to be told apart are painted rather than inked in the
+   rail's grey — the colour is carrying the distinction, so a hover or lit tint
+   would take the meaning with it; the tile behind them carries those states
+   instead. */
 
-/** Tube down the barrel, bore dimensioned across — "how wide, and how thick". */
-export function TubeSizeIcon({ size = 21 }: { size?: number }) {
+/**
+ * Tube down the barrel with both diameters called out beside it — "how wide
+ * outside, how wide inside".
+ *
+ * Painted rather than drawn in the rail's ink, the way {@link PartColorIcon}
+ * is: the two numbers this menu sets are the outside and the bore, and the
+ * glyph tells them apart by colour — the wall in the slate the app draws
+ * structure in, the bore in its green — with a dimension standing off each side
+ * at the length it measures. Grey outlines would leave three concentric circles
+ * saying nothing about which ring is which.
+ */
+export function TubeSizeIcon({ size = 28 }: { size?: number }) {
+  // Slate for the wall, green for the bore, in the two weights each needs: a
+  // solid edge and the lighter ground it encloses.
+  const WALL = '#5f8190'
+  const WALL_FILL = '#8ea8b8'
+  const BORE = '#3d7c40'
+  const BORE_FILL = '#5cab66'
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
-      {/* Outside wall and bore — the two circles every tube figure in the app is. */}
-      <circle cx="12" cy="12" r="9" />
-      <circle cx="12" cy="12" r="4.7" />
-      {/* The bore called out across itself, arrowheads inward the way a
-          dimension is drawn when it will not fit outside the line. */}
-      <path d="M7.3 12h9.4" />
-      <path d="m9.4 10.2-1.9 1.8 1.9 1.8M14.6 10.2l1.9 1.8-1.9 1.8" />
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      {/* The barrel, seen down its length: outside wall, the wall's own body,
+          and the bore through the middle. Each disc is laid over the last, so
+          the ring between two of them needs no arithmetic to draw. */}
+      <circle cx="11.8" cy="12" r="7" fill={WALL_FILL} stroke={WALL} />
+      <circle cx="11.8" cy="12" r="4.6" fill={BORE_FILL} stroke={BORE} />
+      <circle cx="11.8" cy="12" r="2.6" fill="#eef2f6" stroke={BORE} strokeWidth="1.4" />
+      {/* The outside diameter, stood off to the left at the full height of the
+          wall, and the bore stood off to the right at the height of the hole —
+          each in the colour of the circle it is measuring. */}
+      <path d="M2 4v16M1 4h2M1 20h2" stroke={WALL} />
+      <path d="M21.8 9.4v5.2M20.8 9.4h2M20.8 14.6h2" stroke={BORE} />
     </svg>
   )
 }
 
-/** The same barrel with a quarter of its wall gone — "how far round it closes". */
-export function TubeStyleIcon({ size = 21 }: { size?: number }) {
+/**
+ * The barrel down its length with the wall divided into thirds, one of them
+ * standing green — "how far round does it close".
+ *
+ * Painted like {@link TubeSizeIcon} beside it. The outer band is the wall,
+ * scored across at each of the three places it can be cut and coloured in only
+ * where there is wall: the picture is about which part of the way round is
+ * there and which is missing, and that is a difference of colour, not of line
+ * work. The blue body under it is the tube itself and the hole in the middle is
+ * the bore, both unchanged by anything this menu does.
+ */
+export function TubeStyleIcon({ size = 28 }: { size?: number }) {
+  const BODY = '#1a5cab'
+  const CLOSED = '#38b24c'
+  const OPEN = '#a8adb1'
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
-      {/* Three quarters of wall, left open at the top-left corner: the gap is
-          the whole of what this menu sets, so it is what the eye lands on. */}
-      <path d="M12 3a9 9 0 1 1-9 9" />
-      {/* The bore, and the two cut faces the opening ends at. */}
-      <circle cx="12" cy="12" r="4.4" />
-      <path d="M12 3v4.6M3 12h4.6" />
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" strokeLinecap="butt">
+      {/* The whole way round, in the grey of wall that is not there... */}
+      <circle cx="12" cy="12" r="10.4" fill={OPEN} />
+      {/* ...and the third of it that is, swept anticlockwise off the top so the
+          green is the first thing read. */}
+      <path d="M12 12 2.99 17.2A10.4 10.4 0 0 1 12 1.6Z" fill={CLOSED} />
+      {/* The tube's own body, and the bore through it. */}
+      <circle cx="12" cy="12" r="7.9" fill={BODY} />
+      <circle cx="12" cy="12" r="3.7" fill="#ffffff" />
+      {/* The three cut lines the wall is divided at, and the outside edge. */}
+      <path d="M12 4.4V1.6M18.58 15.8l2.43 1.4M5.42 15.8l-2.43 1.4" stroke={BODY} strokeWidth="1.2" />
+      <circle cx="12" cy="12" r="10.4" fill="none" stroke={BODY} strokeWidth="1.2" />
     </svg>
   )
 }
 
 /** Wheel of colour round a bare middle — "what this part is painted". */
-export function PartColorIcon({ size = 21 }: { size?: number }) {
+export function PartColorIcon({ size = 28 }: { size?: number }) {
   // Six sixths of a wheel, clockwise from the right. Painted rather than drawn
   // in the ink of the rail: a colour control that is itself grey says nothing,
   // and the ring and hub still take `currentColor`, so the button's hover and
@@ -443,34 +485,101 @@ export function PartColorIcon({ size = 21 }: { size?: number }) {
   )
 }
 
-/** A length of tube from the side, dimensioned end to end — "how long". */
-export function MeasurementIcon({ size = 21 }: { size?: number }) {
+/**
+ * A cut length of tube lying at three-quarters, with a dimension laid over it
+ * end to end — "how long is this piece".
+ *
+ * The part is drawn as the part rather than as a bar: near end open so the
+ * cut face and the bore through it are both visible, a highlight down the top
+ * to sit it in space, and the arrow parallel to the axis it measures. Painted
+ * like the two tube glyphs above it. The dimension carries no figure — the
+ * number is what the menu is for, and any one written into the icon would be
+ * a lie about the part in hand.
+ */
+export function MeasurementIcon({ size = 28 }: { size?: number }) {
+  const INK = '#2b4650'
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
-      {/* The dimension over the part, witness lines dropped to it at both ends. */}
-      <path d="M4 3.6v4.8M20 3.6v4.8" />
-      <path d="M4 6h16" />
-      <path d="m6.4 4.3-2 1.7 2 1.7M17.6 4.3l2 1.7-2 1.7" />
-      {/* The tube itself, ends squared off the way a cut length is. */}
-      <rect x="3.2" y="12.4" width="17.6" height="8" rx="4" />
-      <path d="M7.2 12.6v7.6" />
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <defs>
+        {/* Across the barrel rather than along it, so the tube turns away from
+            the light at its lower edge the way a cylinder does. Declared in the
+            glyph's own space, which the group below rotates as one. */}
+        <linearGradient id="mrgTubeShade" gradientUnits="userSpaceOnUse" x1="0" y1="9.6" x2="0" y2="17.6">
+          <stop offset="0" stopColor="#7b959d" />
+          <stop offset="0.45" stopColor="#5e7d87" />
+          <stop offset="1" stopColor="#3c5a64" />
+        </linearGradient>
+      </defs>
+      {/* Everything is laid out level and tipped as one, so the dimension comes
+          out exactly parallel to the length it is measuring. */}
+      <g transform="translate(0.8 1) rotate(-27 12 12)" stroke={INK} strokeWidth="1" strokeLinejoin="round">
+        {/* The far end, then the barrel laid over it: the run of the tube needs
+            no arithmetic to meet the cap it is drawn on top of. */}
+        <ellipse cx="19.6" cy="13.6" rx="1.7" ry="4" fill="url(#mrgTubeShade)" />
+        <rect x="4.8" y="9.6" width="14.8" height="8" fill="url(#mrgTubeShade)" stroke="none" />
+        <path d="M4.8 9.6h14.8M4.8 17.6h14.8" />
+        <path d="M8 11.1h9.2" stroke="#cfe1e5" strokeWidth="1.1" strokeLinecap="round" opacity="0.75" />
+        {/* The near end, cut open: the wall's face, and the bore through it. */}
+        <ellipse cx="4.8" cy="13.6" rx="1.9" ry="4" fill="#cbd6d4" strokeWidth="0.9" />
+        <ellipse cx="4.8" cy="13.6" rx="1.1" ry="2.3" fill="#3e5c66" stroke="none" />
+        {/* The dimension, headed at both ends and reaching the full length. */}
+        <g fill={INK}>
+          <path d="M3.6 4.6 6.2 3.3v2.6Z" />
+          <path d="M20.4 4.6 17.8 3.3v2.6Z" />
+          <path d="M5.9 4.1h12.2v1H5.9Z" stroke="none" />
+        </g>
+      </g>
     </svg>
   )
 }
 
-/** Run broken over a baseline, the break called out — "what angle, and where". */
-export function AngleJointIcon({ size = 21 }: { size?: number }) {
+/**
+ * A run coming in flat and leaving on the climb, mitred at the break — "what
+ * angle does this part turn through, and where is the joint".
+ *
+ * Painted like the three glyphs above it, and drawn as the elbow itself rather
+ * than as a diagram of one: two lengths of the same tube at their own
+ * thickness, the outside of the bend swept round the way a moulded elbow is and
+ * the inside meeting sharp, with the mitre ruled across the joint. No figure and
+ * no swept arc — the angle is what the menu sets, so any number in the icon
+ * would be wrong for every part but one, and the bend already shows there is an
+ * angle to set.
+ */
+export function AngleJointIcon({ size = 28 }: { size?: number }) {
+  const INK = '#2b4650'
+  // The run of the part, elbow and all: one polyline, drawn twice at two widths
+  // so the ink pass shows as an outline round the whole silhouette. A round join
+  // gives the outside of the bend its sweep and leaves the inside sharp, which
+  // is the shape a mitred elbow actually is.
+  const RUN = 'M1.6 18.2H10.6L18.63 8.62'
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
-      {/* The level the angle is read against, carried on past the break. */}
-      <path d="M2.6 18.4h18.8" strokeWidth="1.3" strokeDasharray="2.4 2.6" opacity="0.6" />
-      {/* The run: in flat, out climbing. Drawn heaviest of the three, so the
-          bend is what the glyph is at a glance. */}
-      <path d="M2.6 18.4h9l7.2-10" strokeWidth="2.3" />
-      {/* The joint, marked across the leg the way a cut line is. */}
-      <path d="m17.1 14-3.1-2.2" strokeWidth="1.3" />
-      {/* The angle swept between the two, which is the number this menu sets. */}
-      <path d="M17.6 18.4a6 6 0 0 0-2.5-4.87" strokeWidth="1.3" />
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <defs>
+        {/* Straight down the glyph rather than across either leg: one light
+            source over the part, so the flat length and the climbing one shade
+            differently, as they do when the run is lit from above. */}
+        <linearGradient id="mrgBendShade" gradientUnits="userSpaceOnUse" x1="0" y1="5" x2="0" y2="21">
+          <stop offset="0" stopColor="#8ea3a9" />
+          <stop offset="0.5" stopColor="#6a848d" />
+          <stop offset="1" stopColor="#43606a" />
+        </linearGradient>
+      </defs>
+      {/* Laid out at the proportions the part has, then centred and sized to the
+          grid in one go, so the drawing above stays in the numbers it was set
+          out in. */}
+      <g transform="translate(12 12) scale(1.06) translate(-11.38 -14)" strokeLinejoin="round" strokeLinecap="butt" fill="none">
+        <path d={RUN} stroke={INK} strokeWidth="6.6" />
+        <path d={RUN} stroke="url(#mrgBendShade)" strokeWidth="5.6" />
+        {/* The mitre: on the bisector of the two legs, from the sharp inside
+            corner out to the swept edge. */}
+        <path d="M9.29 15.4 11.78 20.74" stroke={INK} strokeWidth="0.85" />
+        {/* One highlight down each leg, held off the joint at both ends so the
+            break stays the thing the eye lands on. */}
+        <g stroke="#cfe1e5" strokeWidth="1.1" strokeLinecap="round" opacity="0.7">
+          <path d="M2.8 16.7H8.6" />
+          <path d="M12.02 14.18 16.72 8.58" />
+        </g>
+      </g>
     </svg>
   )
 }

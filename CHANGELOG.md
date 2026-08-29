@@ -13,6 +13,48 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- **Angles and Joints is drawn as the elbow itself.** It was a thin line broken
+  over a dashed baseline with a swept arc and a tick for the joint — a diagram
+  of an angle rather than a picture of a part, and at rail size the arc and the
+  dashes were the first things to go. It is now a length of the same tube coming
+  in flat and leaving on the climb, at the thickness the run actually has: the
+  outside of the bend swept round the way a moulded elbow is, the inside meeting
+  sharp, the mitre ruled across the joint on the bisector, and a highlight down
+  each leg held clear of the break. The swept arc and the degree figure are
+  gone — the bend already says there is an angle to set, and a number painted
+  into the icon would be wrong for every part but one.
+
+- **Measurement is drawn as the part being measured.** It was an outlined bar
+  with a dimension floating over it, which said "a length" without saying a
+  length of what. It is now a cut piece of tube lying at three-quarters — near
+  end open so the wall's face and the bore through it are both visible, a
+  highlight down the top to sit it in space — with a double-headed dimension
+  laid over it end to end, parallel to the axis it measures. No figure is
+  written on the dimension: the number is the thing the menu sets, and one
+  painted into the icon would be wrong for every part but one.
+
+- **Tube Style is drawn in colour too.** It was three-quarters of a grey outline
+  with a gap in it, which at rail size read as a broken circle rather than as a
+  wall that stops. It is now the barrel seen down its length with the wall
+  divided into thirds and scored across at each place it can be cut: the third
+  that is there is green, the rest is the grey of wall that is not, and the blue
+  body and the bore through it — neither of which this menu changes — sit inside
+  it. Which way round the tube closes is a difference of colour now, not of
+  where a line stops.
+
+- **The rail is wider, and Tube Size is drawn in colour.** Five glyphs on a 24
+  grid were squeezed into 34px tiles in a 46px rail, which left no room to draw
+  anything but line work: the rail is now 56px with 44px tiles and the glyphs
+  are drawn at 28. Nothing beside it moves — the menu, the 2D draft's controls
+  and the 3D axis triad all set themselves off `--rail-w` and follow it out.
+  Tube Size itself is redrawn as the barrel seen down its length — the wall in
+  slate, the bore in green, the hole through the middle — with a dimension stood
+  off each side at the length it measures: the outside diameter on the left, the
+  bore on the right. It is painted rather than inked in the rail's grey, the way
+  the colour wheel already is, because the two numbers the menu sets are the
+  outside and the bore, and three concentric grey circles say nothing about
+  which ring is which.
+
 - **Every button that answers to a key now says so on hover, in the hint itself.**
   A shortcut was only discoverable by going looking for it in Settings: the tool
   buttons wrote theirs into the end of their sentence, and Undo, Redo and Add
