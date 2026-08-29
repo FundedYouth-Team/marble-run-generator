@@ -21,6 +21,28 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- **Tube Size is drawn as a half tube measured across the top.** The glyph was
+  three concentric circles — a slate ring, a green ring and a pale hub — with a
+  dimension standing off each side: the outside diameter on the left and the
+  bore on the right. But the menu does not set an outside diameter. It sets the
+  bore and the wall thickness, and the outside is only what those two add up to,
+  so the icon called out a number the panel has no field for. It is now the tube
+  seen down the barrel as a half section, open across the top: one flat green
+  band, its outside and its bore each ruled in the darker green, the two cut
+  ends left open rather than capped in edge colour so the wall does not appear
+  to close over the top. Above it, clear of the part, one double-headed arrow
+  spans the tube end to end — drawn with big solid heads on a thin shaft, since
+  at rail size it is the heads that say "arrow" and a heavy line between them
+  only thickens into a bar.
+
+  One arrow rather than one per field. A dimension drawn on the wall alone is a
+  few pixels of ink at the size the rail draws icons, and two arrows of unequal
+  length read as clutter before either is understood; the single span says the
+  menu is about how big the tube is, and the two fields inside it say which
+  number is which. The arrow is drawn in the rail's ink rather than painted,
+  since here colour is not what carries the meaning. Nothing the menu sets has
+  changed.
+
 - **Exporting has a window of its own, opened by an Export button.** The top bar
   ended in a button named after the current format — "⤓ 3MF" — which wrote the
   print plate the instant it was pressed, in whichever format and under whichever

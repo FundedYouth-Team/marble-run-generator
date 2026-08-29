@@ -397,36 +397,43 @@ export function TrashIcon({ size = 14 }: { size?: number }) {
    instead. */
 
 /**
- * Tube down the barrel with both diameters called out beside it — "how wide
- * outside, how wide inside".
+ * A half tube seen down the barrel with a dimension stood off above it — "how
+ * big is the tube".
  *
- * Painted rather than drawn in the rail's ink, the way {@link PartColorIcon}
- * is: the two numbers this menu sets are the outside and the bore, and the
- * glyph tells them apart by colour — the wall in the slate the app draws
- * structure in, the bore in its green — with a dimension standing off each side
- * at the length it measures. Grey outlines would leave three concentric circles
- * saying nothing about which ring is which.
+ * One arrow rather than one per field: the menu sets the bore and the wall, but
+ * at rail size a dimension drawn on the wall alone is a few pixels of ink that
+ * reads as a smudge, and two dimensions of unequal length read as clutter
+ * before either is understood. The single arrow spans the part clear across and
+ * says what the menu is for; the fields inside it say which number is which.
+ * Painted in the run's green rather than drawn in the rail's ink, the way
+ * {@link TubeStyleIcon} beside it is, and flat throughout — one fill, two ruled
+ * arcs, no shading — so the shape holds at the size the rail draws it. The
+ * dimension takes the rail's ink: it is an arrow over a part, not a second
+ * colour in it.
  */
 export function TubeSizeIcon({ size = 28 }: { size?: number }) {
-  // Slate for the wall, green for the bore, in the two weights each needs: a
-  // solid edge and the lighter ground it encloses.
-  const WALL = '#5f8190'
-  const WALL_FILL = '#8ea8b8'
-  const BORE = '#3d7c40'
-  const BORE_FILL = '#5cab66'
+  // The run's green in the two weights the band needs: the body it is filled
+  // with, and the darker edge ruled along the two arcs that bound it.
+  const WALL_FILL = '#22c33c'
+  const WALL_EDGE = '#0f7a26'
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-      {/* The barrel, seen down its length: outside wall, the wall's own body,
-          and the bore through the middle. Each disc is laid over the last, so
-          the ring between two of them needs no arithmetic to draw. */}
-      <circle cx="11.8" cy="12" r="7" fill={WALL_FILL} stroke={WALL} />
-      <circle cx="11.8" cy="12" r="4.6" fill={BORE_FILL} stroke={BORE} />
-      <circle cx="11.8" cy="12" r="2.6" fill="#eef2f6" stroke={BORE} strokeWidth="1.4" />
-      {/* The outside diameter, stood off to the left at the full height of the
-          wall, and the bore stood off to the right at the height of the hole —
-          each in the colour of the circle it is measuring. */}
-      <path d="M2 4v16M1 4h2M1 20h2" stroke={WALL} />
-      <path d="M21.8 9.4v5.2M20.8 9.4h2M20.8 14.6h2" stroke={BORE} />
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      {/* The band of wall, cut off square at both ends: down the outside from
+          the left end round the bottom to the right, back in across the wall,
+          and round the bore the other way. */}
+      <path
+        d="M2 10.6A10 10 0 0 0 22 10.6L18.2 10.6A6.2 6.2 0 0 1 5.8 10.6Z"
+        fill={WALL_FILL}
+      />
+      {/* Outside and bore ruled separately, so the two cut ends stay open —
+          a stroke round the whole band would cap them in edge colour and read
+          as wall closing over the top. */}
+      <path d="M2 10.6A10 10 0 0 0 22 10.6" stroke={WALL_EDGE} strokeWidth="1.3" />
+      <path d="M5.8 10.6A6.2 6.2 0 0 0 18.2 10.6" stroke={WALL_EDGE} strokeWidth="1.6" />
+      {/* The size, measured clear across the tube and stood off above it, where
+          it sits over the whole part rather than over any one edge of it. */}
+      <path d="M6.8 5.2H17.2" stroke="currentColor" strokeWidth="1.8" />
+      <path d="M2 5.2 7 2V8.4ZM22 5.2 17 2V8.4Z" fill="currentColor" />
     </svg>
   )
 }
