@@ -7,6 +7,7 @@ import HoverHint from './HoverHint'
 import { pieceAxisLength } from '../lib/centerline'
 import { buildAssembly, placedBox } from '../lib/layout'
 import { FUNNEL_LEAST_CONE, funnelFeedRadius } from '../lib/funnel'
+import { coilTroughSide } from '../lib/cage'
 import {
   useRun,
   VARIANT_LABEL,
@@ -17,17 +18,13 @@ import {
   ANGLE_DEFAULTS,
   BASE_DEFAULTS,
   BASE_LIMITS,
-  SUPPORT_DEFAULTS,
   SUPPORT_LIMITS,
   CORNER_DEFAULTS,
   angleSpec,
   baseSpec,
   supportSpec,
-  supportFloor,
-  supportArms,
+  rodIsRound,
   isStructure,
-  placementOf,
-  tubeOverPost,
   cornerSpec,
   hookSpec,
   hookLength,
@@ -39,6 +36,11 @@ import {
   corkscrewRingPitch,
   corkscrewRingSpacing,
   corkscrewRingsFor,
+  corkscrewRingsForSlope,
+  corkscrewSlopeRange,
+  corkscrewCage,
+  innerCageFits,
+  CAGE_LIMITS,
   COIL_RING_GAP,
   HOOK_ROLL_FLAT,
   HOOK_ROLL_EDGE,
@@ -104,6 +106,20 @@ const OPEN_SIDE_NOTE: Record<OpenSide, string> = {
   left: 'Opening faces left, looking along the run.',
 }
 
+/**
+ * The four ways a coil can be braced, in the order the buttons offer them:
+ * nothing, up the middle, round the outside, and both.
+ *
+ * Two toggles would be the same four answers, but read as two questions when
+ * they are really one — a coil is braced *somewhere*, and where is the choice.
+ */
+const CAGE_CHOICES: [string, boolean, boolean, string][] = [
+  ['None', false, false, 'No cage — the coil holds itself up, which printed it cannot'],
+  ['Inside', true, false, 'A cage up the hollow middle, leaving the outside clear to watch'],
+  ['Outside', false, true, 'A cage round the outside, leaving the middle clear to look down'],
+  ['Both', true, true, 'Caged inside and out — every ring held at eight points'],
+]
+
 export default function Sidebar() {
   const s = useRun()
   const selectedIndex = s.pieces.findIndex((p) => p.id === s.selectedId)
@@ -167,6 +183,14 @@ export default function Sidebar() {
    * has not the height for even the quarter turn it is floored at.
    */
   const coilGap = selected && coil ? corkscrewRingPitch(selected) - spec.outerR * 2 : 0
+  /** The gentlest and steepest fall this coil's height and widths can give it. */
+  const coilFalls = selected && coil ? corkscrewSlopeRange(selected) : { min: 0, max: 90 }
+  /** The cage bracing the coil, when a coil is what is picked. */
+  const cage = selected && coil ? corkscrewCage(selected) : null
+  /** Whether there is room up the middle of it for the inner one. */
+  const cageFits = !!selected && !!coil && innerCageFits(selected, spec.innerR)
+  /** Which side of the coil the trough faces, of the two that can be braced. */
+  const cageFaces = coil ? coilTroughSide(spec, coil.turns < 0 ? -1 : 1) : null
   /**
    * The slab, when a base is what is picked. It is the one part here that is not
    * cut from the tube at all, so where it is showing the panels that describe the
@@ -183,22 +207,6 @@ export default function Sidebar() {
   const post = selected && selected.type === 'support' ? supportSpec(selected) : null
   /** Whether what is picked is structure rather than run — see {@link isStructure}. */
   const ground = !!slab || !!post
-  /**
-   * What is passing over the post, if anything — the run it would stand up to.
-   * Read here rather than in the action so the panel can say what pressing the
-   * button would do, and say why it would do nothing.
-   */
-  const overhead = useMemo(() => {
-    if (!selected || !post) return null
-    const at = placementOf(selected)
-    return tubeOverPost(
-      { pieces: s.pieces, innerDiameter: s.innerDiameter, wallThickness: s.wallThickness },
-      at.x,
-      at.z,
-      { width: post.width / 2, depth: post.depth / 2 },
-    )
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selected, post?.width, post?.depth, s.pieces, s.innerDiameter, s.wallThickness])
   /**
    * What the run standing on the stage covers, x and z, or null if there is no
    * run to cover — a stage of nothing but bases has no footprint to fit to.
@@ -873,6 +881,31 @@ export default function Sidebar() {
                       max={PIECE_LIMITS.rings.max}
                       step={PIECE_LIMITS.rings.step}
                     />
+                    {/* The one part whose fall is not a field of its own — so
+                        here it is, made one. A coil's height, its two widths and
+                        how far round it goes fix the single angle it can sit at,
+                        which means asking for an angle is asking one of those
+                        four to give way. The rings are the one that can: the
+                        height and the footprint stay exactly as they were, so
+                        nothing under the coil moves and all that changes is how
+                        fast the marble gets down it. */}
+                    <NumberField
+                      label={coilClimbs ? 'Climb' : 'Fall'}
+                      hint={`how fast the marble comes ${coilClimbs ? 'up' : 'down'} — sets the rings, holding the height and both widths. ${degLabel(coilFalls.min)}° to ${degLabel(coilFalls.max)}° at this size`}
+                      unit="°"
+                      ends={['Slower', 'Faster']}
+                      value={Math.abs(exitSlope(selected))}
+                      onChange={(v) =>
+                        s.updatePiece(selected.id, {
+                          ringsSet: true,
+                          rings:
+                            corkscrewRingsForSlope(selected, v) * (coil.turns < 0 ? -1 : 1),
+                        })
+                      }
+                      min={coilFalls.min}
+                      max={coilFalls.max}
+                      step={0.5}
+                    />
                     <span className="field-label">
                       Wind
                       <em>which way round it goes on the way down</em>
@@ -904,6 +937,79 @@ export default function Sidebar() {
                       onChange={(v) => s.updatePiece(selected.id, { exitLength: v })}
                       {...PIECE_LIMITS.exitLength}
                     />
+                    {/* The cage. A coil is the one part in the library that
+                        cannot stand up on its own — every ring hangs over the
+                        one below with nothing between them — so this is the
+                        only question here whose answer decides whether the part
+                        can be printed at all. Which side it is braced on is a
+                        real choice: whichever one is caged is the one you stop
+                        being able to see the marble through. */}
+                    {cage && (
+                      <>
+                        <span className="field-label">
+                          Support
+                          <em>
+                            {cage.inner && cage.outer
+                              ? 'braced inside and out — every ring held at eight points'
+                              : cage.inner
+                                ? 'braced up the middle, leaving the outside clear to watch it come down'
+                                : cage.outer
+                                  ? 'braced round the outside, leaving the middle clear to look down through'
+                                  : 'nothing holding the rings up — a bare coil prints as a spring carrying its own weight'}
+                          </em>
+                        </span>
+                        <div className="segmented small">
+                          {CAGE_CHOICES.map(([label, inner, outer, why]) => (
+                            <button
+                              key={label}
+                              className={cage.inner === inner && cage.outer === outer ? 'on' : ''}
+                              onClick={() =>
+                                s.updatePiece(selected.id, {
+                                  innerCage: inner,
+                                  outerCage: outer,
+                                })
+                              }
+                              title={why}
+                            >
+                              {label}
+                            </button>
+                          ))}
+                        </div>
+                        {(cage.inner || cage.outer) && (
+                          <NumberField
+                            label="Bar"
+                            hint="how thick the hoops and posts are, square in section"
+                            value={cage.width}
+                            onChange={(v) => s.updatePiece(selected.id, { width: v })}
+                            {...CAGE_LIMITS.width}
+                          />
+                        )}
+                      </>
+                    )}
+                    {/* An inner cage stands its bars flush with the channel, so
+                        what it needs is the bore plus the bar — and a coil
+                        tighter than that has no middle left to put one in. */}
+                    {cage?.inner && !cageFits && (
+                      <p className="warn">
+                        This coil is too tight to brace inside: at{' '}
+                        {formatCoarse(Math.min(coil.topRadius, coil.bottomRadius) * 2, s.units)}{' '}
+                        across at its narrowest there is no room up the middle for a{' '}
+                        {formatLength(cage.width, s.units)} bar standing clear of the channel.
+                        Widen it, use a thinner bar, or brace it round the outside instead.
+                      </p>
+                    )}
+                    {/* The one thing the open side changes about a cage, and
+                        worth saying: the trough facing the cage is the trough
+                        whose wall was cut away where the post wants to weld. */}
+                    {cage && (cage.inner || cage.outer) && cageFaces && (
+                      <p className="note">
+                        This trough opens{' '}
+                        {cageFaces === 'inner' ? 'into the middle' : 'away from the middle'}, so the{' '}
+                        {cageFaces} cage has no wall to weld to — the posts stand clear of the
+                        channel and each turn is tied to them underneath instead, below the bore
+                        where nothing is in the marble's way.
+                      </p>
+                    )}
                     {/* Rings are counted rather than set, so they are read off
                         here alongside the two figures that count them: how much
                         room each one needs, and how much it actually got. */}
@@ -956,8 +1062,9 @@ export default function Sidebar() {
                           {formatCoarse(corkscrewRingPitch(selected), s.units)} apart, where
                           counting would have given {degLabel(coilFits)} at{' '}
                           {formatCoarse(coilNeeds, s.units)}. The count stands wherever the height
-                          goes, so this is where a coil is given a fall of its own: fewer rings
-                          over the same height is a steeper one, more is gentler.
+                          goes, which is what lets the coil be given a fall of its own: fewer rings
+                          over the same height is a steeper one, more is gentler. Set that fall
+                          under Fall and this count follows it.
                         </>
                       )}
                     </p>
@@ -1338,186 +1445,76 @@ export default function Sidebar() {
                 ) : post ? (
                   <>
                     <NumberField
-                      label="Seat height"
-                      hint="where the tube’s axis sits"
-                      value={post.height}
-                      onChange={(v) => s.updatePiece(selected.id, { height: v })}
-                      {...SUPPORT_LIMITS.height}
+                      label="Length"
+                      hint="how far the rod runs"
+                      value={post.length}
+                      onChange={(v) => s.updatePiece(selected.id, { length: v })}
+                      {...SUPPORT_LIMITS.length}
                     />
                     <NumberField
                       label="Thickness"
-                      hint="across the run"
+                      hint="the same both ways across it"
                       value={post.width}
                       onChange={(v) => s.updatePiece(selected.id, { width: v })}
                       {...SUPPORT_LIMITS.width}
                     />
-                    <NumberField
-                      label="Reach"
-                      hint="along the run"
-                      value={post.depth}
-                      onChange={(v) => s.updatePiece(selected.id, { length: v })}
-                      {...SUPPORT_LIMITS.depth}
-                    />
-                    <NumberField
-                      label="Cradle wrap"
-                      hint="0° is a flat seat, 90° a half-round cup"
-                      value={post.wrap}
-                      onChange={(v) => s.updatePiece(selected.id, { sweep: v })}
-                      {...SUPPORT_LIMITS.wrap}
-                    />
-                    <NumberField
-                      label="Cradle tilt"
-                      hint="the fall of the tube it holds"
-                      value={post.tilt}
-                      onChange={(v) => s.updatePiece(selected.id, { tilt: v })}
-                      {...SUPPORT_LIMITS.tilt}
-                    />
                     <span className="field-label">
-                      Stands on
-                      <em>the plate, or the run where the plate is taken</em>
+                      Section
+                      <em>rounded off to half the thickness is a round bar</em>
                     </span>
                     <div className="segmented small">
                       <button
-                        className={post.foot > 0 ? '' : 'on'}
-                        onClick={() => s.updatePiece(selected.id, { foot: 0, footTilt: 0 })}
-                        title="Flat foot on the workplane"
+                        className={rodIsRound(post) ? 'on' : ''}
+                        onClick={() =>
+                          s.updatePiece(selected.id, { radius: post.width / 2 })
+                        }
+                        title="A round bar"
                       >
-                        The ground
+                        Round
                       </button>
                       <button
-                        className={post.foot > 0 ? 'on' : ''}
+                        className={post.radius > 0 && !rodIsRound(post) ? 'on' : ''}
                         onClick={() =>
-                          s.updatePiece(selected.id, {
-                            foot: post.foot > 0 ? post.foot : Math.max(0.5, post.height / 2),
-                          })
+                          s.updatePiece(selected.id, { radius: Math.min(2, post.width / 4) })
                         }
-                        title="Saddle under the post, straddling a tube below it"
+                        title="A square bar with its four long corners taken off"
                       >
-                        The run
-                      </button>
-                    </div>
-                    {post.foot > 0 && (
-                      <>
-                        <NumberField
-                          label="Foot height"
-                          hint="axis of the tube it stands on"
-                          value={post.foot}
-                          onChange={(v) => s.updatePiece(selected.id, { foot: v })}
-                          {...SUPPORT_LIMITS.foot}
-                          max={Math.min(SUPPORT_LIMITS.foot.max, post.height)}
-                        />
-                        <NumberField
-                          label="Foot tilt"
-                          hint="the fall of the tube it stands on"
-                          value={post.footTilt}
-                          onChange={(v) => s.updatePiece(selected.id, { footTilt: v })}
-                          {...SUPPORT_LIMITS.footTilt}
-                        />
-                      </>
-                    )}
-                    <span className="field-label">
-                      Corners
-                      <em>rounded takes the sharp edge off a printed post</em>
-                    </span>
-                    <div className="segmented small">
-                      <button
-                        className={post.radius > 0 ? 'on' : ''}
-                        onClick={() =>
-                          s.updatePiece(selected.id, { radius: SUPPORT_DEFAULTS.radius })
-                        }
-                        title="Round the four upright corners off with an arc tangent to both sides"
-                      >
-                        Rounded
+                        Eased
                       </button>
                       <button
                         className={post.radius > 0 ? '' : 'on'}
                         onClick={() => s.updatePiece(selected.id, { radius: 0 })}
-                        title="Leave the four upright corners square"
+                        title="A square bar — the flattest thing to print, lying on its side"
                       >
                         Square
                       </button>
                     </div>
                     <NumberField
                       label="Corner radius"
-                      hint="0 is a square corner"
+                      hint="0 is a square bar"
                       value={post.radius}
                       onChange={(v) => s.updatePiece(selected.id, { radius: v })}
                       {...SUPPORT_LIMITS.radius}
-                      max={Math.min(
-                        SUPPORT_LIMITS.radius.max,
-                        Math.min(post.width, post.depth) / 2,
-                      )}
+                      max={Math.min(SUPPORT_LIMITS.radius.max, post.width / 2)}
                     />
-                    <button
-                      onClick={() => overhead && s.fitSupportToRun(selected.id)}
-                      disabled={!overhead}
-                    >
-                      Fit to the Run Above
-                    </button>
                     <p className="note">
-                      {overhead ? (
-                        <>
-                          Stands this post up to the tube passing over it — a seat of{' '}
-                          {formatLength(overhead.seat.seat, s.units)}, a cradle tilted{' '}
-                          {degLabel(overhead.seat.tilt)}° and the post squared onto the heading
-                          the run is on there.{' '}
-                          {!overhead.footing
-                            ? 'What is under it crosses at too sharp an angle to be stood on, so the foot is left exactly as you have set it.'
-                            : overhead.footing.foot > 0
-                              ? `There is run in the way of the plate, so it stands on that instead — a saddle at ${formatLength(
-                                  overhead.footing.foot,
-                                  s.units,
-                                )}, straddling the tube below.`
-                              : 'The floor under it is clear, so it stands on the plate.'}{' '}
-                          Where it stands in plan is left alone: sliding it about is yours.
-                        </>
-                      ) : (
-                        <>
-                          Nothing overhead to stand up to — this post is out from under the run,
-                          or what is over it is already on the ground. Slide it under a tube and
-                          it can read its own height off it.
-                        </>
-                      )}
+                      <b>A rod is not part of the run.</b> Nothing plugs into it and the marble
+                      never travels it — it is a brace, and the whole of what it is is two ends and
+                      a thickness. It knows nothing about what it is holding apart, which is what
+                      lets one part be a post down to the plate, a tie between two turns of a coil,
+                      and a spine run down the outside of one from top to bottom.
                     </p>
                     <p className="note">
-                      <b>A support is not part of the run either.</b> Nothing plugs into it and
-                      the marble never travels it — it is what holds the run off the floor, which
-                      is why it has no bore and no style of its own. The cradle across its top is
-                      cut to whatever tube it is carrying, a shade wide so the pipe beds down in
-                      it rather than perching on the arms.
+                      <b>Where it goes is the Rod tool's business, not this panel's.</b> Take it up
+                      and click the two points you want braced; the rod arrives pointing where it
+                      was struck, and it is driven a whisker into both ends so it fuses with them
+                      rather than merely touching. Slide it afterwards with Move and turn it with
+                      the rings, like anything else.
                     </p>
                     <p className="note">
-                      <b>It stands square.</b> A printed post leaning over is a post that needs
-                      propping itself, so the fall of the run goes into the cradle rather than
-                      into the post: the groove is cut on the slope instead, and drops through the
-                      top at the angle the tube is already falling at. Stand it on a base and the
-                      two overlap and print as one solid.
+                      It prints lying on its side: a bar flat on the plate with no overhang
+                      anywhere in it, whatever line it was struck along up in the air.
                     </p>
-                    <p className="note">
-                      <b>Where the run is stacked over itself</b>, the floor under the upper level
-                      already has the lower level on it, and a post driven down to the plate would
-                      go straight through the pipe it was meant to pass. So it stands on that pipe
-                      instead: the underside becomes a saddle cut to the same tube, straddling it
-                      by the same wrap the cradle cups with, and the load goes down through the run
-                      to whatever is holding <em>that</em> up. Posts can be stacked as many deep as
-                      the run is.
-                    </p>
-                    {supportFloor(post, spec.outerR) <= 0 && (
-                      <p className="warn">
-                        The seat is lower than the tube is fat, so there is no post left under the
-                        cradle — the groove has eaten through the floor. Raise the seat, or drop
-                        the wrap and the tilt back.
-                      </p>
-                    )}
-                    {post.wrap > 0 && post.width <= supportArms(post, spec.outerR) && (
-                      <p className="note">
-                        Too narrow for its own arms: the groove cuts clean through a post{' '}
-                        {formatLength(post.width, s.units)} across before the wrap has had a
-                        chance to climb, so the top is a scoop with no sides to it. Widen it past{' '}
-                        {formatLength(supportArms(post, spec.outerR), s.units)} and the arms come
-                        up round the tube.
-                      </p>
-                    )}
                   </>
                 ) : (
                   <NumberField
@@ -1590,7 +1587,7 @@ export default function Sidebar() {
                   : hook
                     ? 'the fall it comes into the turn at'
                     : coil
-                      ? 'worked out — the coil has one fall it can run at'
+                      ? 'worked out — the coil has one fall it can run at. Set it under Fall, which winds the rings to suit'
                       : funnel
                         ? 'a funnel is fed dead level — tip the feed and its bore runs out through the rim'
                         : 'the fall it runs at — negative climbs'

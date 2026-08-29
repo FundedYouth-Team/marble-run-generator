@@ -139,21 +139,19 @@ function BasePreview() {
 }
 
 /**
- * A post seen square on from the end of the run: a length of tube resting in the
- * cradle at the top of it, the arms coming up either side of the pipe, and the
- * plate it stands on ruled underneath.
+ * A rod struck between two turns of a run, seen side on: the bar itself, and the
+ * two pipes it is holding apart.
  */
 function SupportPreview() {
   return (
     <svg width="78" height="50" viewBox="0 0 46 30" aria-hidden="true">
       <g className="pp-line" strokeWidth="2.4">
-        {/* The tube it carries, seen end on and sitting down in the cradle. */}
-        <circle cx="23" cy="9.5" r="5.4" />
-        {/* The post: two arms curling round the pipe, down to a flat foot. */}
-        <path d="M17.6 10.6a5.4 5.4 0 0 0 10.8 0v2.6a2 2 0 0 1-.6 1.4l-1.2 1.2v9.4h-7v-9.4l-1.2-1.2a2 2 0 0 1-.8-1.4z" />
+        {/* The two things it braces, seen end on. */}
+        <path d="M8 5h30" />
+        <path d="M8 25h30" />
       </g>
-      {/* The plate under it — where the post lands, and why it is there. */}
-      <path className="pp-arrow" d="M6 25.2h34v1.4H6z" />
+      {/* The rod, driven a whisker into both. */}
+      <path className="pp-arrow" d="M21 3.6h4v22.8h-4z" />
     </svg>
   )
 }
@@ -236,7 +234,7 @@ const PARTS: Part[] = [
     axis: 'Down',
     blurb: 'Coil about a dead vertical axis that loses height in a small footprint.',
     detail:
-      'Set how far it drops and how wide it is at the top and at the bottom, and it counts the rings off the room the height leaves them; hold the count by hand instead and the same height over fewer rings is a steeper coil. Either way the fall it runs at follows from those, the same way a real printed helix has only one angle it can sit at.',
+      'Set how far it drops and how wide it is at the top and at the bottom, and it counts the rings off the room the height leaves them; hold the count by hand instead and the same height over fewer rings is a steeper coil. Either way the fall it runs at follows from those, the same way a real printed helix has only one angle it can sit at — so to speed the marble up or slow it down you set that fall and the coil winds its rings to suit, keeping the height and the footprint it had. It arrives braced up its hollow middle by a cage of its own — two hoops and four posts, welded to every turn — which can be moved to the outside, put on both sides, or taken off.',
     preview: CorkscrewPreview,
     add: () => useRun.getState().addPiece('corkscrew'),
   },
@@ -264,12 +262,12 @@ const PARTS: Part[] = [
   },
   {
     id: 'support',
-    name: 'Support',
+    name: 'Rod',
     category: 'structure',
-    axis: 'Up',
-    blurb: 'Post that stands on the ground and cradles the tube above it.',
+    axis: 'Brace',
+    blurb: 'Plain bar struck between two points, to hold them apart.',
     detail:
-      'The other half of the base, and the reason a run can be printed at all: every tube on this stage is hanging in mid-air, and a printed tube hanging in mid-air falls on the floor. A post stands from the workplane up to the underside of the pipe, with a cradle across its top cut to the shape of that pipe — set how far its arms wrap round, from a flat seat to a half-round cup. Set how high the tube it holds sits, how thick the post is across the run and how far it reaches along it, and how far its own corners are rounded. It stands dead upright whatever the run above it is doing; the fall of the run goes into the tilt of the cradle instead, so the groove drops through the post at the angle the tube is already falling at. Sit it on a base and the two overlap and print as one. Where the run doubles back over itself the floor is already taken, so a post stands on the pipe below instead: its underside becomes a saddle straddling that tube, and posts stack as many deep as the run does. Fit to the Run Above reads the height, the fall and the heading straight off whatever tube is over it — or press Supports on the toolbar and every run on the stage gets propped at once.',
+      'The other half of the base, and the reason a run can be printed at all: every tube on this stage is hanging in mid-air, and a printed tube hanging in mid-air falls on the floor. A rod is two ends and a thickness and nothing else — it knows nothing about what it is bracing, which is exactly what lets one part be a post down to the plate, a tie between two turns of a coil, and a spine run down the outside of one from top to bottom. Set how long it is, how thick, and how far its four long corners are rounded; rounded to half the thickness it is a round bar, and left square it is the flattest thing there is to print. It goes where you strike it: take up the Rods tool, click the two points you want held apart, and it arrives pointing where it was struck, driven a whisker into both so it fuses with them rather than merely touching. That button’s menu also braces the whole stage in one press, from whichever side of the tube you pick — under the run, over it, or outside or inside the bend, which on a coil is the difference between keeping its middle clear to look down through and keeping its outside clear to watch the marble.',
     preview: SupportPreview,
     add: () => useRun.getState().addPiece('support'),
   },

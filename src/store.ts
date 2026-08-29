@@ -14,7 +14,15 @@ import {
 // lands in the world, and the layout is the one place that works that out. It is
 // only ever called from an action, so the two modules importing each other never
 // meet at load time.
-import { buildAssembly, chainBox, placedBox, type Segment } from './lib/layout'
+import {
+  buildAssembly,
+  chainBox,
+  directionFor,
+  placedBox,
+  type Assembly,
+  type Chain,
+  type Segment,
+} from './lib/layout'
 // Plain geometry, and no idea this store exists — so the one part whose shape
 // has to be solved rather than described can be solved in one place, and read
 // here and by the centreline alike.
@@ -26,6 +34,7 @@ import {
   corkscrewFall,
   corkscrewLength as corkscrewRunLength,
   corkscrewSlope as coilSlope,
+  coilTurnsForSlope as coilTurnsFor,
   type CorkscrewCoil,
 } from './lib/corkscrew'
 import {
@@ -66,10 +75,11 @@ export type PieceType =
 export type Mode = '2d' | '3d'
 /**
  * What the left button does on the 3D stage. Picking a part is the resting
- * state; the other three are modal because each one reads a click as something
- * other than "select this" — a drag on the arrows, or one end of a joint.
+ * state; the rest are modal because each one reads a click as something other
+ * than "select this" — a drag on the arrows, one end of a joint, or the spot on
+ * the run a post should be stood under.
  */
-export type Tool = 'select' | 'move' | 'rotate' | 'connect' | 'disconnect'
+export type Tool = 'select' | 'move' | 'rotate' | 'connect' | 'disconnect' | 'support'
 /**
  * How wide a handle tool reaches: the runs that were picked, or every run on the
  * stage. See {@link RunState.toolScope} — the two handles do the same thing
@@ -109,8 +119,16 @@ export const OVERLAYS: { id: Overlay; label: string; hint: string }[] = [
     label: 'Axis triad',
     hint: 'the red/green/blue X-Y-Z corner marker in 3D',
   },
-  { id: 'mouse', label: 'Mouse guide', hint: 'what each button does, bottom right' },
-  { id: 'parts', label: 'Active parts list', hint: 'the run’s parts, top left' },
+  {
+    id: 'mouse',
+    label: 'Mouse guide',
+    hint: 'what each button does, bottom right',
+  },
+  {
+    id: 'parts',
+    label: 'Active parts list',
+    hint: 'the run’s parts, top left',
+  },
 ]
 
 const THEME_KEY = 'mrg.theme'
@@ -199,7 +217,10 @@ function initialColor(key: string, fallback: string): string {
 
 /** Either theme keeps its own pair; anything missing or junk falls back to stock. */
 function initialWorkplane(): Record<Theme, Record<WorkplaneColor, string>> {
-  const w = { light: { ...DEFAULT_WORKPLANE.light }, dark: { ...DEFAULT_WORKPLANE.dark } }
+  const w = {
+    light: { ...DEFAULT_WORKPLANE.light },
+    dark: { ...DEFAULT_WORKPLANE.dark },
+  }
   const saved = typeof localStorage !== 'undefined' ? localStorage.getItem(WORKPLANE_KEY) : null
   if (!saved) return w
   try {
@@ -363,9 +384,10 @@ export interface Piece {
    * axis every other part runs down. See {@link Piece.width} for the other way
    * across it and {@link Piece.height} for how thick it is.
    *
-   * Support: how long the post is along the run it carries — how much of the
-   * tube sits in its cradle. Measured the same way a base's depth is, on the
-   * part's own +Z, which for a support is the axis of the tube above it.
+   * Support: how far the rod runs, along its own +Z — which is the line it was
+   * struck along. A rod is described the way a length of tube is, for the plain
+   * reason that unlike every other piece of structure it is a thing with a
+   * direction.
    */
   length: number
   /** Downhill pitch of this piece, degrees. Positive = falling. */
@@ -384,11 +406,6 @@ export interface Piece {
    *
    * A hook carries its turn here too, and turns much further — right round and
    * back on itself. See {@link HOOK_SWEEP_LIMITS}.
-   *
-   * Support: how far the cradle's arms wrap round the tube they carry, degrees
-   * off the bottom of it. Nought is a flat seat the tube rests on; a right
-   * angle is a half-round cup reaching up to the tube's widest point, which is
-   * as far as arms can come before they start closing over it.
    */
   sweep?: number
   /**
@@ -401,9 +418,9 @@ export interface Piece {
    * meets, and it is held to half the shorter side — round a slab off any
    * further and the corners have eaten the middle. See {@link baseSpec}.
    *
-   * Support: the same thing on a smaller plate — how far the four upright
-   * corners of the post are rounded off, held the same way against the shorter
-   * of its two spans. See {@link supportSpec}.
+   * Support: how far the rod's four long corners are rounded off, mm. Nought is
+   * a square bar; half the thickness is a round one, with no case of its own for
+   * either.
    */
   radius?: number
   /**
@@ -416,66 +433,17 @@ export interface Piece {
    */
   roll?: number
   /**
-   * Support: how far above the workplane the axis of the tube the post *stands
-   * on* sits, mm — nought for one standing on the ground.
-   *
-   * The mirror of {@link Piece.height}, and what lets runs be stacked. A post
-   * cannot always reach the plate: on a run that folds back over itself the
-   * floor under the upper level already has the lower level on it, and a column
-   * driven down to the plate would go straight through the pipe it was meant to
-   * pass. So it stands on that pipe instead — its underside is a saddle cut to
-   * the same tube, straddling it exactly as the cradle at the top cups the one
-   * above, and the load goes down through the run itself to whatever is holding
-   * *that* up.
-   *
-   * Nought is not a tube at height nought; it is a flat foot on the plate, which
-   * is what a post standing on the ground has.
-   */
-  foot?: number
-  /**
-   * Support: how far across the post the tube it stands on passes, mm — measured
-   * on the post's own +X, so positive is to the right looking along the run.
-   *
-   * A post is centred under the tube it *carries*, because that is what puts the
-   * cradle under the pipe. It is almost never centred over the tube it *stands
-   * on*: two levels of a switchback cross at one point and are offset either
-   * side of it, and the post has to stand where the upper level is. So the
-   * saddle is cut off-centre by however far the lower pipe really passes, which
-   * is a shift of the groove and nothing else — see `buildSupportGeometry`.
-   */
-  footShift?: number
-  /**
-   * Support: how far the saddle under the post is tipped off level, degrees —
-   * the fall of the tube it is standing on, read along the post's own +Z.
-   *
-   * Its own field rather than {@link Piece.tilt} because the two ends of a post
-   * are two different tubes: the classic case is a switchback, where the level
-   * below runs back the other way, so the same fall seen along the post's own
-   * axis is the opposite sign.
-   */
-  footTilt?: number
-  /**
-   * Support: how far the cradle is tipped off level, degrees, positive falling
-   * — the fall of the tube it is holding up.
-   *
-   * It is the cradle that tips and not the post: a support stands dead upright
-   * wherever it is put, the way a base lies dead flat, because a printed post
-   * leaning over is a printed post that has to be supported itself. So the
-   * groove is cut across the top at an angle instead, and the run drops through
-   * it at the angle it was already falling at. That is why this is a field of
-   * its own rather than {@link Piece.slope}: the slope is what stands a part up
-   * in the world, and a support's is always nought.
-   */
-  tilt?: number
-  /**
    * Base: how wide the slab is, side to side — its size along its own +X.
    *
    * The one dimension of a slab with no field of its own already: its depth is
    * {@link Piece.length} and its thickness {@link Piece.height}, both of which
    * mean the same on a slab as they mean everywhere else.
    *
-   * Support: how thick the post is across the run — the way it is thinnest, and
-   * the one span of it the printed part stands or falls on.
+   * Support: how thick the rod is — the same both ways across it, so one number
+   * describes a bar whether it is round or square.
+   *
+   * Corkscrew: how thick the bars of its cage are — square in section, so again
+   * one number is the whole of it. See {@link corkscrewCage}.
    */
   width?: number
   /**
@@ -488,12 +456,6 @@ export interface Piece {
    *
    * Base: how thick the slab is — the only one of the three that is measured
    * upward, and the one that decides how far the workplane is buried.
-   *
-   * Support: how far above the workplane the axis of the tube it carries sits.
-   * Not how tall the post is: the material stops a tube's radius short of this,
-   * because that is where the cradle has to meet the pipe. Setting the seat
-   * rather than the height is what lets a post be aimed at a run — the run
-   * states where its centreline is, and this is that number.
    */
   height?: number
   /**
@@ -552,6 +514,18 @@ export interface Piece {
    * one, more is gentler.
    */
   ringsSet?: boolean
+  /**
+   * Corkscrew: whether it carries a cage up its hollow middle. Unset is one —
+   * every coil out of the library is braced inside, because a coil printed bare
+   * is a stack of rings held up by nothing. See {@link corkscrewCage}.
+   */
+  innerCage?: boolean
+  /**
+   * Corkscrew: whether it carries a cage round its outside as well. Unset is
+   * none: one cage holds a coil up, and the second is for a coil that wants its
+   * middle left clear to look down through.
+   */
+  outerCage?: boolean
   /** Connectors: length of the leg after the break, mm. */
   exitLength?: number
   /**
@@ -669,7 +643,7 @@ export function breakAngleOf(entrySlope: number, turn: number, slope: number): n
   const t = (turn / 2) * RAD
   const x = Math.cos(t) * Math.sin(((slope - entrySlope) / 2) * RAD)
   const y = Math.sin(t) * Math.cos(((slope + entrySlope) / 2) * RAD)
-  return tidy((Math.acos(clamp(1 - 2 * (x * x + y * y), -1, 1)) / RAD))
+  return tidy(Math.acos(clamp(1 - 2 * (x * x + y * y), -1, 1)) / RAD)
 }
 
 /**
@@ -769,256 +743,83 @@ export const BASE_LIMITS = {
 } as const
 
 /**
- * How big a support may be, mm and degrees.
+ * How big a rod may be, mm.
  *
- * Its own set again, for the reason a base has its own: a post is not a length
- * of tube either. The floor on the width is a wall a printer can actually lay
- * down and a post that will not snap off the plate; the ceiling on the seat is
- * as high as anything on this stage is ever going to stand.
- *
- * The wrap stops at a right angle because that is where the arms reach the
- * widest part of the tube. Past it they would start closing over the pipe, and
- * a cradle that closes over the pipe is not a cradle any more — it is a clamp
- * the run cannot be dropped into, and an overhang the printer cannot lay down.
- *
- * The tilt stops short of the upright, and well short: the groove is cut by a
- * cylinder lying across the post, and the steeper that cylinder is pitched the
- * longer the cut it takes out of the top. Past about here a post is more notch
- * than post, and a run falling that steeply wants a wall beside it rather than a
- * seat under it.
+ * Its own set, because a brace is not a length of tube either. The floor on the
+ * thickness is a bar a printer can lay down and one that will not snap being
+ * handled; the ceiling on the length is longer than any stage this app frames.
+ * The rounding has no floor at all — nought is a square bar, which braces as
+ * well as a round one and prints rather better lying on its side.
  */
 export const SUPPORT_LIMITS = {
-  width: { min: 3, max: 200, step: 0.5 },
-  depth: { min: 4, max: 400, step: 1 },
-  height: { min: 2, max: 1200, step: 0.5 },
-  radius: { min: 0, max: 100, step: 0.5 },
-  wrap: { min: 0, max: 90, step: 1 },
-  tilt: { min: -70, max: 70, step: 0.5 },
-  // A foot standing on the run rather than on the plate. Nought is the floor,
-  // which is where every post stands until something is in the way of it.
-  foot: { min: 0, max: 1200, step: 0.5 },
-  footTilt: { min: -70, max: 70, step: 0.5 },
-  // Shifted right off the post and the saddle is not on it at all, which is a
-  // post standing beside its tube rather than on it. Held to a span rather than
-  // to the post's own width because the width is the user's to change, and a
-  // shift that quietly re-clamped every time the post was narrowed would be a
-  // number that will not stay where it is put.
-  footShift: { min: -200, max: 200, step: 0.5 },
+  width: { min: 1.5, max: 60, step: 0.5 },
+  length: { min: 3, max: 2000, step: 0.5 },
+  radius: { min: 0, max: 30, step: 0.5 },
 } as const
 
 /**
- * What a support is when it lands on the stage: a thin upright fin standing
- * across the run, cradling a tube half a hand above the plate, with its arms
- * reaching a little past halfway up the pipe so the run sits down in it rather
- * than balancing on it.
+ * What a rod is when it lands: a slim round bar, about as thick as a pencil.
  *
- * The two spans are the shape of it, and they are the way round they are for a
- * reason. Across the run it has to be *wider than the tube*, or there is nowhere
- * for the arms to come up and the cradle is a scoop rather than a cup — see
- * {@link supportArms}. Along the run it wants to be thin: a post holds the tube
- * at a place, not over a stretch, and every millimetre of reach is filament
- * spent and plate taken up. A plate on edge is also the one thing a printer
- * makes best.
- *
- * Deliberately much smaller than a base. A base is sized to the whole stage and
- * arrives asking to be resized; a post is sized to one tube, and the size it
- * arrives at is very nearly always the size it stays.
+ * Round because it is what a brace looks like, and because the rounding is held
+ * to half the thickness anyway — set it there and the square section becomes a
+ * circle, with no case of its own. Slim because a brace is doing nothing but
+ * holding two things apart, and every millimetre of it is filament spent and
+ * plate taken up.
  */
 export const SUPPORT_DEFAULTS = {
-  width: 26,
-  depth: 10,
-  height: 90,
+  width: 4,
+  length: 60,
   radius: 2,
-  wrap: 55,
-  tilt: 0,
-  foot: 0,
-  footTilt: 0,
-  footShift: 0,
 } as const
 
 /**
- * A post, in the part's own frame: it stands on the workplane with its
- * underside at y = 0, centred on the origin in x and z, and its top is cut away
- * by the tube it carries.
+ * A rod, in the part's own frame: it starts at the origin and runs down its own
+ * +Z, which is the axis every part in this app is built along.
  *
  * Everything the shape needs and nothing about where it stands — the same
- * bargain {@link baseSpec} and {@link funnelSpec} strike. The one thing it does
- * *not* carry is how fat that tube is: the cradle is cut to whatever the part
- * is set against, which is the run's tube or the post's own, and that is handed
- * in separately by whoever is building the shape.
+ * bargain {@link baseSpec} strikes. Where it stands, and which way it points, is
+ * the part's placement and its fall, exactly as for a length of tube: a rod is
+ * the one piece of structure that is described the way run is, because unlike a
+ * plate or a post it is a thing with a direction.
  */
-export interface SupportPost {
-  /** Across the run, along the part's own +X. */
+export interface SupportRod {
+  /** How thick the bar is, mm — the same both ways across it. */
   width: number
-  /** Along the run, along the part's own +Z. */
-  depth: number
-  /** How far above the workplane the axis of the tube it carries sits, mm. */
-  height: number
-  /** How far the four upright corners are rounded off, mm; nought is square. */
+  /** How far it runs, mm. */
+  length: number
+  /**
+   * How far its four long corners are rounded off, mm; nought is a square bar,
+   * and half the thickness is a round one.
+   */
   radius: number
-  /**
-   * How far the arms wrap round the tube, degrees off the bottom of it — and, on
-   * a post standing on the run, how far the saddle under it straddles down the
-   * sides of the tube it is standing on. One figure for both ends: a post that
-   * cups what it carries and grips what it stands on to the same degree is a
-   * post described by one number instead of two that would never sensibly
-   * differ.
-   */
-  wrap: number
-  /** How far the cradle is tipped off level, degrees, positive falling. */
-  tilt: number
-  /**
-   * How far above the workplane the axis of the tube the post stands on sits,
-   * mm; nought is a flat foot on the plate.
-   */
-  foot: number
-  /** How far the saddle under it is tipped off level, degrees. */
-  footTilt: number
-  /** How far across the post the tube it stands on passes, mm. */
-  footShift: number
 }
 
 /**
- * The support's own numbers, with anything unset filled in and everything held
- * to something that can be built.
+ * The rod's own numbers, with anything unset filled in and everything held to
+ * something that can be built.
  *
- * The corner radius is held against the two spans exactly as a base's is, and
- * for the same reason: two corners share each side. Nothing here is held
- * against the tube — a post whose seat is lower than the pipe is fat is a post
- * with no material left in it, and that is answered where the shape is built
- * rather than here, because the tube is not part of the post's own numbers.
+ * The rounding is held against the thickness for the reason a base's is held
+ * against its shorter side: the two corners either side of a face share it, so
+ * past half the thickness they would be asking for the same material twice.
+ * Held exactly there, the square bar is a round one.
  */
-export function supportSpec(piece: Piece): SupportPost {
+export function supportSpec(piece: Piece): SupportRod {
   const S = SUPPORT_LIMITS
   const width = clamp(piece.width ?? SUPPORT_DEFAULTS.width, S.width.min, S.width.max)
-  const depth = clamp(piece.length, S.depth.min, S.depth.max)
-  const height = clamp(piece.height ?? SUPPORT_DEFAULTS.height, S.height.min, S.height.max)
-  const radius = clamp(
-    piece.radius ?? SUPPORT_DEFAULTS.radius,
-    S.radius.min,
-    Math.min(S.radius.max, Math.min(width, depth) / 2),
-  )
   return {
     width,
-    depth,
-    height,
-    radius,
-    wrap: clamp(piece.sweep ?? SUPPORT_DEFAULTS.wrap, S.wrap.min, S.wrap.max),
-    tilt: clamp(piece.tilt ?? SUPPORT_DEFAULTS.tilt, S.tilt.min, S.tilt.max),
-    // Held under the seat as well as inside its own range: a post standing on
-    // something higher than the thing it is carrying is upside down, and there
-    // is no shape to build for that.
-    foot: clamp(piece.foot ?? SUPPORT_DEFAULTS.foot, S.foot.min, Math.min(S.foot.max, height)),
-    footTilt: clamp(
-      piece.footTilt ?? SUPPORT_DEFAULTS.footTilt,
-      S.footTilt.min,
-      S.footTilt.max,
-    ),
-    footShift: clamp(
-      piece.footShift ?? SUPPORT_DEFAULTS.footShift,
-      S.footShift.min,
-      S.footShift.max,
+    length: clamp(piece.length, S.length.min, S.length.max),
+    radius: clamp(
+      piece.radius ?? SUPPORT_DEFAULTS.radius,
+      S.radius.min,
+      Math.min(S.radius.max, width / 2),
     ),
   }
 }
 
-/**
- * How far up the world a post reaches, mm — the top of the box it occupies.
- *
- * Its seat is where the tube's *axis* sits, and the material stops short of
- * that by a radius, so on a level post the box tops out under the seat. A
- * tilted one is the other way about: the groove is cut on a slope, so the end
- * the run comes in at stands higher than the seat by however far the slope has
- * risen over half the post's length.
- *
- * Read without knowing the tube at all, and deliberately generous where it is
- * uncertain: this is what frames the camera and bounds the drawing, and a box
- * that is a few millimetres too big crops nothing.
- */
-/**
- * How wide a post has to be for its arms to come up at all, mm — the span
- * between the two points on the tube the wrap actually reaches.
- *
- * The wrap says how far round the pipe the cradle climbs, and how far round is
- * how far *out*: arms that reach a third of the way up a tube stand that much
- * wider apart than ones that only cup its underside. A post narrower than this
- * is cut clean through by the groove before the arms have started, so its top is
- * a scoop with no sides and its wrap does nothing at all — which is worth being
- * able to say on screen rather than leaving to be discovered.
- *
- * `cradle` is the outer radius of the tube the post is cut to carry.
- */
-export function supportArms(post: SupportPost, cradle: number): number {
-  return 2 * cradle * Math.sin(post.wrap * RAD)
-}
-
-/**
- * The band of the world a post fills, mm — the box it occupies, floor and
- * ceiling.
- *
- * Its seat is where the tube's *axis* sits, and the material stops short of that
- * by a radius, so on a level post the box tops out under the seat. A tilted one
- * is the other way about: the groove is cut on a slope, so the end the run comes
- * in at stands higher than the seat by however far the slope has risen over half
- * the post's length. The underside works the same way about its own tube, and on
- * a post standing on the plate it is simply the plate.
- *
- * Read without knowing the tube at all, and deliberately generous at both ends:
- * this is what frames the camera and bounds the drawing, and a box that is a few
- * millimetres too big crops nothing.
- */
-export function supportBand(post: SupportPost): { low: number; high: number } {
-  const swing = (deg: number) => (post.depth / 2) * Math.abs(Math.tan(deg * RAD))
-  return {
-    low: post.foot > 0 ? Math.max(0, post.foot - swing(post.footTilt)) : 0,
-    high: post.height + swing(post.tilt),
-  }
-}
-
-/** How far up the world a post reaches, mm — the top of the box it occupies. */
-export function supportRise(post: SupportPost): number {
-  return supportBand(post).high
-}
-
-/**
- * How far up the post there is solid material at its lowest, mm — the floor of
- * the cradle at the deepest the groove is cut, which on a tilted post is at
- * whichever end the run leaves by.
- *
- * This is the height a marble may safely be stopped by, and the reason it is the
- * *lowest* point rather than the seat: a box drawn up to the arms would stand in
- * the bore of the very tube the post is holding, and the marble running down
- * that tube would slam into its own support. Under the pipe there is nothing to
- * hit. See `buildWorld`, which meets a post as the band between this and
- * {@link supportLift}.
- *
- * `cradle` is the outer radius of the tube the post is cut to carry.
- */
-export function supportFloor(post: SupportPost, cradle: number): number {
-  const t = post.tilt * RAD
-  return Math.max(
-    supportLift(post, cradle),
-    post.height - (cradle + (post.depth / 2) * Math.abs(Math.sin(t))) / Math.cos(t),
-  )
-}
-
-/**
- * How far up the post's underside reaches at its highest, mm — the crown of the
- * saddle a stacked post straddles its tube with, and nought for one standing on
- * the plate.
- *
- * The same care as {@link supportFloor} and the same reason, upside down: the
- * saddle arches *over* the tube below, so a box drawn from the plate up would
- * fill the bore of that tube and the marble running down it would hit the post
- * standing on it. Over the pipe there is nothing to hit.
- */
-export function supportLift(post: SupportPost, cradle: number): number {
-  if (post.foot <= 0) return 0
-  const t = post.footTilt * RAD
-  return Math.max(
-    0,
-    post.foot + (cradle + (post.depth / 2) * Math.abs(Math.sin(t))) / Math.cos(t),
-  )
+/** Whether a rod is round in section rather than square-cornered. */
+export function rodIsRound(rod: SupportRod): boolean {
+  return rod.radius >= rod.width / 2 - 1e-6
 }
 
 /**
@@ -1240,6 +1041,158 @@ export function corkscrewPlan(piece: Piece): number {
 /** How far apart the rings sit, mm, centre to centre of the tube. */
 export function corkscrewRingPitch(piece: Piece): number {
   return coilRingPitch(corkscrewSpec(piece))
+}
+
+/**
+ * The ring count that leaves a coil running at `slope` — how a corkscrew is
+ * given a fall, which on this one part is not a field but a consequence.
+ *
+ * Every other part takes the fall it is set to. A coil cannot: its height, its
+ * two widths and how far round it goes already fix the one angle it can sit at
+ * — see {@link slopeIsFixed} — so asking for a fall is really asking for one of
+ * those four to give way, and the ring count is the one that can. Held to the
+ * same quarter turns the count is always held to, so the outlet still lands on
+ * a heading square to the inlet; the fall therefore lands on the nearest one a
+ * whole quarter turn can give rather than exactly where it was asked for.
+ *
+ * What it does *not* touch is the height or either width, which is the point:
+ * the coil keeps its drop and its footprint, so nothing bonded under it moves
+ * and the marble simply gets there faster or slower.
+ */
+export function corkscrewRingsForSlope(piece: Piece, slope: number): number {
+  const R = PIECE_LIMITS.rings
+  const turns = coilTurnsFor(corkscrewSpec(piece), slope, R.max)
+  return clamp(Math.round(turns / R.step) * R.step, R.step, R.max)
+}
+
+/**
+ * The gentlest and the steepest fall this coil can be given, degrees — what the
+ * ring count's own two ends leave it running at.
+ *
+ * Both ends are real limits rather than manners. Wound out to the furthest this
+ * app takes a coil, it is as gentle as it goes; wound in to the quarter turn the
+ * count is floored at, it is a chute with a bend in it. Widening the coil or
+ * cutting its height moves both.
+ */
+export function corkscrewSlopeRange(piece: Piece): { min: number; max: number } {
+  const c = corkscrewSpec(piece)
+  const R = PIECE_LIMITS.rings
+  const at = (turns: number) => Math.abs(tidy(coilSlope({ ...c, turns })))
+  return { min: at(R.max), max: at(R.step) }
+}
+
+/**
+ * The cage a corkscrew is braced with: two hoops and the posts between them,
+ * leaning with the coil the whole way down.
+ *
+ * A coil is the one part in the library that cannot stand up on its own. Every
+ * ring of it hangs over the ring below with nothing between the two, so printed
+ * bare it is a spring holding its own weight — and a rod struck by hand fixes
+ * one turn at a time. The cage fixes all of them at once, and it belongs to the
+ * part rather than beside it: it is printed in the same lump, so it lands with
+ * the coil already braced instead of needing to be found and tied.
+ *
+ * A hoop at the top and a hoop at the bottom, four posts standing between them,
+ * and every post welded to every turn it passes. The posts lean because the
+ * coil does: a coil that narrows on the way down is a cone, and a cage that
+ * stood square inside one would meet the tube at the top and be nowhere near it
+ * at the bottom.
+ *
+ * Inside or outside is a real choice rather than a preference. A coil braced up
+ * its hollow middle keeps its outside clear to watch the marble come down; one
+ * braced round the outside keeps the middle clear to look down through. Both is
+ * both, and is what a tall coil in thin tube wants.
+ */
+export interface CoilCage {
+  /** A cage up the coil's hollow middle. */
+  inner: boolean
+  /** A cage round the outside of it. */
+  outer: boolean
+  /** How thick the bars are, mm — square in section, like a rod left unrounded. */
+  width: number
+  /** How many posts stand between the two hoops. */
+  posts: number
+}
+
+/**
+ * How thick a cage bar may be, mm.
+ *
+ * Thin enough to be a brace rather than a wall — a cage is there to hold the
+ * coil still, and every millimetre of it is filament spent and daylight lost
+ * out of the very thing a corkscrew is built to be looked at through. The floor
+ * is a bar a printer can lay down and one that will not snap being handled,
+ * which is the rod's floor and for the rod's reasons.
+ */
+export const CAGE_LIMITS = { width: { min: 1.5, max: 20, step: 0.5 } } as const
+
+/**
+ * What a coil's cage is when nobody has said otherwise: braced inside, bare
+ * outside, out of bar a shade thicker than a rod's.
+ *
+ * Four posts, and not a number anyone is asked for. One post to a quarter turn
+ * is what keeps every ring held at four points about its circumference, which is
+ * what stops a printed coil leaning; fewer leaves a ring free to sag between its
+ * ties, and more is a fence round the very thing the part is built to watch.
+ */
+export const CAGE_DEFAULTS = { width: 5, posts: 4 } as const
+
+/** The cage's own numbers, with anything unset filled in. */
+export function corkscrewCage(piece: Piece): CoilCage {
+  return {
+    inner: piece.innerCage ?? true,
+    outer: piece.outerCage ?? false,
+    width: clamp(piece.width ?? CAGE_DEFAULTS.width, CAGE_LIMITS.width.min, CAGE_LIMITS.width.max),
+    posts: CAGE_DEFAULTS.posts,
+  }
+}
+
+/** Whether a coil is braced at all — either side of it counts. */
+export function corkscrewCaged(piece: Piece): boolean {
+  if (piece.type !== 'corkscrew') return false
+  const cage = corkscrewCage(piece)
+  return cage.inner || cage.outer
+}
+
+/** The daylight left up the middle of an inner cage at its tightest, mm. */
+export const CAGE_HOLE = 4
+
+/**
+ * How far a cage bar keeps off the channel it stands beside, mm.
+ *
+ * A bar stands flush with the bore, and a straight bar laid against a helix is
+ * flush with it at the turns and a hair proud of it between them: a flat face
+ * cuts the corner of a curve, and a post spanning one turn to the next cuts the
+ * corner of the taper as well. Both are a couple of tenths on a coil of any
+ * size, and the tube's own facets are worth as much again — so this is set past
+ * all of them together. Nothing about the cage may reach into the channel, and
+ * this is what makes that true of the mesh and not only of the arithmetic.
+ */
+export const CAGE_CLEARANCE = 0.6
+
+/**
+ * How much room an inner cage needs between the coil's axis and the tube, mm —
+ * the bore it must not reach into, and the bar itself.
+ *
+ * A cage stands its bars flush with the channel: the face looking at the coil
+ * sits a whisker off the bore's own surface, so it welds into the wall behind it
+ * for very nearly the wall's whole thickness and stops dead where the marble
+ * starts. That puts the inside of an inner cage this far in from the coil's own
+ * line — and a coil narrower than that has no middle left to brace.
+ */
+export function cageReach(cage: CoilCage, innerR: number): number {
+  return innerR + CAGE_CLEARANCE + cage.width
+}
+
+/**
+ * Whether a coil is wide enough at its tightest to hold a cage inside it.
+ *
+ * Only the inner one can run out of room: outside a coil there is always more
+ * room the further out you go, and inside there is only ever less.
+ */
+export function innerCageFits(piece: Piece, innerR: number): boolean {
+  const coil = corkscrewSpec(piece)
+  const least = Math.min(coil.topRadius, coil.bottomRadius)
+  return least - cageReach(corkscrewCage(piece), innerR) >= CAGE_HOLE
 }
 
 /**
@@ -1489,7 +1442,7 @@ export function isStructure(piece: Piece): boolean {
  * part is a fixed thing, and this is what makes it behave like one.
  */
 export function slopeIsFixed(piece: Piece): boolean {
-  return piece.type === 'corkscrew' || piece.type === 'funnel' || isStructure(piece)
+  return piece.type === 'corkscrew' || piece.type === 'funnel' || isBase(piece)
 }
 
 /** The one fall a part with a fall of its own may sit at, degrees. */
@@ -1523,7 +1476,7 @@ function settle(piece: Piece, innerR: number, wall: number): Piece {
   // The post's *cradle* is cut to the tube, but that is a face of the shape
   // rather than a number on the part — see {@link supportSpec}.
   if (isBase(piece)) return slab(piece)
-  if (isSupport(piece)) return post(piece)
+  if (isSupport(piece)) return rod(piece)
   const wound = !slopeIsFixed(piece)
     ? piece
     : piece.type === 'funnel'
@@ -1556,10 +1509,13 @@ function holdLegs(piece: Piece): Piece {
   const feeds = piece.type !== 'funnel' || funnelHasLead(piece)
   const length = feeds ? Math.max(piece.length, least) : piece.length
   // Only the parts built from two legs have an outgoing one to hold.
-  const exit =
-    piece.exitLength === undefined ? undefined : Math.max(piece.exitLength, least)
+  const exit = piece.exitLength === undefined ? undefined : Math.max(piece.exitLength, least)
   if (length === piece.length && exit === piece.exitLength) return piece
-  return { ...piece, length, ...(exit === undefined ? {} : { exitLength: exit }) }
+  return {
+    ...piece,
+    length,
+    ...(exit === undefined ? {} : { exitLength: exit }),
+  }
 }
 
 /**
@@ -1587,44 +1543,22 @@ function slab(piece: Piece): Piece {
 }
 
 /**
- * A support put back on a post that can actually be built: every span inside its
- * own limits, the corners rounded no further than the shorter span allows, the
- * arms and the tilt held where a cradle is still a cradle, and standing dead
- * upright.
+ * A support put back on a rod that can actually be built: a thickness and a
+ * length inside their own limits, and corners rounded no further than half the
+ * thickness — which is a round bar.
+ *
+ * Its fall is *not* held, and that is the one thing worth saying about it. Every
+ * other piece of structure on this stage lies flat or stands square; a rod is a
+ * thing with a direction, and the direction is the whole of what it is for.
  *
  * Written back onto the part for the reason a slab's numbers are: the shape is
- * asked for in places that are handed nothing but the part, so a post held only
+ * asked for in places that are handed nothing but the part, so a rod held only
  * at the sidebar would come back off a file holding whatever the file said.
  */
-function post(piece: Piece): Piece {
-  const { width, depth, height, radius, wrap, tilt, foot, footTilt, footShift } =
-    supportSpec(piece)
-  const square = piece.slope === 0 ? piece : { ...piece, slope: 0 }
-  if (
-    square.width === width &&
-    square.length === depth &&
-    square.height === height &&
-    square.radius === radius &&
-    square.sweep === wrap &&
-    square.tilt === tilt &&
-    square.foot === foot &&
-    square.footTilt === footTilt &&
-    square.footShift === footShift
-  ) {
-    return square
-  }
-  return {
-    ...square,
-    width,
-    length: depth,
-    height,
-    radius,
-    sweep: wrap,
-    tilt,
-    foot,
-    footTilt,
-    footShift,
-  }
+function rod(piece: Piece): Piece {
+  const { width, length, radius } = supportSpec(piece)
+  if (piece.width === width && piece.length === length && piece.radius === radius) return piece
+  return { ...piece, width, length, radius }
 }
 
 /** A coil on the ring count its height and its tube leave it. */
@@ -1735,9 +1669,7 @@ export function exitTurn(piece: Piece): number {
   if (piece.type === 'funnel') return tidy(funnelExitTurn(funnelSpec(piece)))
   if (piece.type !== 'corner') return 0
   const sweep = cornerSpec(piece).sweep * RAD
-  return tidy(
-    Math.atan2(Math.sin(sweep), Math.cos(sweep) * Math.cos(piece.slope * RAD)) / RAD,
-  )
+  return tidy(Math.atan2(Math.sin(sweep), Math.cos(sweep) * Math.cos(piece.slope * RAD)) / RAD)
 }
 
 /**
@@ -1779,7 +1711,11 @@ export function slopeLimitsFor(piece: Piece) {
   if (piece.type === 'hook' || slopeIsFixed(piece)) return { ...S, ...slopeRange(piece) }
   if (piece.type !== 'angle') return S
   const { bend } = angleSpec(piece)
-  return { ...S, min: Math.max(S.min, S.min - bend), max: Math.min(S.max, S.max - bend) }
+  return {
+    ...S,
+    min: Math.max(S.min, S.min - bend),
+    max: Math.min(S.max, S.max - bend),
+  }
 }
 
 /**
@@ -1816,7 +1752,11 @@ export function entrySwingLimitsFor(piece: Piece) {
   const S = PIECE_LIMITS.slope
   const B = PIECE_LIMITS.bend
   const exit = exitSlope(piece)
-  return { ...S, min: Math.max(S.min, exit - B.max), max: Math.min(S.max, exit - B.min) }
+  return {
+    ...S,
+    min: Math.max(S.min, exit - B.max),
+    max: Math.min(S.max, exit - B.min),
+  }
 }
 
 /** Kills the float dust a chain of additions leaves on an angle. */
@@ -1932,7 +1872,10 @@ export function isOpenPort(pieces: Piece[], port: Port): boolean {
  * it lies on exactly the ground the original did, walked backwards.
  */
 function reverseShape(piece: Piece): Partial<Piece> {
-  const legs = { length: piece.exitLength ?? piece.length, exitLength: piece.length }
+  const legs = {
+    length: piece.exitLength ?? piece.length,
+    exitLength: piece.length,
+  }
   if (piece.type === 'angle') return legs
   if (piece.type === 'corner' || piece.type === 'hook') {
     return { ...legs, sweep: tidy(-(piece.sweep ?? 0)) }
@@ -2011,7 +1954,11 @@ function reverseChain(pieces: Piece[], root: number, tail: number): Piece[] {
       turn: i === run.length - 1 ? 0 : tidy(-run[i + 1].turn),
     }))
     .reverse()
-    .map((piece, j) => ({ ...piece, joined: j > 0 ? true : undefined, at: undefined }))
+    .map((piece, j) => ({
+      ...piece,
+      joined: j > 0 ? true : undefined,
+      at: undefined,
+    }))
 }
 
 /**
@@ -2109,7 +2056,10 @@ function lastRunEnd(pieces: Piece[]): number {
  * leading it. Every hand on the selection goes through here, so the lead and the
  * set can never drift apart — see {@link RunState.selectedId}.
  */
-function picked(ids: string[]): { selectedIds: string[]; selectedId: string | null } {
+function picked(ids: string[]): {
+  selectedIds: string[]
+  selectedId: string | null
+} {
   return { selectedIds: ids, selectedId: ids[ids.length - 1] ?? null }
 }
 
@@ -2163,9 +2113,7 @@ function joinPorts(
     ...block[0],
     joined: true,
     at: undefined,
-    slope: slopeIsFixed(block[0])
-      ? block[0].slope
-      : clamp(exitSlope(base[from]), S.min, S.max),
+    slope: slopeIsFixed(block[0]) ? block[0].slope : clamp(exitSlope(base[from]), S.min, S.max),
     turn: 0,
   }
   const joint = [...rest.slice(0, at), ...block, ...rest.slice(at)]
@@ -2206,13 +2154,7 @@ function kinksOf(pieces: Piece[]): number[] {
  * everything bonded behind it: a swing travels along one run and stops where
  * that run ends, rather than dragging every other part on the stage with it.
  */
-function relink(
-  pieces: Piece[],
-  kinks: number[],
-  from: number,
-  to: number,
-  tube: TubeOf,
-): Piece[] {
+function relink(pieces: Piece[], kinks: number[], from: number, to: number, tube: TubeOf): Piece[] {
   const next = pieces.slice()
   let changed = false
   for (let i = Math.max(1, from); i <= Math.min(to, next.length - 1); i++) {
@@ -2539,7 +2481,10 @@ function swingRun(
   const S = slopeRange(pieces[root])
   const kinks = kinksOf(pieces)
   const next = pieces.slice()
-  next[root] = { ...next[root], slope: clamp(tidy(next[root].slope + delta), S.min, S.max) }
+  next[root] = {
+    ...next[root],
+    slope: clamp(tidy(next[root].slope + delta), S.min, S.max),
+  }
   return relink(next, kinks, root + 1, tail, tube)
 }
 
@@ -2675,9 +2620,7 @@ function alignRun(pieces: Piece[], outlet: Port, inlet: Port, tube: TubeOf): Pie
   // number rather than a walk along the parts.
   const swung = placementOf(next[root])
   const yaw = tidy(
-    swung.yaw +
-      tidy(seat.yaw + target.turn) -
-      tidy(headingAt(next, from) + exitTurn(next[from])),
+    swung.yaw + tidy(seat.yaw + target.turn) - tidy(headingAt(next, from) + exitTurn(next[from])),
   )
   next[root] = { ...next[root], at: { ...swung, yaw } }
 
@@ -2913,24 +2856,17 @@ const TYPE_DEFAULTS: Record<PieceType, Omit<Piece, 'id' | 'type'>> = {
     height: BASE_DEFAULTS.height,
     radius: BASE_DEFAULTS.radius,
   },
-  // A support stands square for the same reason a base lies flat, so its fall is
-  // nought too. Its `length` is how far it reaches along the run rather than how
-  // far anything runs down it, and its `height` is where the tube's axis sits
-  // rather than how tall the post is — see {@link Piece.height}. The fall of the
-  // run it carries goes in `tilt`, and a fresh post is cut level: it is aimed at
-  // a run once it has one to aim at, and until then it is a level seat.
+  // A rod is described the way a length of tube is — it runs from where it is
+  // put, along its own heading, for its own length — because unlike every other
+  // piece of structure it is a thing with a direction. One out of the library
+  // lands level and waiting to be aimed; one struck between two points arrives
+  // pointing where it was struck. See {@link rodBetween}.
   support: {
-    length: SUPPORT_DEFAULTS.depth,
+    length: SUPPORT_DEFAULTS.length,
     slope: 0,
     turn: 0,
     width: SUPPORT_DEFAULTS.width,
-    height: SUPPORT_DEFAULTS.height,
     radius: SUPPORT_DEFAULTS.radius,
-    sweep: SUPPORT_DEFAULTS.wrap,
-    tilt: SUPPORT_DEFAULTS.tilt,
-    foot: SUPPORT_DEFAULTS.foot,
-    footTilt: SUPPORT_DEFAULTS.footTilt,
-    footShift: SUPPORT_DEFAULTS.footShift,
   },
 }
 
@@ -2983,7 +2919,7 @@ function spawnPlacement(pieces: Piece[], piece: Piece, outerR: number): Placemen
     // Structure's own frame stands on its bottom face, so it is already sitting
     // on the plane at nought — and nought is the only height it is ever at. See
     // {@link groundSeat}.
-    y: isStructure(piece) ? 0 : Math.round((outerR + Math.max(0, dropOf(piece))) * 10) / 10,
+    y: sitsOnPlane(piece) ? 0 : Math.round((outerR + Math.max(0, dropOf(piece))) * 10) / 10,
     z: 0,
     yaw: 0,
   }
@@ -3007,7 +2943,22 @@ function spawnPlacement(pieces: Piece[], piece: Piece, outerR: number): Placemen
  * is the one axis that is not the user's to set.
  */
 export function groundSeat(piece: Piece, at: Placement): Placement {
-  return isStructure(piece) && at.y !== 0 ? { ...at, y: 0 } : at
+  return sitsOnPlane(piece) && at.y !== 0 ? { ...at, y: 0 } : at
+}
+
+/**
+ * Whether a part's underside is the workplane, as a fact about the part rather
+ * than as somewhere it happens to have been put.
+ *
+ * A base is, and a base is now the only one. A rod is structure too — it takes
+ * no joint, carries no marble and is no part of any run — but it is struck
+ * between two points that may both be a foot in the air, so holding it down
+ * would be holding it away from the very thing it braces. That split is the
+ * whole difference between the two questions: {@link isStructure} asks whether a
+ * part is run, and this asks whether it is on the floor.
+ */
+export function sitsOnPlane(piece: Piece): boolean {
+  return isBase(piece)
 }
 
 /**
@@ -3055,72 +3006,44 @@ function copyParts(
 }
 
 /* ------------------------------------------------------------------ */
-/* Standing posts under the run                                        */
+/* Bracing the run with rods                                           */
 /* ------------------------------------------------------------------ */
 
 /**
- * How far apart posts are set along the run, mm — measured along the tube
- * rather than across the floor, so a steep drop is propped as often as a level
- * stretch is.
+ * How far a rod is pushed past each of the two points it was struck between, mm.
  *
- * A span of tube printed in one piece will bridge a good deal further than
- * this before it sags. What this is really pitched at is the joints: a run this
- * app builds is a chain of short parts pushed together, and a joint with
- * nothing under it is a hinge. About a hand's width puts a post near enough
- * every joint on a stage of ordinary parts without putting one under every
- * single joint, which would be a forest.
+ * A rod clicked from the wall of one tube to the wall of another meets each of
+ * them exactly, and two solids that meet exactly are two solids a slicer may or
+ * may not decide are touching. Driven a little way into each end instead, they
+ * overlap, and overlapping is the one thing every slicer agrees about.
  */
+const ROD_BITE = 1.2
+
+/** The least a rod can usefully be, mm — shorter than this is a pimple. */
+const ROD_LEAST = 3
+
+/** How far apart rods are dropped along a run when the whole stage is braced, mm. */
 const SUPPORT_PITCH = 90
 
-/**
- * How far in from the ends of a run the first and last posts stand, mm.
- *
- * Not nought, because the very tip of a run is the socket or the spigot: a
- * cradle sat across a joint holds the two halves of it apart, which is the one
- * place a post can do harm rather than good.
- */
+/** How far in from the ends of a run the first and last rods stand, mm. */
 const SUPPORT_INSET = 20
 
 /**
  * How much air there has to be under a tube before it is worth propping, mm.
- *
- * Under this the run is already lying on the plate, or buried in the base, and
- * whatever is holding it up is holding it up. A post a millimetre high is not a
- * post — it is a burr on the plate.
+ * Under this the run is already lying on the plate, or buried in the base.
  */
 const SUPPORT_LEAST_AIR = 3
 
-/**
- * How much clear air there has to be between two tubes before a post will be
- * stood between them, mm.
- *
- * More than {@link SUPPORT_LEAST_AIR}, and for a different reason: that one asks
- * whether a tube needs propping at all, this one asks whether there is room to
- * prop it. Two levels of a run this close together are held apart by a wafer,
- * and a wafer is not a post — it is a thin plate the printer lays down in one
- * pass and the first knock breaks. Below this the spot is left alone and the run
- * is propped from the next place along it.
- */
-const SUPPORT_LEAST_POST = 8
+/** How much daylight a rod leaves round anything it is not bracing, mm. */
+const ROD_CLEARANCE = 1.5
 
-/** How much daylight a post leaves round anything it is not holding up, mm. */
-const SUPPORT_CLEARANCE = 2
+/** How finely a chord is walked when asking whether a rod is clear of it, mm. */
+const ROD_STEP = 2
 
 /** One chord of run, with the tube it is actually cut from. */
 interface RunSpan {
   seg: Segment
   outerR: number
-  /**
-   * The bore and wall the part it belongs to was sized on its own to, if it was
-   * — undefined where the part is cut from the run's own tube.
-   *
-   * Carried through to whatever post ends up under it, so a post propping a part
-   * that was sized on its own has a cradle cut to *that* pipe rather than to the
-   * run's. A post over ordinary run keeps neither, so it follows the run's tube
-   * the way every other part does and follows it still when the run is resized.
-   */
-  bore?: number
-  wall?: number
 }
 
 /** Every chord on the stage that is run, each with its own tube. */
@@ -3134,412 +3057,410 @@ function runSpans(
   for (const p of asm.placed) {
     if (isStructure(p.piece)) continue
     const outerR = boreOf(p.piece, runBore) / 2 + wallOf(p.piece, runWall)
-    const own = { bore: p.piece.innerDiameter, wall: p.piece.wallThickness }
     for (const seg of p.segments) {
-      // A chord with no tube round it is not run a post can meet: the funnel's
-      // whirl is the path the marble takes across an open bowl, and there is
-      // neither anything there to cradle nor anything there to stand on.
+      // A chord with no tube round it is no wall a rod could be struck against:
+      // the funnel's whirl is the path the marble takes across an open bowl.
       if (!seg.enclosed) continue
-      spans.push({ seg, outerR, ...own })
+      spans.push({ seg, outerR })
     }
   }
   return spans
 }
 
-/**
- * How much solid post there would be between one footing and one seat, mm.
- *
- * The seat and the foot are both *axes* — where the middle of a tube is — so the
- * post itself is what is left between the two pipes, and a tilt at either end
- * eats into it further, since a groove cut on a slope is cut deeper. This is the
- * same figure {@link supportFloor} and {@link supportLift} give for a post that
- * already exists; it is worked out here from the seating instead, because the
- * question is asked before there is a post to ask it of.
- *
- * `depth` is how far the post would reach along the run.
- */
-function postBody(seat: Seating, footing: Footing, depth: number): number {
-  const bite = (radius: number, deg: number) =>
-    (radius + (depth / 2) * Math.abs(Math.sin(deg * RAD))) / Math.cos(deg * RAD)
-  const floor = seat.seat - bite(seat.outerR, seat.tilt)
-  const lift = footing.foot > 0 ? footing.foot + bite(footing.outerR, footing.footTilt) : 0
-  return floor - lift
-}
-
-/** Where a post stands and what it has to hold when it gets there. */
-export interface Seating {
+/** A point in the world, as a click on the stage hands one over. */
+export interface Spot {
   x: number
+  y: number
   z: number
-  /** How far above the workplane the tube's axis is here, mm. */
-  seat: number
-  /** The tube's own fall here, degrees. */
-  tilt: number
-  /** The heading it is running on here, degrees. */
-  yaw: number
-  /** How fat the tube is here, mm. */
-  outerR: number
-  /** The tube's own bore and wall, where the part carrying it has its own. */
-  bore?: number
-  wall?: number
 }
 
 /**
- * Reads a chord at one point along it: where the axis is, which way it is
- * pointing and how far it is falling.
+ * The rod that would be struck between two points, or null if there is no rod
+ * worth striking there.
  *
- * `along` is how far past the chord's own start the reading is taken, mm.
+ * The whole of what a support is now. Two points and a thickness describe it
+ * completely: where it starts, which way it goes, how far it runs. Nothing about
+ * it is worked out from the run — it does not know what it is bracing and does
+ * not need to, which is what lets one part answer for a post down to the plate,
+ * a tie between two turns of a coil, and a spine run down the outside of one
+ * from top to bottom.
+ *
+ * It is driven a little way past both points so that it overlaps whatever it was
+ * struck between rather than merely touching it — see {@link ROD_BITE}.
+ *
+ * `like` is the last rod on the stage, whose thickness and section the new one
+ * takes, so a stage of them comes out matching.
  */
-function seatingOn(span: RunSpan, along: number): Seating {
-  const { seg } = span
-  const t = clamp(along, 0, seg.length)
-  return {
-    x: seg.start.x + seg.dir.x * t,
-    z: seg.start.z + seg.dir.z * t,
-    seat: seg.start.y + seg.dir.y * t,
-    tilt: tidy((seg.pitch * 180) / Math.PI),
-    yaw: tidy((Math.atan2(seg.dir.x, seg.dir.z) * 180) / Math.PI),
-    outerR: span.outerR,
-    bore: span.bore,
-    wall: span.wall,
-  }
-}
-
-/**
- * How far a point in plan is from a chord's plan, and where along that chord
- * the nearest approach falls — the two questions every test below asks.
- */
-function planApproach(seg: Segment, x: number, z: number) {
-  const dx = seg.end.x - seg.start.x
-  const dz = seg.end.z - seg.start.z
-  const span = dx * dx + dz * dz
-  // A chord running dead up or down has no plan to measure along, so its start
-  // is as near as it gets anywhere.
-  const t = span < 1e-9 ? 0 : clamp(((x - seg.start.x) * dx + (z - seg.start.z) * dz) / span, 0, 1)
-  const near = { x: seg.start.x + dx * t, z: seg.start.z + dz * t }
-  return {
-    /** How far along the chord, mm. */
-    along: t * seg.length,
-    /** Where on the chord's plan the nearest approach falls, world. */
-    at: { x: near.x, y: seg.start.y + (seg.end.y - seg.start.y) * t, z: near.z },
-    /** Height of the axis at the nearest approach, mm. */
-    y: seg.start.y + (seg.end.y - seg.start.y) * t,
-    distance: Math.hypot(x - near.x, z - near.z),
-  }
-}
-
-/**
- * How far off parallel the tube a post stands on may run from the tube it
- * carries, degrees in plan.
- *
- * The saddle under a stacked post is a groove cut along the post's own axis, and
- * the post's axis is set by the tube in its cradle. So the tube it is standing
- * on has to be running roughly the same way — either way round, since a groove
- * has no front and back. Two levels of a switchback are exactly anti-parallel
- * and two levels of a spiral tower are near enough parallel, which between them
- * are what stacking is for. A run crossing underneath at a sharp angle is not:
- * the groove would sit across it on two points rather than along it, and that is
- * a post balancing on a pipe rather than standing on it.
- */
-const SUPPORT_STACK_SQUARE = 15
-
-/** What a post standing here would have to stand on. */
-interface Footing {
-  /** Axis height of the tube it stands on, mm; nought is the plate. */
-  foot: number
-  /** That tube's fall, read along the post's own axis, degrees. */
-  footTilt: number
-  /** How far across the post that tube passes, mm. */
-  footShift: number
-  /** How fat that tube is, mm — nought on the plate. */
-  outerR: number
-}
-
-const ON_THE_GROUND: Footing = { foot: 0, footTilt: 0, footShift: 0, outerR: 0 }
-
-/** What a post standing on one spot would find over its head and under its feet. */
-export interface Overhead {
-  /** The tube it would carry, and everything about it a post needs. */
-  seat: Seating
-  /**
-   * What it would stand on to reach that tube, or null if it cannot stand there
-   * at all — see {@link footingFor}. Null does not stop the top of the post being
-   * fitted; it only means the foot is nobody's to work out but the user's.
-   */
-  footing: Footing | null
-}
-
-/**
- * What a post standing here would rest on — the plate, the run, or nothing it
- * can rest on at all.
- *
- * The post is a column from its footing up to the underside of the tube it is
- * holding, as wide as its own footprint reaches at the corners. Anything the run
- * does inside that column has to be reckoned with. The one thing that does not
- * count is the tube the post is there for, which is picked out by arc length
- * rather than by geometry — see {@link SUPPORT_WINDOW}.
- *
- * With the column clear, the post stands on the plate. With something in it, the
- * post stands on the *highest* of those somethings instead: that is the one it
- * would meet first coming down, everything else is below it and therefore no
- * longer in the way, and the load goes down through the run to whatever is
- * holding that up. It is how a stacked run gets propped at all — see
- * {@link Piece.foot}.
- *
- * Null is the answer when it cannot stand: what is under it is crossing at too
- * sharp an angle to be stood on ({@link SUPPORT_STACK_SQUARE}), or there is not
- * enough daylight between the two tubes to put a post in.
- *
- * `held` names the chord being propped and how far along it the post stands, so
- * that stretch of run and its immediate neighbours are not read as being in the
- * way of the post holding them up.
- */
-function footingFor(
-  spans: RunSpan[],
-  seat: Seating,
-  half: { width: number; depth: number },
-): Footing | null {
-  const top = seat.seat - seat.outerR
-  // The post's own two level axes, in the world: +Z along the run it carries,
-  // +X across it. Everything below is read in these, because the saddle is cut
-  // in them — see {@link Piece.footShift}.
-  const ahead = { x: Math.sin(seat.yaw * RAD), z: Math.cos(seat.yaw * RAD) }
-  const across = { x: Math.cos(seat.yaw * RAD), z: -Math.sin(seat.yaw * RAD) }
-  // The line the tube it is carrying runs on. What the post's cradle is cut to
-  // follow, and so the one line under it that is not in its way.
-  const fall = Math.cos(seat.tilt * RAD)
-  const held = {
-    dir: { x: ahead.x * fall, y: -Math.sin(seat.tilt * RAD), z: ahead.z * fall },
-    at: { x: seat.x, y: seat.seat, z: seat.z },
-  }
-  let perch: { span: RunSpan; at: { x: number; y: number; z: number } } | null = null
-  let second = -Infinity
-  for (const span of spans) {
-    const near = planApproach(span.seg, seat.x, seat.z)
-    // How near it comes to the post's own footprint, rather than to the point in
-    // the middle of it. A post is a fin — wide across the run and thin along it
-    // — so a circle round its middle would reckon a tube a stride further down
-    // the run to be as close as one right beside it.
-    const away = Math.max(1e-9, near.distance)
-    const ux = ((near.at.x - seat.x) * across.x + (near.at.z - seat.z) * across.z) / away
-    const uz = ((near.at.x - seat.x) * ahead.x + (near.at.z - seat.z) * ahead.z) / away
-    const spread = Math.abs(ux) * half.width + Math.abs(uz) * half.depth
-    if (near.distance > span.outerR + spread + SUPPORT_CLEARANCE) continue
-    // Run that only dips under the column is the same pipe carrying on down: the
-    // cradle is cut on the very slope it is falling at, so the post follows it
-    // rather than going into it. A whole tube's radius below is another matter.
-    if (near.y > top - span.outerR) continue
-    // And run on the very line the post is holding is that pipe however far it
-    // has fallen by the time it gets there — the far end of a steep drop, or the
-    // next chord of a curve the post is cradling. Only run that has gone off
-    // somewhere and come back underneath is in the way.
-    const ox = near.at.x - held.at.x
-    const oy = near.y - held.at.y
-    const oz = near.at.z - held.at.z
-    const along = ox * held.dir.x + oy * held.dir.y + oz * held.dir.z
-    const stray = ox * ox + oy * oy + oz * oz - along * along
-    if (stray < span.outerR * span.outerR) continue
-    if (perch) second = Math.max(second, Math.min(near.y, perch.at.y))
-    if (!perch || near.y > perch.at.y) perch = { span, at: near.at }
-  }
-  if (!perch) return ON_THE_GROUND
-
-  // Only one thing may be under a post, and it has to be clear of everything
-  // else. Two tubes at much the same height under the same post means standing
-  // on one and hanging into the other, and there is no saddle that answers for
-  // both — better to leave this spot and prop the run from the next one along.
-  if (second > perch.at.y - perch.span.outerR * 2) return null
-
-  const dir = perch.span.seg.dir
-  // The tube below, in the post's own frame. A groove has no front and back, so
-  // one running the other way about — which is exactly what the level below a
-  // switchback does — is turned round to face the same way the post does, and
-  // its fall comes out the other sign, which is right: descending in the world
-  // and climbing along the post's own axis are the same thing said twice.
-  const flip = dir.x * ahead.x + dir.z * ahead.z < 0 ? -1 : 1
-  const eX = (dir.x * across.x + dir.z * across.z) * flip
-  const eY = dir.y * flip
-  const eZ = (dir.x * ahead.x + dir.z * ahead.z) * flip
-  // How squarely it runs with the post, in plan. A pipe crossing at an angle
-  // would sit in the groove on two points rather than along it, which is a post
-  // balancing on a tube rather than standing on it.
-  const plan = Math.hypot(eX, eZ)
-  if (plan < 1e-6 || eZ / plan < Math.cos(SUPPORT_STACK_SQUARE * RAD)) return null
-
-  // Where that tube crosses the post's own middle. The nearest approach in plan
-  // lands wherever it lands along the post; stepping along the tube to the plane
-  // the saddle is described in is what turns it into the two numbers the shape
-  // is cut from.
-  const dx = perch.at.x - seat.x
-  const dz = perch.at.z - seat.z
-  const localX = dx * across.x + dz * across.z
-  const localZ = dx * ahead.x + dz * ahead.z
-  const step = -localZ / eZ
-  const foot = perch.at.y + step * eY
-  const footShift = localX + step * eX
-  const footTilt = tidy((Math.asin(clamp(-eY, -1, 1)) * 180) / Math.PI)
-
-  const T = SUPPORT_LIMITS.footTilt
-  const S = SUPPORT_LIMITS.footShift
-  if (footTilt < T.min || footTilt > T.max) return null
-  if (footShift < S.min || footShift > S.max) return null
-  // One post, one groove radius: the cradle on top and the saddle underneath are
-  // both cut to the tube the post is set against, so a post cannot stand on a
-  // pipe of a different size from the one it is carrying — the saddle would be
-  // cut for the wrong tube and would bite into it. Rare, since it takes a run
-  // built from two tube sizes *and* stacked over itself, and the answer where it
-  // does happen is to prop that stretch from somewhere else along it.
-  if (Math.abs(perch.span.outerR - seat.outerR) > 0.05) return null
-  return { foot, footTilt, footShift: tidy(footShift), outerR: perch.span.outerR }
-}
-
-/**
- * A post standing at one seating, cut to the same pattern as `like`.
- *
- * The pattern is how a stage of posts comes out matching. Everything about a
- * support except where it stands and what it is holding — how thick it is, how
- * far it reaches along the run, how its corners are cut and how far its arms
- * wrap — is a preference, and the last one made carries that preference on.
- */
-function standPost(seat: Seating, footing: Footing, like: Piece | null): Piece {
-  const pattern: SupportPost = like ? supportSpec(like) : SUPPORT_DEFAULTS
+export function rodBetween(from: Spot, to: Spot, like: Piece | null): Piece | null {
+  const dx = to.x - from.x
+  const dy = to.y - from.y
+  const dz = to.z - from.z
+  const span = Math.hypot(dx, dy, dz)
+  if (span < ROD_LEAST) return null
+  const pattern: SupportRod = like ? supportSpec(like) : SUPPORT_DEFAULTS
+  const length = clamp(
+    tidy(span + ROD_BITE * 2),
+    SUPPORT_LIMITS.length.min,
+    SUPPORT_LIMITS.length.max,
+  )
+  // Backed off along its own line by the bite, so the extra goes on at both ends
+  // rather than all at the far one.
+  const back = ROD_BITE / span
   return makePiece({
     type: 'support',
-    length: pattern.depth,
+    length,
     width: pattern.width,
     radius: pattern.radius,
-    sweep: pattern.wrap,
-    slope: 0,
+    // Which way it points, read the way every other part's heading and fall are:
+    // the heading is where it goes in plan, and the fall is how steeply.
     turn: 0,
-    height: clamp(tidy(seat.seat), SUPPORT_LIMITS.height.min, SUPPORT_LIMITS.height.max),
-    tilt: clamp(seat.tilt, SUPPORT_LIMITS.tilt.min, SUPPORT_LIMITS.tilt.max),
-    foot: clamp(tidy(footing.foot), SUPPORT_LIMITS.foot.min, SUPPORT_LIMITS.foot.max),
-    footTilt: clamp(footing.footTilt, SUPPORT_LIMITS.footTilt.min, SUPPORT_LIMITS.footTilt.max),
-    footShift: clamp(
-      footing.footShift,
-      SUPPORT_LIMITS.footShift.min,
-      SUPPORT_LIMITS.footShift.max,
+    slope: clamp(
+      tidy((Math.asin(clamp(-dy / span, -1, 1)) * 180) / Math.PI),
+      PIECE_LIMITS.slope.min,
+      PIECE_LIMITS.slope.max,
     ),
-    at: { x: tidy(seat.x), y: 0, z: tidy(seat.z), yaw: seat.yaw },
-    ...(seat.bore === undefined ? {} : { innerDiameter: seat.bore }),
-    ...(seat.wall === undefined ? {} : { wallThickness: seat.wall }),
+    at: {
+      x: tidy(from.x - dx * back),
+      y: tidy(from.y - dy * back),
+      z: tidy(from.z - dz * back),
+      yaw: tidy((Math.atan2(dx, dz) * 180) / Math.PI),
+    },
   })
 }
 
-/** How far a post reaches from its own middle, each way across its footprint, mm. */
-export function postHalf(piece: Piece | null): { width: number; depth: number } {
-  const p: SupportPost = piece ? supportSpec(piece) : SUPPORT_DEFAULTS
-  return { width: p.width / 2, depth: p.depth / 2 }
-}
-
 /**
- * What a post standing on this spot would find over its head, or null if there
- * is nothing over it worth holding up.
+ * Whether a rod is clear of every tube but the ones at its own two ends.
  *
- * The *lowest* tube passing overhead, not the nearest and not the highest. A
- * post props what is immediately above it; on a run that folds back over itself
- * the upper level is somebody else's post's job, and a column driven up to it
- * would go straight through the lower one on the way.
- *
- * `half` is how far the post spreads each way from its middle, which is what
- * says whether a tube counts as being overhead at all.
+ * Asked as a plain distance: the rod is walked along its length and every chord
+ * of run is walked along its own, and if the two ever come within a tube's
+ * radius of each other the rod is going through that pipe rather than up to it.
+ * What saves the pipes at its ends is the same thing that makes it a brace —
+ * `ends` names how far in from each end to stop looking, which is the bite plus
+ * enough to cover the wall it was struck against.
  */
-export function tubeOverPost(
-  s: { pieces: Piece[]; innerDiameter: number; wallThickness: number },
-  x: number,
-  z: number,
-  half: { width: number; depth: number },
-): Overhead | null {
-  const spans = runSpans(s.pieces, s.innerDiameter, s.wallThickness)
-  const corner = Math.hypot(half.width, half.depth)
-  let best: Overhead | null = null
+function rodClear(spans: RunSpan[], rod: Piece, ends: number): boolean {
+  const at = placementOf(rod)
+  const dir = directionFor(at.yaw * RAD, rod.slope * RAD)
+  const from = Math.min(ends, rod.length / 2)
+  const to = rod.length - from
+  if (to <= from) return true
+  const steps = Math.max(1, Math.ceil((to - from) / ROD_STEP))
   for (const span of spans) {
-    const near = planApproach(span.seg, x, z)
-    if (near.distance > span.outerR + corner) continue
-    if (near.y - span.outerR < SUPPORT_LEAST_AIR) continue
-    const seat = seatingOn(span, near.along)
-    if (best && seat.seat >= best.seat.seat) continue
-    best = { seat, footing: footingFor(spans, seat, half) }
+    const { seg } = span
+    const keep = span.outerR + ROD_CLEARANCE
+    for (let i = 0; i <= steps; i++) {
+      const s = from + ((to - from) * i) / steps
+      const px = at.x + dir.x * s
+      const py = at.y + dir.y * s
+      const pz = at.z + dir.z * s
+      const ax = seg.end.x - seg.start.x
+      const ay = seg.end.y - seg.start.y
+      const az = seg.end.z - seg.start.z
+      const len = ax * ax + ay * ay + az * az
+      const t =
+        len < 1e-9
+          ? 0
+          : clamp(
+              ((px - seg.start.x) * ax + (py - seg.start.y) * ay + (pz - seg.start.z) * az) / len,
+              0,
+              1,
+            )
+      const qx = px - (seg.start.x + ax * t)
+      const qy = py - (seg.start.y + ay * t)
+      const qz = pz - (seg.start.z + az * t)
+      if (qx * qx + qy * qy + qz * qz < keep * keep) return false
+    }
   }
-  return best
+  return true
 }
 
 /**
- * Every post the run is asking for, worked out from scratch — the whole of what
- * pressing Add Supports does.
+ * Every rod the run is asking for, worked out from scratch — what pressing Brace
+ * Every Run does.
  *
- * The walk is along the run rather than across the floor: each run is paced out
- * from a little inside one end to a little inside the other, and a post is
- * offered at every pace. Three things turn an offer down.
+ * Each run is paced out from a little inside one end to a little inside the
+ * other, and at every pace a rod is dropped straight down from the underside of
+ * the tube to the first thing beneath it: the plate, or another turn of the run
+ * where the plate is already taken. That second case is what braces a coil,
+ * whose every turn hangs over the one below it.
  *
- * - There is no air under the tube there. It is already lying on the plate, or
- *   sunk in the base, and something is already holding it up.
- * - Something is standing there already. Posts a few millimetres apart are one
- *   post and a waste of filament, so a spot within half a pace of one already
- *   placed — including one placed by this very walk — is left to it.
- * - The column would go through the run to get there. See {@link postIsFouled},
- *   which is what keeps a post out of the middle of a coil and off the lower
- *   level of a switchback.
- *
- * What it does not do is take a view about whether a span really needs propping.
- * Every part of this app makes a fixed printed thing, and a fixed printed thing
- * hanging in the air is the one failure this exists to prevent — so it props
- * everything it can reach and leaves the pruning to whoever is looking at it.
+ * It is the plain answer rather than the clever one, and deliberately so. A rod
+ * down the outside of a coil from top to bottom, tying every turn on the way, is
+ * a better brace than a dozen little ones — but it is also one gesture with the
+ * tool in hand, and no rule is going to find that line as well as an eye will.
+ * What this is for is the run that just needs propping.
  */
-function plantSupports(s: {
-  pieces: Piece[]
-  innerDiameter: number
-  wallThickness: number
-}): Piece[] {
+function braceRuns(
+  s: { pieces: Piece[]; innerDiameter: number; wallThickness: number },
+  side: BraceSide,
+): Piece[] {
   const asm = buildAssembly(s.pieces)
   const spans = runSpans(s.pieces, s.innerDiameter, s.wallThickness, asm)
   if (!spans.length) return []
-  // The pattern every new post is cut to, and every post already standing —
-  // which is both what stops a second one landing on the first and what a new
-  // one takes its shape from.
   const like = [...s.pieces].reverse().find(isSupport) ?? null
-  const half = postHalf(like)
-  const standing: { x: number; z: number }[] = []
+  const pattern: SupportRod = like ? supportSpec(like) : SUPPORT_DEFAULTS
+  const reach = pattern.width / 2 + ROD_CLEARANCE
+  const standing: { x: number; z: number; top: number }[] = []
   for (const p of asm.placed) {
-    if (isSupport(p.piece)) standing.push({ x: p.start.x, z: p.start.z })
+    if (!isSupport(p.piece)) continue
+    const at = placementOf(p.piece)
+    standing.push({ x: at.x, z: at.z, top: at.y })
   }
 
-  const T = SUPPORT_LIMITS.tilt
-  const planted: Piece[] = []
-  for (const run of asm.chains) {
+  const struck: Piece[] = []
+  for (const [chain, run] of asm.chains.entries()) {
     if (!run.segments.length) continue
-    // Paced out from inside one end to inside the other, and a run too short for
-    // even that gets the one post at its middle rather than none at all.
-    const first = Math.min(SUPPORT_INSET, run.length / 2)
-    const last = Math.max(first, run.length - SUPPORT_INSET)
-    const paces = Math.max(1, Math.round((last - first) / SUPPORT_PITCH) + 1)
-    for (let i = 0; i < paces; i++) {
-      const arc = paces === 1 ? (first + last) / 2 : first + ((last - first) * i) / (paces - 1)
-      const span =
-        run.segments.find((seg) => arc < seg.startS + seg.length) ??
-        run.segments[run.segments.length - 1]
-      const held = spans.find((r) => r.seg === span)
+    for (const arc of braceStations(asm, chain, run)) {
+      const seg =
+        run.segments.find((g) => arc < g.startS + g.length) ?? run.segments[run.segments.length - 1]
+      const held = spans.find((r) => r.seg === seg)
       if (!held) continue
-      const seat = seatingOn(held, arc - span.startS)
-      // A cradle is a seat, and a run falling this steeply is past being seated:
-      // what it wants is a wall beside it, which is not this part.
-      if (seat.tilt < T.min || seat.tilt > T.max) continue
-      if (seat.seat > SUPPORT_LIMITS.height.max) continue
-      if (standing.some((p) => Math.hypot(p.x - seat.x, p.z - seat.z) < SUPPORT_PITCH / 2)) continue
-      // Where it would stand: the plate, or the run under it on a stacked stage.
-      // Null is a spot no post can be put in at all, and the run there is left
-      // to be propped from somewhere else along it.
-      const footing = footingFor(spans, seat, half)
-      if (!footing) continue
-      // And whether there is a post's worth of room between the two once both
-      // grooves have been cut. This is the one test that catches a tube lying
-      // all but on the plate and two levels all but touching alike — both are
-      // the same question, which is whether anything would be left to print.
-      if (postBody(seat, footing, half.depth * 2) < SUPPORT_LEAST_POST) continue
-      standing.push({ x: seat.x, z: seat.z })
-      planted.push(standPost(seat, footing, like))
+      const t = clamp(arc - seg.startS, 0, seg.length)
+      const axis = {
+        x: seg.start.x + seg.dir.x * t,
+        y: seg.start.y + seg.dir.y * t,
+        z: seg.start.z + seg.dir.z * t,
+      }
+      const from = braceFoot(axis, seg, held.outerR, side)
+      // Two rods on the same patch of floor at much the same height are one rod
+      // repeated; at different heights they are a stack, which is what a coil
+      // wants — a tie for every turn of it.
+      const repeat = standing.some(
+        (r) =>
+          Math.hypot(r.x - from.x, r.z - from.z) < SUPPORT_PITCH / 2 &&
+          Math.abs(r.top - from.y) < held.outerR * 2,
+      )
+      if (repeat) continue
+
+      // Up to the first thing over it, or down to the first thing under it —
+      // which on the plate side is the plate, and on a run stacked over itself is
+      // whatever turn of it is in the way.
+      let to = 0
+      if (side === 'up') {
+        to = Infinity
+        for (const span of spans) {
+          if (span === held) continue
+          const over = spanOver(span, from, reach)
+          if (over !== null && over < to && over > from.y) to = over
+        }
+        // Nothing overhead to tie to. A rod into thin air holds nothing.
+        if (!Number.isFinite(to)) continue
+      } else {
+        // Already resting on something: a rod here would be a pimple on the plate.
+        if (from.y < SUPPORT_LEAST_AIR) continue
+        for (const span of spans) {
+          if (span === held) continue
+          const under = spanUnder(span, from, reach)
+          if (under !== null && under > to && under < from.y) to = under
+        }
+      }
+
+      const rod = rodBetween(from, { x: from.x, y: to, z: from.z }, like)
+      if (!rod) continue
+      // Bitten into both ends, so what has to be ignored at each is the bite and
+      // the wall it was struck against.
+      if (!rodClear(spans, rod, ROD_BITE + held.outerR * 2)) continue
+      standing.push({ x: from.x, z: from.z, top: from.y })
+      struck.push(rod)
     }
   }
-  return planted
+  return struck
+}
+
+/**
+ * Where round the tube a rod is struck from, and so which way it then runs.
+ *
+ * Under the run and over it are the two plain ones. The other two are about a
+ * run that curves: outside the bend or inside it, which on a coil is outside the
+ * spiral or up its hollow middle. Which of those you want is a question about
+ * what you are looking at — a coil braced up its middle keeps its outside clear
+ * to watch the marble down, and one braced outside keeps the middle clear to
+ * look down through. A coil that narrows as it falls wants the outside, because
+ * inside it the turns are closing in on each other.
+ */
+export type BraceSide = 'down' | 'up' | 'outward' | 'inward'
+
+/**
+ * The point on the tube's surface a rod is struck from, for one side.
+ *
+ * Under and over are straight down and straight up from the axis. Outside and
+ * inside are level, out along the way the run is bending — so the rod leaves the
+ * pipe at its flank and then runs vertically past it, clear of the bore. A chord
+ * with no bend in it has no outside or inside to speak of, and is braced from
+ * underneath instead.
+ */
+function braceFoot(
+  axis: Spot,
+  seg: Segment,
+  outerR: number,
+  side: BraceSide,
+): Spot {
+  if (side === 'up') return { ...axis, y: axis.y + outerR }
+  if (side === 'down' || !seg.curve) return { ...axis, y: axis.y - outerR }
+  // `toward` points at the middle of the turn, so inward follows it and outward
+  // is its back. Levelled off first: a rod runs up and down, so what is wanted
+  // is the way out in plan rather than the way out square to the pipe.
+  const lean = side === 'inward' ? 1 : -1
+  const ax = seg.curve.toward.x * lean
+  const az = seg.curve.toward.z * lean
+  const flat = Math.hypot(ax, az)
+  if (flat < 1e-6) return { ...axis, y: axis.y - outerR }
+  return { x: axis.x + (ax / flat) * outerR, y: axis.y, z: axis.z + (az / flat) * outerR }
+}
+
+/**
+ * How low a chord's tube reaches directly over a point — {@link spanUnder} the
+ * other way up, for a rod struck from the top of the run and reaching upward.
+ */
+function spanOver(span: RunSpan, at: Spot, reach: number): number | null {
+  const under = spanUnder(span, at, reach)
+  if (under === null) return null
+  // The two answers are the same distance either side of the axis, so the top
+  // face and the bottom face are one subtraction apart.
+  const { seg } = span
+  const dx = seg.end.x - seg.start.x
+  const dz = seg.end.z - seg.start.z
+  const flat = dx * dx + dz * dz
+  const t =
+    flat < 1e-9
+      ? 0
+      : clamp(((at.x - seg.start.x) * dx + (at.z - seg.start.z) * dz) / flat, 0, 1)
+  const y = seg.start.y + (seg.end.y - seg.start.y) * t
+  return y - (under - y)
+}
+
+/**
+ * How far round a turn two rods have to differ by before they read as staggered
+ * rather than stacked, as a share of a whole revolution.
+ *
+ * A coil braced once per turn comes out as a ladder up one side whenever the
+ * turns divide neatly by the rods — every rod at the same angle, which is a
+ * fence across the very thing you built a coil to watch. Where that happens one
+ * more rod is used instead, which shifts every one of them round a little from
+ * the last and leaves a clear view down between any two.
+ */
+const COIL_STAGGER = 0.08
+
+/**
+ * Where along a run the rods go — one arc position each, in order.
+ *
+ * Two rules, because a coil is not like anything else on the stage. Every other
+ * run is paced out at a steady stride and propped wherever the stride lands. A
+ * coil is bracing itself turn by turn, and what it wants is exactly one tie for
+ * each of those turns: one is enough to hold it, and more than one is a fence
+ * round the very thing you built a coil to watch. So the stretch of the run a
+ * corkscrew occupies is taken out of the stride and paced by its own turns
+ * instead — see {@link COIL_STAGGER} for where round each one lands.
+ */
+function braceStations(asm: Assembly, chain: number, run: Chain): number[] {
+  // The stretches of this run that are coil, and a station for every turn of it.
+  const coils: { from: number; to: number }[] = []
+  const stations: number[] = []
+  for (const at of run.pieces) {
+    const p = asm.placed[at]
+    if (p.chain !== chain || p.piece.type !== 'corkscrew') continue
+    const coil = corkscrewSpec(p.piece)
+    const turns = Math.abs(coil.turns)
+    if (!p.segments.length || turns < 1e-6) continue
+    // The helix alone, with the straight stub at each end taken off. Those stubs
+    // are ordinary run and are paced with the rest of it — counted as coil they
+    // would throw every station off, since a share of the *arc* only answers for
+    // a share of the *turns* where all of the arc is actually going round.
+    const from = p.startS + coil.entry
+    const to = p.startS + p.length - coil.exit
+    if (to - from < 1e-6) continue
+    coils.push({ from, to })
+
+    // One rod a turn, spread evenly by *how far round the coil has gone* rather
+    // than by how much of its length has been used up. On a coil that tapers the
+    // two are not the same thing at all — an outer turn is half as long again as
+    // an inner one, so equal shares of the run put two rods on one turn and none
+    // on the next.
+    //
+    // How far round is added up from the run's own heading, chord by chord,
+    // which wants no knowing where the coil's axis is: a run that has turned
+    // through two whole revolutions has been round twice wherever its middle
+    // happens to be.
+    const helix = p.segments.filter((seg) => {
+      const mid = seg.startS + seg.length / 2
+      return mid >= from && mid <= to
+    })
+    if (helix.length < 2) continue
+    const bearing = (seg: Segment) => Math.atan2(seg.dir.x, seg.dir.z)
+    const marks: { arc: number; turned: number }[] = [{ arc: helix[0].startS, turned: 0 }]
+    let turned = 0
+    for (let i = 1; i < helix.length; i++) {
+      let step = bearing(helix[i]) - bearing(helix[i - 1])
+      // The short way round, so a heading crossing due north adds a hair rather
+      // than a whole revolution.
+      while (step > Math.PI) step -= Math.PI * 2
+      while (step < -Math.PI) step += Math.PI * 2
+      turned += Math.abs(step)
+      marks.push({ arc: helix[i].startS, turned })
+    }
+    if (turned < 1e-6) continue
+
+    // Staggered, and by construction: rods an even share of the turning apart
+    // sit at the same angle only where that share is a whole revolution, and
+    // there one more is struck, which shifts every one of them round again.
+    let count = Math.max(1, Math.floor(turns))
+    const revs = (n: number) => turned / (Math.PI * 2) / n
+    if (count > 1 && Math.abs(revs(count) - Math.round(revs(count))) < COIL_STAGGER) count += 1
+    for (let k = 0; k < count; k++) {
+      const want = (turned * (k + 0.5)) / count
+      const at = marks.findIndex((m) => m.turned >= want)
+      if (at <= 0) continue
+      const a = marks[at - 1]
+      const b = marks[at]
+      const f = b.turned > a.turned ? (want - a.turned) / (b.turned - a.turned) : 0
+      stations.push(a.arc + (b.arc - a.arc) * f)
+    }
+  }
+
+  // And the ordinary stride over everything that is not coil.
+  const first = Math.min(SUPPORT_INSET, run.length / 2)
+  const last = Math.max(first, run.length - SUPPORT_INSET)
+  const paces = Math.max(1, Math.round((last - first) / SUPPORT_PITCH) + 1)
+  for (let i = 0; i < paces; i++) {
+    const arc = paces === 1 ? (first + last) / 2 : first + ((last - first) * i) / (paces - 1)
+    if (!coils.some((c) => arc >= c.from && arc <= c.to)) stations.push(arc)
+  }
+  return stations.sort((a, b) => a - b)
+}
+
+/**
+ * How high a chord's tube reaches *directly under* a point, or null if it does
+ * not pass under it at all.
+ *
+ * Directly under is the whole of it. A pipe is round, so its surface is highest
+ * on its own centreline and falls away to either side, and a rod dropped down
+ * beside one lands lower than a rod dropped down the middle of it. Reading every
+ * pipe as though it were at full height however far off to the side it passed —
+ * which is what this used to do — put the floor under a coil a couple of
+ * millimetres below the tube above it, and every rod between those two turns was
+ * refused for being too short to be worth striking. Which is why a tapering coil
+ * came back with a bare stretch down the middle of it.
+ *
+ * `reach` is how far to the side the rod itself spreads, so a bar whose edge is
+ * over the pipe still lands on it.
+ */
+function spanUnder(span: RunSpan, at: Spot, reach: number): number | null {
+  const { seg } = span
+  const dx = seg.end.x - seg.start.x
+  const dz = seg.end.z - seg.start.z
+  const flat = dx * dx + dz * dz
+  const t =
+    flat < 1e-9
+      ? 0
+      : clamp(((at.x - seg.start.x) * dx + (at.z - seg.start.z) * dz) / flat, 0, 1)
+  const away = Math.hypot(at.x - (seg.start.x + dx * t), at.z - (seg.start.z + dz * t))
+  if (away > span.outerR + reach) return null
+  // Where the top of the pipe is at that much off its own middle. A rod wider
+  // than the pipe is over the crown of it whatever the offset, so the reach is
+  // taken off before the curve is read.
+  const over = Math.max(0, away - reach)
+  const y = seg.start.y + (seg.end.y - seg.start.y) * t
+  return y + Math.sqrt(Math.max(0, span.outerR * span.outerR - over * over))
 }
 
 /**
@@ -3550,7 +3471,12 @@ function plantSupports(s: {
  * closed the run up two different ways would be a delete that drifts.
  */
 function dropPart(
-  s: { pieces: Piece[]; keepConnected: boolean; innerDiameter: number; wallThickness: number },
+  s: {
+    pieces: Piece[]
+    keepConnected: boolean
+    innerDiameter: number
+    wallThickness: number
+  },
   id: string,
 ): Piece[] | null {
   const i = s.pieces.findIndex((p) => p.id === id)
@@ -4050,33 +3976,36 @@ interface RunState {
    */
   fitBaseToRun: (pieceId: string) => void
   /**
-   * Stands a support up to whatever tube is passing over it: it takes the height
-   * of that tube's axis, the fall it is running at and the heading it is running
-   * on, so the cradle lies along the pipe and the pipe sits down in it.
+   * Where the first of a rod's two clicks landed, or null between gestures.
    *
-   * Where it stands is left alone. That is the whole division of labour on this
-   * part — sliding a post about the floor is a thing you can see yourself doing
-   * and do better than any rule; reading a height off a run to a tenth of a
-   * millimetre is not.
-   *
-   * The lowest tube overhead wins, not the nearest: on a run that folds back
-   * over itself the level above is another post's job, and reaching for it would
-   * mean going through the level below. Does nothing if the part named is not a
-   * support, or if there is nothing but sky over it.
+   * A rod is struck between two points, so the tool has a half-made state the
+   * way the Connector does — see {@link RunState.pendingPort}, which this is the
+   * same idea as. Nothing is built and nothing reaches the timeline until the
+   * second click says what the rod is between.
    */
-  fitSupportToRun: (pieceId: string) => void
+  pendingSpot: Spot | null
   /**
-   * Paces out every run on the stage and stands a post under it wherever one
-   * will fit — the printable answer to a run that is hanging in mid-air, done in
-   * one step rather than a post at a time.
+   * Takes one of the two clicks a rod is struck between. The first is only
+   * remembered; the second builds the rod and clears it.
    *
-   * The posts are cut to match the last one on the stage, so setting one up by
-   * hand and then pressing this gives a stage of posts that agree with it. See
-   * {@link plantSupports} for what makes it decline a spot; in short, it will not
-   * put a post where the ground already is, where a post already stands, or
-   * where the column would have to go through the run to get there.
+   * A pair of clicks that land all but on top of each other builds nothing and
+   * keeps the first, so a mis-click reads as a miss rather than as the whole
+   * gesture being thrown away.
    */
-  addSupports: () => void
+  strikeRod: (spot: Spot) => void
+  /** Forgets a half-made rod — the tool being put down, or Escape. */
+  dropSpot: () => void
+  /**
+   * Paces out every run on the stage and drops a rod from the underside of the
+   * tube to the first thing beneath it, wherever one will fit.
+   *
+   * The plain answer rather than the clever one: it props a run that needs
+   * propping, and on a coil it ties each turn to the one below. The better brace
+   * for a coil — one rod down the outside from top to bottom, tying every turn
+   * on the way — is a single gesture with the tool in hand, and no rule finds
+   * that line as well as an eye does.
+   */
+  braceEveryRun: (side: BraceSide) => void
   addPiece: (type?: PieceType) => void
   /**
    * Copies the parts named and hands the selection over to the copies, so the
@@ -4237,7 +4166,12 @@ export const useRun = create<RunState>((set, get) => {
       // Anything that was redoable is gone the moment a new step lands.
       const history = s.history.slice(0, s.historyIndex + 1)
       if (fold) {
-        history[history.length - 1] = { ...history[history.length - 1], label, at: now, snap }
+        history[history.length - 1] = {
+          ...history[history.length - 1],
+          label,
+          at: now,
+          snap,
+        }
       } else {
         history.push({ id: ++entrySeq, label, at: now, snap })
         // One spare for the state the ten steps started from.
@@ -4279,6 +4213,7 @@ export const useRun = create<RunState>((set, get) => {
     tool: 'select',
     toolScope: 'selected',
     pendingPort: null,
+  pendingSpot: null,
 
     pieceColor: initialColor(PIECE_COLOR_KEY, DEFAULT_PIECE_COLOR),
     marbleColor: initialColor(MARBLE_COLOR_KEY, DEFAULT_MARBLE_COLOR),
@@ -4310,7 +4245,14 @@ export const useRun = create<RunState>((set, get) => {
     leftPanel: 'parameters',
 
     // The run always has somewhere to step back to, even before the first edit.
-    history: [{ id: ++entrySeq, label: 'Opening state', at: Date.now(), snap: INITIAL_SNAPSHOT }],
+    history: [
+      {
+        id: ++entrySeq,
+        label: 'Opening state',
+        at: Date.now(),
+        snap: INITIAL_SNAPSHOT,
+      },
+    ],
     historyIndex: 0,
 
     // Naming the run is not a change to the run, so neither of these is a step.
@@ -4375,7 +4317,14 @@ export const useRun = create<RunState>((set, get) => {
           running: false,
           simStarted: false,
           resetToken: s.resetToken + 1,
-          history: [{ id: ++entrySeq, label: `Opened ${projectName}`, at: Date.now(), snap }],
+          history: [
+            {
+              id: ++entrySeq,
+              label: `Opened ${projectName}`,
+              at: Date.now(),
+              snap,
+            },
+          ],
           historyIndex: 0,
         }
       }),
@@ -4415,9 +4364,7 @@ export const useRun = create<RunState>((set, get) => {
       const shortcuts = { ...current, [action]: shortcut }
       // Whoever held that key takes the one being given up, so the pair trade
       // rather than both answering to it.
-      const clash = SHORTCUT_ACTIONS.find(
-        (a) => a !== action && sameShortcut(current[a], shortcut),
-      )
+      const clash = SHORTCUT_ACTIONS.find((a) => a !== action && sameShortcut(current[a], shortcut))
       if (clash) shortcuts[clash] = current[action]
       remember(SHORTCUTS_KEY, JSON.stringify(shortcuts))
       set({ shortcuts })
@@ -4454,7 +4401,9 @@ export const useRun = create<RunState>((set, get) => {
           // Typing the bore a part already has changes nothing, whether it holds
           // that bore itself or follows the run's.
           if (!piece || boreOf(piece, s.innerDiameter) === innerDiameter) return null
-          return { pieces: s.pieces.map((p) => (p.id === id ? { ...p, innerDiameter } : p)) }
+          return {
+            pieces: s.pieces.map((p) => (p.id === id ? { ...p, innerDiameter } : p)),
+          }
         },
         // Holding the stepper down folds into one step, like every other field.
         `bore:${id}`,
@@ -4465,7 +4414,9 @@ export const useRun = create<RunState>((set, get) => {
         (s) => {
           const piece = s.pieces.find((p) => p.id === id)
           if (!piece || wallOf(piece, s.wallThickness) === wallThickness) return null
-          return { pieces: s.pieces.map((p) => (p.id === id ? { ...p, wallThickness } : p)) }
+          return {
+            pieces: s.pieces.map((p) => (p.id === id ? { ...p, wallThickness } : p)),
+          }
         },
         `wall:${id}`,
       ),
@@ -4490,14 +4441,18 @@ export const useRun = create<RunState>((set, get) => {
         }
       }),
     setVariant: (variant) =>
-      commit(`Style: ${VARIANT_LABEL[variant]}`, (s) => (s.variant === variant ? null : { variant })),
+      commit(`Style: ${VARIANT_LABEL[variant]}`, (s) =>
+        s.variant === variant ? null : { variant },
+      ),
     setPieceVariant: (id, variant) =>
       commit(`${nameOf(get(), id)} style: ${VARIANT_LABEL[variant]}`, (s) => {
         const piece = s.pieces.find((p) => p.id === id)
         // Picking the style a part is already cut in changes nothing, whether it
         // holds that style itself or follows the run's.
         if (!piece || variantOf(piece, s.variant) === variant) return null
-        return { pieces: s.pieces.map((p) => (p.id === id ? { ...p, variant } : p)) }
+        return {
+          pieces: s.pieces.map((p) => (p.id === id ? { ...p, variant } : p)),
+        }
       }),
     applyVariantToAll: (variant) =>
       commit(`Style all: ${VARIANT_LABEL[variant]}`, (s) => {
@@ -4520,7 +4475,9 @@ export const useRun = create<RunState>((set, get) => {
         // Picking the side a part already opens on changes nothing, whether it
         // holds that side itself or follows the run's.
         if (!piece || openSideOf(piece, s.openSide) === openSide) return null
-        return { pieces: s.pieces.map((p) => (p.id === id ? { ...p, openSide } : p)) }
+        return {
+          pieces: s.pieces.map((p) => (p.id === id ? { ...p, openSide } : p)),
+        }
       }),
     applyOpenSideToAll: (openSide) =>
       commit(`Opens all: ${OPEN_SIDE_LABEL[openSide]}`, (s) => {
@@ -4545,7 +4502,9 @@ export const useRun = create<RunState>((set, get) => {
           // Picking the colour a part is already drawn in changes nothing, whether
           // it holds that colour itself or follows the run's.
           if (!piece || colorOf(piece, s.pieceColor) === color) return null
-          return { pieces: s.pieces.map((p) => (p.id === id ? { ...p, color } : p)) }
+          return {
+            pieces: s.pieces.map((p) => (p.id === id ? { ...p, color } : p)),
+          }
         },
         // Dragging around the colour picker folds into one step.
         `color:${id}`,
@@ -4567,13 +4526,19 @@ export const useRun = create<RunState>((set, get) => {
     },
     setWorkplaneColor: (which, color) => {
       const theme = get().theme
-      const workplane = { ...get().workplane, [theme]: { ...get().workplane[theme], [which]: color } }
+      const workplane = {
+        ...get().workplane,
+        [theme]: { ...get().workplane[theme], [which]: color },
+      }
       remember(WORKPLANE_KEY, JSON.stringify(workplane))
       set({ workplane })
     },
     resetWorkplane: () => {
       const theme = get().theme
-      const workplane = { ...get().workplane, [theme]: { ...DEFAULT_WORKPLANE[theme] } }
+      const workplane = {
+        ...get().workplane,
+        [theme]: { ...DEFAULT_WORKPLANE[theme] },
+      }
       remember(WORKPLANE_KEY, JSON.stringify(workplane))
       set({ workplane })
     },
@@ -4712,7 +4677,11 @@ export const useRun = create<RunState>((set, get) => {
               ? // Its own turn still counts towards where it points, so the
                 // placement takes the heading less that turn and the part comes
                 // out of the joint aimed exactly where it already was.
-                { ...p, joined: undefined, at: { ...at, yaw: tidy(at.yaw - piece.turn) } }
+                {
+                  ...p,
+                  joined: undefined,
+                  at: { ...at, yaw: tidy(at.yaw - piece.turn) },
+                }
               : p,
           ),
           pendingPort: null,
@@ -4774,10 +4743,9 @@ export const useRun = create<RunState>((set, get) => {
         const i = s.pieces.findIndex((p) => p.id === pieceId)
         if (i < 0) return null
         const root = chainRootOf(s.pieces, i)
-        // Structure is already down: a base and a post alike are held on the
-        // plane wherever they are put, so there is nothing here to drop and
-        // nothing worth a step in the timeline.
-        if (isStructure(s.pieces[root])) return null
+        // A base is already down: it is held on the plane wherever it is put, so
+        // there is nothing here to drop and nothing worth a step in the timeline.
+        if (sitsOnPlane(s.pieces[root])) return null
         const at = placementOf(s.pieces[root])
         // The run on its own, stood up where it actually is: only the parts
         // bonded into it are being set down, and the rest of the stage stays
@@ -4808,7 +4776,12 @@ export const useRun = create<RunState>((set, get) => {
         // The plan of everything that is not ground, in the world's own axes.
         // The posts are ground as much as the plate is: a base sized to its own
         // supports would grow to cover parts that are only standing on it.
-        const span = { x0: Infinity, x1: -Infinity, z0: Infinity, z1: -Infinity }
+        const span = {
+          x0: Infinity,
+          x1: -Infinity,
+          z0: Infinity,
+          z1: -Infinity,
+        }
         for (const p of buildAssembly(s.pieces).placed) {
           if (isStructure(p.piece)) continue
           const box = placedBox(
@@ -4853,84 +4826,41 @@ export const useRun = create<RunState>((set, get) => {
         }
       }),
 
-    fitSupportToRun: (pieceId) =>
-      commit(`Fit ${nameOf(get(), pieceId)} to the run above it`, (s) => {
-        const i = s.pieces.findIndex((p) => p.id === pieceId)
-        if (i < 0 || !isSupport(s.pieces[i])) return null
-        const was = s.pieces[i]
-        const at = placementOf(was)
-        const over = tubeOverPost(s, at.x, at.z, postHalf(was))
-        if (!over) return null
-        const { seat, footing } = over
-        const height = clamp(
-          tidy(seat.seat),
-          SUPPORT_LIMITS.height.min,
-          SUPPORT_LIMITS.height.max,
-        )
-        const tilt = clamp(seat.tilt, SUPPORT_LIMITS.tilt.min, SUPPORT_LIMITS.tilt.max)
-        const post = supportSpec(was)
-        // The foot only moves when there is an answer for where it should be.
-        // Where the run underneath crosses at too sharp an angle to be stood on
-        // there is no honest answer, and a foot the user typed is left standing.
-        const foot = footing
-          ? clamp(tidy(footing.foot), SUPPORT_LIMITS.foot.min, SUPPORT_LIMITS.foot.max)
-          : post.foot
-        const footTilt = footing
-          ? clamp(footing.footTilt, SUPPORT_LIMITS.footTilt.min, SUPPORT_LIMITS.footTilt.max)
-          : post.footTilt
-        const footShift = footing
-          ? clamp(footing.footShift, SUPPORT_LIMITS.footShift.min, SUPPORT_LIMITS.footShift.max)
-          : post.footShift
-        if (
-          post.height === height &&
-          post.tilt === tilt &&
-          post.foot === foot &&
-          post.footTilt === footTilt &&
-          post.footShift === footShift &&
-          at.yaw === seat.yaw &&
-          !was.turn &&
-          was.innerDiameter === seat.bore &&
-          was.wallThickness === seat.wall
-        ) {
-          return null
-        }
-        // Squared onto the tube in plan as well as in height: a cradle cut along
-        // the post's own +Z only lies along the pipe while the post is facing the
-        // way the pipe is running. Sliding the post is the user's business, so
-        // that is the one thing left exactly as it was.
-        return {
-          pieces: s.pieces.map((p, j) =>
-            j === i
-              ? {
-                  ...p,
-                  height,
-                  tilt,
-                  foot,
-                  footTilt,
-                  footShift,
-                  turn: 0,
-                  at: { ...at, yaw: seat.yaw },
-                  // The cradle is cut to the pipe it is actually holding, which
-                  // on a part sized on its own is not the run's pipe.
-                  innerDiameter: seat.bore,
-                  wallThickness: seat.wall,
-                }
-              : p,
-          ),
-        }
-      }),
-
-    addSupports: () => {
+    strikeRod: (spot) => {
       const s0 = get()
-      const posts = plantSupports(s0)
-      if (!posts.length) return
-      const label = posts.length === 1 ? 'Add 1 support' : `Add ${posts.length} supports`
+      // The first of the two clicks only remembers where it landed; nothing is
+      // built and nothing is a step in the timeline until the second one says
+      // what the rod is between.
+      if (!s0.pendingSpot) {
+        set({ pendingSpot: spot })
+        return
+      }
+      const from = s0.pendingSpot
+      const like = [...s0.pieces].reverse().find(isSupport) ?? null
+      const made = rodBetween(from, spot, like)
+      if (!made) {
+        // Too short to be a rod — the two clicks landed all but on top of one
+        // another. The first is kept, so it reads as a miss rather than as the
+        // gesture being thrown away.
+        return
+      }
+      commit('Strike a rod', (s) => {
+        const fresh = rodBetween(from, spot, [...s.pieces].reverse().find(isSupport) ?? null)
+        if (!fresh) return null
+        return { pieces: [...s.pieces, fresh], ...picked([fresh.id]), pendingSpot: null }
+      })
+    },
+
+    dropSpot: () => set({ pendingSpot: null }),
+
+    braceEveryRun: (side) => {
+      const rods = braceRuns(get(), side)
+      if (!rods.length) return
+      const label = rods.length === 1 ? 'Strike 1 rod' : `Strike ${rods.length} rods`
       commit(`${label} under the run`, (s) => {
         // Worked out again against the run as it stands at the moment the step
-        // lands, rather than trusting the count taken above: everything else in
-        // here reads the state it is handed, and a stage that moved between the
-        // two would otherwise be propped where it used to be.
-        const fresh = plantSupports(s)
+        // lands, rather than trusting the count taken above.
+        const fresh = braceRuns(s, side)
         if (!fresh.length) return null
         return { pieces: [...s.pieces, ...fresh], ...picked(fresh.map((p) => p.id)) }
       })
@@ -4963,7 +4893,10 @@ export const useRun = create<RunState>((set, get) => {
           // The new part is the one that travels, so it is the end named first.
           // Onto a tail it goes by its inlet; onto a head, by its outlet, and it
           // lands in front of the run rather than behind it.
-          const own: Port = { pieceId: piece.id, end: target.end === 'out' ? 'in' : 'out' }
+          const own: Port = {
+            pieceId: piece.id,
+            end: target.end === 'out' ? 'in' : 'out',
+          }
           const pieces = joinPorts(
             standing,
             own,
@@ -4999,7 +4932,9 @@ export const useRun = create<RunState>((set, get) => {
       // works out its landing before it lands. See {@link RunState.addPiece}.
       const target = opts?.join ? attachPort(s0) : null
       const what = list.length > 1 ? `${list.length} parts` : nameOf(s0, list[0])
-      const label = target ? `Duplicate ${what} onto ${nameOf(s0, target.pieceId)}` : `Duplicate ${what}`
+      const label = target
+        ? `Duplicate ${what} onto ${nameOf(s0, target.pieceId)}`
+        : `Duplicate ${what}`
       commit(label, (s) => {
         const runs = copyParts(s, list)
         const copies = runs.flat()
@@ -5028,13 +4963,19 @@ export const useRun = create<RunState>((set, get) => {
           // The end the next one goes on: growing a tail, the far end of what just
           // landed; growing a head, its near end.
           port =
-            target.end === 'out' ? { pieceId: tail.id, end: 'out' } : { pieceId: head.id, end: 'in' }
+            target.end === 'out'
+              ? { pieceId: tail.id, end: 'out' }
+              : { pieceId: head.id, end: 'in' }
         }
         // Growing a run's head is a direction rather than a one-off, so the new
         // head is held ready for whatever is added next — the reason
         // {@link RunState.addPiece} holds one.
         const carry = target.end === 'in' ? port : null
-        return { pieces, ...picked(copies.map((c) => c.id)), pendingPort: carry }
+        return {
+          pieces,
+          ...picked(copies.map((c) => c.id)),
+          pendingPort: carry,
+        }
       })
     },
     // A blank name is stored as none at all, so the part falls back to its default label.
@@ -5043,7 +4984,9 @@ export const useRun = create<RunState>((set, get) => {
         const i = s.pieces.findIndex((p) => p.id === id)
         const next = name.trim() ? name : undefined
         if (i < 0 || s.pieces[i].name === next) return null
-        return { pieces: s.pieces.map((p) => (p.id === id ? { ...p, name: next } : p)) }
+        return {
+          pieces: s.pieces.map((p) => (p.id === id ? { ...p, name: next } : p)),
+        }
       }),
     // Visibility is a view filter only \u2014 a hidden piece still positions the ones after it.
     togglePieceHidden: (id) =>
@@ -5052,13 +4995,17 @@ export const useRun = create<RunState>((set, get) => {
         (s) => {
           const i = s.pieces.findIndex((p) => p.id === id)
           if (i < 0) return null
-          return { pieces: s.pieces.map((p) => (p.id === id ? { ...p, hidden: !p.hidden } : p)) }
+          return {
+            pieces: s.pieces.map((p) => (p.id === id ? { ...p, hidden: !p.hidden } : p)),
+          }
         },
       ),
     showAllPieces: () =>
       commit('Show all parts', (s) =>
         s.pieces.some((p) => p.hidden)
-          ? { pieces: s.pieces.map((p) => (p.hidden ? { ...p, hidden: false } : p)) }
+          ? {
+              pieces: s.pieces.map((p) => (p.hidden ? { ...p, hidden: false } : p)),
+            }
           : null,
       ),
     updatePiece: (id, patch) => {
@@ -5165,7 +5112,10 @@ export const useRun = create<RunState>((set, get) => {
               swing = tidy(was - exitTurn({ ...pieces[at], sweep: held }))
             }
             if (tidy(swing)) {
-              pieces[root] = { ...pieces[root], turn: tidy(pieces[root].turn + swing) }
+              pieces[root] = {
+                ...pieces[root],
+                turn: tidy(pieces[root].turn + swing),
+              }
               if (after) pieces[at + 1] = { ...after, turn: tidy(after.turn - swing) }
               if (holdExit) {
                 pieces[at] = { ...pieces[at], sweep: held }
@@ -5213,7 +5163,10 @@ export const useRun = create<RunState>((set, get) => {
               // — a held outgoing leg has to come back to exactly that.
               const wasExit = exitSlope(pieces[at])
               for (let i = from; i <= at; i++) {
-                pieces[i] = { ...pieces[i], slope: tidy(pieces[i].slope + swing) }
+                pieces[i] = {
+                  ...pieces[i],
+                  slope: tidy(pieces[i].slope + swing),
+                }
               }
               // A corner among the parts being carried hands on less than it
               // was swung by, so the stretch is walked back into line behind
@@ -5350,7 +5303,11 @@ export const useRun = create<RunState>((set, get) => {
         // Where a run stands belongs to the place at the head of it, not to
         // whichever part is standing there, so the placement stays behind.
         if (isChainRoot(s.pieces, at)) {
-          pieces[at] = { ...pieces[at], joined: undefined, at: s.pieces[at].at }
+          pieces[at] = {
+            ...pieces[at],
+            joined: undefined,
+            at: s.pieces[at].at,
+          }
           pieces[at + 1] = { ...pieces[at + 1], joined: true, at: undefined }
         }
         if (!s.keepConnected) return { pieces }
@@ -5360,9 +5317,15 @@ export const useRun = create<RunState>((set, get) => {
         const was = exitSlope(s.pieces[at + 1])
         // The part at the head of a run holds the angle it was set down on.
         if (!isChainRoot(pieces, at)) {
-          pieces[at] = { ...pieces[at], slope: clamp(exitSlope(pieces[at - 1]), S.min, S.max) }
+          pieces[at] = {
+            ...pieces[at],
+            slope: clamp(exitSlope(pieces[at - 1]), S.min, S.max),
+          }
         }
-        pieces[at + 1] = { ...pieces[at + 1], slope: clamp(exitSlope(pieces[at]), S.min, S.max) }
+        pieces[at + 1] = {
+          ...pieces[at + 1],
+          slope: clamp(exitSlope(pieces[at]), S.min, S.max),
+        }
         return {
           pieces: carrySlope(
             pieces,

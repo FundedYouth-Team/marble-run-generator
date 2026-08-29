@@ -6,6 +6,7 @@ import {
   baseSpec,
   cornerSpec,
   hookSpec,
+  corkscrewCage,
   corkscrewSpec,
   funnelSpec,
   funnelDrainVariant,
@@ -19,6 +20,8 @@ import {
   OPEN_SIDE_LABEL,
   type OpenSide,
   supportSpec,
+  rodIsRound,
+  placementOf,
   type Piece,
   type TubeVariant,
 } from '../store'
@@ -42,15 +45,15 @@ function summarise(p: Piece, style: TubeVariant, side: OpenSide, units: Unit): s
     } · on the workplane`
   }
   // A support is described the same way and for the same reason — it is not cut
-  // from the tube either. Its seat comes first because that is the number that
-  // matters: it is what the post is holding, and everything else about it is how.
+  // from the tube either. What there is to say about a rod is how long it is,
+  // how thick, and which way it points, and then where it starts, since unlike
+  // anything else here that is not the floor.
   if (p.type === 'support') {
-    const t = supportSpec(p)
-    return `seat ${formatLength(t.height, units)} · ${n(t.width)} across × ${n(
-      t.depth,
-    )} along · cradle ${degLabel(t.wrap)}° wrap, ${degLabel(t.tilt)}° tilt · ${
-      t.foot > 0 ? `stands on the run at ${formatLength(t.foot, units)}` : 'stands on the ground'
-    }`
+    const rod = supportSpec(p)
+    const at = placementOf(p)
+    return `rod ${n(rod.length)} long, ${formatLength(rod.width, units)} ${
+      rodIsRound(rod) ? 'round' : 'square'
+    } · ${degLabel(p.slope)}° fall on ${degLabel(at.yaw)}° · from ${n(at.x)}, ${n(at.y)}, ${n(at.z)}`
   }
   if (p.type === 'angle') {
     const a = angleSpec(p)
@@ -81,13 +84,23 @@ function summarise(p: Piece, style: TubeVariant, side: OpenSide, units: Unit): s
   }
   if (p.type === 'corkscrew') {
     const k = corkscrewSpec(p)
+    const g = corkscrewCage(p)
+    // Which side is braced, since it is the one thing about a coil that is
+    // neither a length nor an angle — and the one that decides whether the part
+    // stands up off the plate.
+    const cage =
+      g.inner && g.outer
+        ? `caged inside and out, ${formatLength(g.width, units)} bar`
+        : g.inner || g.outer
+          ? `caged ${g.inner ? 'inside' : 'outside'}, ${formatLength(g.width, units)} bar`
+          : 'unbraced'
     return `${degLabel(Math.abs(k.turns))} rings${p.ringsSet ? '' : ' (counted)'} ${
       k.turns < 0 ? 'left' : 'right'
     } · Ø${n(
       k.topRadius * 2,
     )} to Ø${n(k.bottomRadius * 2)} · ${formatLength(k.height, units)} down at ${degLabel(
       exitSlope(p),
-    )}° · ${tube}`
+    )}° · ${cage} · ${tube}`
   }
   if (p.type === 'funnel') {
     const f = funnelSpec(p)

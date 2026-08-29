@@ -6,8 +6,6 @@ import {
   baseSpec,
   funnelDrainSpec,
   funnelSpec,
-  supportFloor,
-  supportLift,
   supportSpec,
   tubeSpec,
   type Piece,
@@ -177,36 +175,48 @@ function tubeAlong(placed: PlacedPiece, own: TubeSpec): (seg: Segment) => TubeSp
  * The rounded box a piece of structure is met as, or null for anything that is
  * run. Its own frame, standing on the workplane.
  *
- * A slab is met as the slab it is. A post is met only as far up as the *lowest*
- * point of its cradle, and that is the whole of the care here: the arms of a
- * cradle stand up either side of the pipe, and a box drawn up to them would fill
- * the bore of the very tube the post is holding — the marble would run down its
- * own support and slam into it. Under the pipe there is nothing to hit, so under
- * the pipe is where the box stops. See {@link supportFloor}.
+ * A slab is met as the slab it is, and a rod as the bar it is: both are boxes
+ * with their long edges rounded off, and the rounding is what turns a square bar
+ * into a round one without needing a shape of its own.
  *
- * What that gives up is the arms themselves: a marble that has already spilled
- * out of the run can pass through them rather than clipping one. A marble in
- * open air a hair either side of a post is not a thing anybody is watching, and
- * the alternative is a wall across the inside of the tube.
+ * A rod is the one of the two that is not upright, and it does not have to be —
+ * the box is held in the part's own frame, which for a rod is already tipped
+ * onto whatever line it was struck along.
  */
 function groundBox(
   piece: Piece,
-  spec: (piece: Piece) => TubeSpec,
-): { width: number; depth: number; low: number; high: number; radius: number } | null {
+):
+  | {
+      width: number
+      depth: number
+      low: number
+      high: number
+      radius: number
+      /** How far off the part's own middle this box stands, across the run. */
+      shift?: number
+      /** How far along the part's own axis it stands. */
+      along?: number
+    }[]
+  | null {
   if (piece.type === 'base') {
     const { width, depth, height, radius } = baseSpec(piece)
-    return { width, depth, low: 0, high: height, radius }
+    return [{ width, depth, low: 0, high: height, radius }]
   }
   if (piece.type === 'support') {
-    const post = supportSpec(piece)
-    const cradle = spec(piece).outerR
-    return {
-      width: post.width,
-      depth: post.depth,
-      low: supportLift(post, cradle),
-      high: supportFloor(post, cradle),
-      radius: post.radius,
-    }
+    const rod = supportSpec(piece)
+    // A bar, met in its own frame: it runs down local +Z from the origin, so the
+    // box is that long and sits half its length along. Its section is square with
+    // the corners rounded, which is the same rounded box every plate here is.
+    return [
+      {
+        width: rod.width,
+        depth: rod.length,
+        low: -rod.width / 2,
+        high: rod.width / 2,
+        radius: rod.radius,
+        along: rod.length / 2,
+      },
+    ]
   }
   return null
 }
@@ -275,28 +285,32 @@ export function buildWorld(asm: Assembly, spec: (piece: Piece) => TubeSpec): Wor
 
   const slabs: Slab[] = []
   for (const placed of asm.placed) {
-    const box = groundBox(placed.piece, spec)
-    if (!box) continue
-    const { width, depth, low, high, radius } = box
-    // A post whose cradle has eaten through its own floor has no solid core left
-    // to be met as. There is nothing there to hit, and a box of negative
-    // thickness would be met inside out.
-    if (high <= low) continue
-    // The rounding is on the upright edges only, so it comes off the two spans
-    // and never off the thickness — a base a millimetre thick is still a plate
-    // with a flat top, not a rod.
-    slabs.push({
-      centre: placed.start.clone(),
-      inverse: placed.quaternion.clone().invert(),
-      quaternion: placed.quaternion.clone(),
-      half: new THREE.Vector3(
-        Math.max(0, width / 2 - radius),
-        (high - low) / 2,
-        Math.max(0, depth / 2 - radius),
-      ),
-      mid: (low + high) / 2,
-      radius,
-    })
+    const boxes = groundBox(placed.piece)
+    if (!boxes) continue
+    for (const { width, depth, low, high, radius, shift = 0, along = 0 } of boxes) {
+      if (high <= low) continue
+      // The rounding is on the two long edges only, so it comes off the two
+      // spans and never off the thickness — a base a millimetre thick is still a
+      // plate with a flat top, and a rod is round about its own axis and flat
+      // across both ends.
+      slabs.push({
+        // A rod's box is not centred on the part's own origin: the origin is the
+        // end it starts at, so the box sits half a length down its own axis.
+        // Everything else here is already where it belongs, and passes nought.
+        centre: placed.start
+          .clone()
+          .add(new THREE.Vector3(shift, 0, along).applyQuaternion(placed.quaternion)),
+        inverse: placed.quaternion.clone().invert(),
+        quaternion: placed.quaternion.clone(),
+        half: new THREE.Vector3(
+          Math.max(0, width / 2 - radius),
+          (high - low) / 2,
+          Math.max(0, depth / 2 - radius),
+        ),
+        mid: (low + high) / 2,
+        radius,
+      })
+    }
   }
 
   return { shells, bowls, slabs, byChord }
@@ -535,7 +549,10 @@ function nearestOnLoop(loop: THREE.Vector2[], q: THREE.Vector2) {
     const b = loop[(i + 1) % loop.length]
     const ab = new THREE.Vector2().subVectors(b, a)
     const len2 = ab.lengthSq()
-    const t = len2 < 1e-12 ? 0 : THREE.MathUtils.clamp(new THREE.Vector2().subVectors(q, a).dot(ab) / len2, 0, 1)
+    const t =
+      len2 < 1e-12
+        ? 0
+        : THREE.MathUtils.clamp(new THREE.Vector2().subVectors(q, a).dot(ab) / len2, 0, 1)
     const on = a.clone().addScaledVector(ab, t)
     const d = on.distanceTo(q)
     if (d < distance) {

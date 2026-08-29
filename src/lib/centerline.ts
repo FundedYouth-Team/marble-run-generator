@@ -13,6 +13,7 @@ import {
   angleSpec,
   baseSpec,
   cornerSpec,
+  corkscrewCage,
   corkscrewSpec,
   funnelSpec,
   hookSpec,
@@ -312,18 +313,46 @@ export function chordUps(line: Centerline): THREE.Vector3[] {
   })
 }
 
-function withLead(line: Centerline, piece: Piece): Centerline {
+/**
+ * The swing a joint's lead puts on a part's body: the pivot it turns about, on
+ * the axis it plugs into, and how far round it goes. Null where the part runs
+ * straight out of its socket and there is no break at all.
+ *
+ * Read out on its own as well as applied to the line, because the centreline is
+ * no longer the only thing a part's body is built from: a corkscrew's cage
+ * stands on the coil's own axis, which is solved from the coil rather than read
+ * off the finished path, and it has to be swung by exactly what swung the coil.
+ */
+export function leadSwing(
+  piece: Piece,
+): { pivot: THREE.Vector3; rotation: THREE.Quaternion } | null {
+  return swingOf(ownLine(piece), piece)
+}
+
+function swingOf(
+  line: Centerline,
+  piece: Piece,
+): { pivot: THREE.Vector3; rotation: THREE.Quaternion } | null {
   const brk = leadBreak(piece)
-  if (!brk) return line
+  if (!brk) return null
   const first = line.distances[1] ?? 0
   // As long as the break needs, which on a hard turn is a good deal more than
   // the bare lock — see `leadLengthFor`. A part with no straight to give — a
   // funnel fed by its own open mouth has no stub and no socket either — is left
   // exactly as it was drawn.
   const lock = Math.min(piece.leadLength ?? JOINT_LOCK, first)
-  if (lock < 1e-6) return line
+  if (lock < 1e-6) return null
+  return { pivot: new THREE.Vector3(0, 0, lock), rotation: brk }
+}
 
-  const pivot = new THREE.Vector3(0, 0, lock)
+function withLead(line: Centerline, piece: Piece): Centerline {
+  const swung = swingOf(line, piece)
+  if (!swung) return line
+  const brk = swung.rotation
+  const pivot = swung.pivot
+  const lock = pivot.z
+  const first = line.distances[1] ?? 0
+
   const swing = (p: THREE.Vector3) => p.clone().sub(pivot).applyQuaternion(brk).add(pivot)
   const turned = (v: THREE.Vector3) => v.clone().applyQuaternion(brk)
   // The lock lands inside the opening chord unless that chord *is* the lock, in
@@ -495,19 +524,21 @@ function baseLine(piece: Piece): Centerline {
 }
 
 /**
- * A support's line, such as it is: the post's own footprint down its middle,
- * from the end the run comes in at to the end it leaves by.
+ * A support's line: the rod itself, from the end it starts at to the end it
+ * finishes at.
  *
- * The same bargain `baseLine` strikes, and for the same reason — a post is not
- * run either, and nothing travels down this. What it buys is a frame: the origin
- * on the workplane at the middle of the post, +Z along the run it holds up and
- * +Y the way it stands. Its heading is therefore the run's heading, which is
- * exactly what has to be true for a cradle cut across the top to lie along the
- * pipe rather than across it.
+ * The one piece of structure whose line is a real line. Nothing travels down it
+ * — a rod is not run, takes no joint and carries no marble — but unlike a plate
+ * or a post it genuinely is a thing with a direction and a length, and that is
+ * exactly what a centreline says. So a rod is stood up in the world by the very
+ * code that stands up a length of tube, off the same placement and the same
+ * fall.
  */
 function supportLine(piece: Piece): Centerline {
-  const half = supportSpec(piece).depth / 2
-  return fromPoints([new THREE.Vector3(0, 0, -half), new THREE.Vector3(0, 0, half)], null)
+  return fromPoints(
+    [new THREE.Vector3(), new THREE.Vector3(0, 0, supportSpec(piece).length)],
+    null,
+  )
 }
 
 /**
@@ -531,13 +562,13 @@ export function shapeKey(piece: Piece, spec: TubeSpec): string {
     const b = baseSpec(piece)
     return `base:${b.width}:${b.depth}:${b.height}:${b.radius}`
   }
-  // A support is cut from nothing either, but the tube is in its shape all the
-  // same: the groove across its top is the pipe it has to hold, so how fat that
-  // pipe is tells two otherwise identical posts apart. Nothing else about the
-  // tube reaches it — a post has no bore of its own and no side to open.
+  // A support is cut from nothing at all — no bore, no wall, no style, and now
+  // not even the tube it braces, since a rod is only ever two ends and a
+  // thickness. Two of them alike share one mesh however the run around them is
+  // set, and however differently the two are aimed.
   if (piece.type === 'support') {
     const t = supportSpec(piece)
-    return `support:${t.width}:${t.depth}:${t.height}:${t.radius}:${t.wrap}:${t.tilt}:${t.foot}:${t.footTilt}:${t.footShift}:${spec.outerR}`
+    return `rod:${t.width}:${t.length}:${t.radius}`
   }
   // All three angles the break is built from, and the radius it is cut at: a
   // joint rounded off is a different solid from the same joint mitred.
@@ -575,7 +606,12 @@ export function shapeKey(piece: Piece, spec: TubeSpec): string {
   // taking it, so the four numbers of the coil already say everything about it.
   if (piece.type === 'corkscrew') {
     const k = corkscrewSpec(piece)
-    return `${tube}:coil:${k.entry}:${k.topRadius}:${k.bottomRadius}:${k.turns}:${k.height}:${k.exit}`
+    // The cage is part of the coil's solid rather than a part beside it, so
+    // which sides are braced and how thick the bars are tell two coils apart as
+    // surely as their widths do.
+    const g = corkscrewCage(piece)
+    const cage = g.inner || g.outer ? `${g.inner ? 'i' : ''}${g.outer ? 'o' : ''}${g.width}` : '-'
+    return `${tube}:coil:${k.entry}:${k.topRadius}:${k.bottomRadius}:${k.turns}:${k.height}:${k.exit}:${cage}`
   }
   // A funnel's fall is not part of its key either, and for a blunter reason:
   // it has none. What is here besides is the bowl's own numbers and the drain's

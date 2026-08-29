@@ -40,7 +40,9 @@ import {
   colorOf,
   pieceSpec,
   isStructure,
+  isSupport,
   placementOf,
+  rodBetween,
   samePort,
   type Piece,
   type Placement,
@@ -143,6 +145,7 @@ function PieceMesh({
   xray,
   pickable,
   onClick,
+  onHoverAt,
   onRightDown,
 }: {
   spec: TubeSpec
@@ -163,6 +166,15 @@ function PieceMesh({
   pickable: boolean
   /** True when the click was held with the key that picks more than one part. */
   onClick: (additive: boolean) => void
+  /**
+   * Where on this part's wall the pointer is, world — null once it has left.
+   *
+   * Only wired up while a tool wants it, because it fires on every mouse move
+   * over every part on the stage. What reads it is the Support tool, which has
+   * to know the spot on the run rather than merely which part is under the
+   * cursor: a post goes somewhere along a tube, not on a tube.
+   */
+  onHoverAt?: (at: THREE.Vector3 | null) => void
   /** A right-press landed here; the stage decides whether it becomes a menu or an orbit. */
   onRightDown: (x: number, y: number) => void
 }) {
@@ -189,6 +201,15 @@ function PieceMesh({
             }
           : undefined
       }
+      onPointerMove={
+        onHoverAt
+          ? (e) => {
+              e.stopPropagation()
+              onHoverAt(e.point.clone())
+            }
+          : undefined
+      }
+      onPointerOut={onHoverAt ? () => onHoverAt(null) : undefined}
       // Only the nearest part under the cursor is the one the menu is about.
       onPointerDown={(e) => {
         if (e.button !== 2) return
@@ -991,6 +1012,68 @@ function Axis({ axis, rotation }: { axis: 'x' | 'y' | 'z'; rotation: [number, nu
 }
 
 /**
+ * Where the first of a rod's two clicks landed, marked on the stage.
+ *
+ * A small unlit ball, drawn in front of everything and answering no click of its
+ * own — it is a note about the gesture in hand rather than a thing on the stage,
+ * and it goes as soon as the second click lands or Escape is pressed.
+ */
+function SpotMark({ at }: { at: { x: number; y: number; z: number } }) {
+  return (
+    <mesh position={[at.x, at.y, at.z]} raycast={() => null}>
+      <sphereGeometry args={[2.4, 16, 12]} />
+      <meshBasicMaterial color="#3fbf9f" toneMapped={false} depthTest={false} transparent />
+    </mesh>
+  )
+}
+
+/** How solid the ghost post under the pointer is drawn, 0–1. */
+const GHOST_OPACITY = 0.55
+
+/**
+ * The post that would be stood where the pointer is, drawn where it would
+ * stand — the whole of what the Support tool shows before you commit to it.
+ *
+ * It is the real solid, built from the real numbers, and not a marker standing
+ * in for one: the thing worth seeing before you click is whether the cradle
+ * actually reaches the pipe, whether the post is a post or a wafer, and — on a
+ * stacked run — which level it has decided to stand on. A box or a crosshair
+ * would answer none of those.
+ *
+ * Unpickable, so it never eats the click it is previewing, and drawn without
+ * writing depth so the run stays visible through it.
+ */
+function SupportGhost({ spec, piece, color }: { spec: TubeSpec; piece: Piece; color: string }) {
+  const shape = shapeKey(piece, spec)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const geom = useMemo(() => buildPartGeometry(spec, piece), [spec, shape])
+  useEffect(() => () => geom.dispose(), [geom])
+  const at = placementOf(piece)
+  const quaternion = useMemo(
+    () => frameFor(THREE.MathUtils.degToRad(at.yaw + piece.turn), 0),
+    [at.yaw, piece.turn],
+  )
+
+  return (
+    <mesh
+      geometry={geom}
+      position={[at.x, at.y, at.z]}
+      quaternion={quaternion}
+      raycast={() => null}
+    >
+      <meshStandardMaterial
+        color={color}
+        transparent
+        opacity={GHOST_OPACITY}
+        depthWrite={false}
+        roughness={0.4}
+        side={THREE.DoubleSide}
+      />
+    </mesh>
+  )
+}
+
+/**
  * Which way is X, Y and Z. It sits in a corner rather than out in the run, and
  * turns with the camera instead of the run turning under it, so it stays the
  * same size in the same place however far you have zoomed or orbited. +Y is up;
@@ -1415,13 +1498,29 @@ function Land({ color, y }: { color: string; y: number }) {
 }
 
 export default function Scene3D() {
-  const { pieces, innerDiameter, wallThickness, variant, openSide, selectedId, selectedIds, select, pickPart, theme, pieceColor, shading, rightPanel, simStarted, tool, overlays, workplane } =
+  const { pieces, innerDiameter, wallThickness, variant, openSide, selectedId, selectedIds, select, pickPart, theme, pieceColor, shading, rightPanel, simStarted, tool, overlays, workplane, pendingSpot, strikeRod, dropSpot } =
     useRun()
   // Either slide-out takes the same gutter, so the corner controls step aside for both.
   const docked = rightPanel !== null
   // A joint tool owns the left button while it is in hand: a click belongs to the
   // gesture, not to picking parts.
   const picking = tool === 'select' || tool === 'move' || tool === 'rotate'
+  /** Whether the left button is standing posts rather than picking parts. */
+  const propping = tool === 'support'
+  // Escape lets go of a half-struck rod without putting the tool down, and so
+  // does taking the tool down — a point remembered from a gesture you have
+  // walked away from would land the next click somewhere baffling.
+  useEffect(() => {
+    if (!propping) {
+      dropSpot()
+      return
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') dropSpot()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [propping, dropSpot])
   const xray = shading === 'transparent'
   const palette = PALETTE[theme]
   const { sky: skyColor, land: landColor } = workplane[theme]
@@ -1456,6 +1555,39 @@ export default function Scene3D() {
     }
   }, [spec])
   const asm = useMemo(() => buildAssembly(pieces), [pieces])
+
+  /**
+   * Where the pointer last was on the run, world — only tracked while the
+   * Support tool is in hand, and dropped the moment it is put down so the ghost
+   * cannot be left hanging about the stage.
+   */
+  const [propAt, setPropAt] = useState<THREE.Vector3 | null>(null)
+  useEffect(() => {
+    if (!propping) setPropAt(null)
+  }, [propping])
+  // A crosshair while the tool is in hand, because the left button is aiming at
+  // a spot rather than at a thing — and put back the moment it is put down, or
+  // the stage is left wearing it.
+  useEffect(() => {
+    if (!propping) return
+    document.body.style.cursor = 'crosshair'
+    return () => void (document.body.style.cursor = '')
+  }, [propping])
+  /**
+   * The rod the pointer is asking for, once the first of the two clicks has
+   * landed — from where that one struck to wherever the pointer is now.
+   *
+   * Null before the first click and null where the two are all but on top of
+   * each other, which is exactly what the stage should be showing: nothing drawn
+   * means nothing would be built.
+   */
+  const ghost = useMemo(
+    () =>
+      pendingSpot && propAt
+        ? rodBetween(pendingSpot, propAt, [...pieces].reverse().find(isSupport) ?? null)
+        : null,
+    [pendingSpot, propAt, pieces],
+  )
   const [goal, setGoal] = useState<ViewGoal>({
     token: 0,
     dir: HOME_DIR,
@@ -1634,8 +1766,15 @@ export default function Scene3D() {
             lead={p.piece.id === selectedId}
             tint={tints.get(colorOf(p.piece, pieceColor))!}
             xray={xray}
-            pickable={picking}
-            onClick={(additive) => pickPart(p.piece.id, additive)}
+            pickable={picking || propping}
+            onClick={(additive) =>
+              // With the Rod tool in hand a click is a point in space rather
+              // than a part: two of them make a rod between them. Anything solid
+              // answers — a plate and a rod already struck as much as the run, so
+              // a brace can be run down to the plinth or tied onto another rod.
+              propping ? propAt && strikeRod(propAt) : pickPart(p.piece.id, additive)
+            }
+            onHoverAt={propping ? setPropAt : undefined}
             onRightDown={(x, y) => (pressed.current = { pieceId: p.piece.id, x, y })}
           />
         ))}
@@ -1646,6 +1785,33 @@ export default function Scene3D() {
         {/* The handles are the tools themselves, so each is only on stage with its own in hand. */}
         {tool === 'move' && <MoveGizmo asm={asm} specOf={specOf} />}
         {tool === 'rotate' && <RotateGizmo asm={asm} />}
+        {/* The workplane answers a click too while the tool is in hand, so a rod
+            can be run down to the floor rather than only between two parts. */}
+        {propping && (
+          <mesh
+            rotation={[-Math.PI / 2, 0, 0]}
+            position={[0, groundY, 0]}
+            onClick={(e) => {
+              e.stopPropagation()
+              strikeRod({ x: e.point.x, y: 0, z: e.point.z })
+            }}
+            onPointerMove={(e) => {
+              e.stopPropagation()
+              setPropAt(new THREE.Vector3(e.point.x, 0, e.point.z))
+            }}
+          >
+            <planeGeometry args={[4000, 4000]} />
+            <meshBasicMaterial visible={false} side={THREE.DoubleSide} />
+          </mesh>
+        )}
+        {propping && pendingSpot && <SpotMark at={pendingSpot} />}
+        {propping && ghost && (
+          <SupportGhost
+            spec={specOf(ghost)}
+            piece={ghost}
+            color={colorOf(ghost, pieceColor)}
+          />
+        )}
 
         <OrbitControls
           makeDefault

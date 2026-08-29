@@ -288,7 +288,7 @@ export default function Toolbar({ spec, asm }: { spec: TubeSpec; asm: Assembly }
     selectedId,
     selectedIds,
     dropToWorkplane,
-    addSupports,
+    braceEveryRun,
     duplicateParts,
     removeParts,
     running,
@@ -395,6 +395,14 @@ export default function Toolbar({ spec, asm }: { spec: TubeSpec; asm: Assembly }
     if (tool === 'disconnect') {
       return joined ? 'Click a joint to break it open' : 'Nothing is joined yet'
     }
+    if (tool === 'support') {
+      // The ghost is the whole feedback loop, so the bar says to read it: a spot
+      // that will not take a post shows nothing and takes no click either, and
+      // without being told that, a click that does nothing reads as a fault.
+      return anyRun
+        ? 'Click a spot on the run to stand a post under it — no ghost, no room'
+        : 'Nothing to prop yet — add a part first'
+    }
     // Once a set is in hand the bar says so, since the two buttons that take the
     // whole set are the only place that shows.
     if (selectedIds.length > 1) {
@@ -489,20 +497,70 @@ export default function Toolbar({ spec, asm }: { spec: TubeSpec; asm: Assembly }
           }
           onClick={() => selectedId && dropToWorkplane(selectedId)}
         />
-        {/* Not scoped to what is picked, unlike everything either side of it.
-            Propping a run is a question about the whole stage — a post has to
-            know what else is standing where it wants to stand — so it is asked
-            of the stage and answered once. */}
-        <ToolButton
-          label="Supports"
+        {/* One rod at a time by hand, or the whole stage propped in one go, under
+            the one button — the same question asked of two points or of
+            everything, which is how Move and Duplicate are put together too.
+            Striking leads, because choosing what a brace runs between is the
+            part a person does far better than a rule: a rod down the outside of
+            a coil, tying every turn on the way, is one gesture and no rule
+            finds that line. */}
+        <ToolMenuButton
+          on={tool === 'support'}
+          label="Rods"
           icon={<SupportIcon />}
           disabled={!anyRun}
           title={
             anyRun
-              ? 'Stand posts under every run on the stage, wherever one will fit — so the tubes are held off the plate rather than printed hanging in mid-air. Posts already standing are left alone, and none is put where the column would have to go through the run to get there'
-              : 'Nothing to prop yet — add a part and its run can be stood on posts'
+              ? 'Brace the run with rods, so the tubes are held up rather than printed hanging in mid-air — one struck between two points you click, or a set dropped everywhere the stage will take them, from whichever side of the tube you pick'
+              : 'Nothing to brace yet — add a part and its run can be propped'
           }
-          onClick={addSupports}
+          items={[
+            {
+              label: 'Strike a Rod',
+              icon: <SupportIcon size={14} />,
+              title:
+                'Click the two points you want braced and a rod is struck between them. The stage draws it from the first click to wherever the pointer is, so you see it before you commit; Escape lets go of a half-struck one',
+              on: tool === 'support',
+              onClick: () => pick('support'),
+            },
+            // Four braces rather than one, because where a rod leaves the tube
+            // is the whole question on anything that curves: a coil braced up
+            // its hollow middle keeps its outside clear to watch the marble
+            // down, and one braced outside keeps the middle clear to look down
+            // through. Under and over are the plain answers for everything else.
+            {
+              label: 'Brace Under the Run',
+              icon: <SupportIcon size={14} />,
+              title:
+                'Drop a rod from the underside of the tube to the first thing beneath it, everywhere on the stage a rod will fit — the plate, or another turn of the run where the plate is taken',
+              disabled: !anyRun,
+              onClick: () => braceEveryRun('down'),
+            },
+            {
+              label: 'Brace Outside the Bend',
+              icon: <SupportIcon size={14} />,
+              title:
+                'Strike each rod from the outer flank of the tube instead, so a coil is tied down its outside and the view down its middle stays clear. The one to reach for on a coil that narrows as it falls, where the turns are closing in on each other inside',
+              disabled: !anyRun,
+              onClick: () => braceEveryRun('outward'),
+            },
+            {
+              label: 'Brace Inside the Bend',
+              icon: <SupportIcon size={14} />,
+              title:
+                'Strike each rod from the inner flank, so a coil is tied up its hollow middle and its outside is left clear to watch the marble go down',
+              disabled: !anyRun,
+              onClick: () => braceEveryRun('inward'),
+            },
+            {
+              label: 'Brace Over the Run',
+              icon: <SupportIcon size={14} />,
+              title:
+                'Strike each rod from the top of the tube and run it up to the first thing above — for hanging a run from what is over it rather than standing it on what is under it',
+              disabled: !anyRun,
+              onClick: () => braceEveryRun('up'),
+            },
+          ]}
         />
         {/* Both ways of copying under the one button: they are the same tool
             answering "where does the copy land", and asking that on click keeps

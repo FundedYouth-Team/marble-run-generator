@@ -106,6 +106,47 @@ export function corkscrewSlope(c: CorkscrewCoil): number {
 }
 
 /**
+ * How many times round a coil of this height and these widths has to go to run
+ * at `slope` — the one equation of a corkscrew, read backwards.
+ *
+ * Forwards, the rings say how much line the coil lays down in plan and the drop
+ * over that line is the angle. Backwards, the angle says how much plan length
+ * there has to be, and the rings are however many it takes to lay that down.
+ * That is the whole of it: fewer rings over the same height is a steeper coil,
+ * more is a gentler one, and nothing else about the part has to move.
+ *
+ * There is no closed form — plan length is a spiral's arc, and the taper is
+ * inside the integral — so the interval is halved instead, which lands well
+ * inside a quarter turn in a couple of dozen steps. Handed back as a real
+ * number: rounding it to a count the part can hold is the caller's business,
+ * along with `most`, the furthest round this app lets a coil go.
+ *
+ * The sign of neither figure matters here. A coil that climbs stacks its rings
+ * exactly as a falling one does, and which way it winds is a separate choice, so
+ * this answers in bare turns and the caller puts the hand back on.
+ */
+export function coilTurnsForSlope(c: CorkscrewCoil, slope: number, most: number): number {
+  const fall = Math.abs(slope) * RAD
+  const drop = Math.abs(c.height)
+  // Dead level, or nothing to drop: no angle to solve, so it is as far round as
+  // the part will go — which is the gentlest coil there is.
+  if (fall < 1e-6 || drop < 1e-9) return most
+  const want = drop / Math.tan(fall)
+  const planAt = (turns: number) => coilPlanLength({ ...c, turns })
+  // Plan length only grows with the turns, so if the whole range is not enough
+  // line the answer is the far end of it.
+  if (planAt(most) <= want) return most
+  let lo = 0
+  let hi = most
+  for (let i = 0; i < 40; i++) {
+    const mid = (lo + hi) / 2
+    if (planAt(mid) < want) lo = mid
+    else hi = mid
+  }
+  return (lo + hi) / 2
+}
+
+/**
  * How far apart the rings sit, mm — bare height per turn, before the tube. A
  * climbing coil stacks its rings exactly as a falling one does, so this is the
  * distance either way round.
@@ -124,8 +165,13 @@ export function coilRingPitch(c: CorkscrewCoil): number {
  * along local +Z, so the spoke has to be canted off dead-across by exactly as
  * much as the taper pulls the coil inward, or the part would start with a kink
  * in it.
+ *
+ * Solved here and handed out, because a coil is not only a line to sweep a tube
+ * along: anything hung on the outside of one — a cage of posts, say — has to
+ * stand on the same axis, lean at the same taper and meet the tube at the same
+ * heights, and none of that can be read off the finished centreline.
  */
-interface Coiled {
+export interface CoilSpine {
   /** Dead up in the part's own frame — the axis the coil winds about. */
   up: THREE.Vector3
   /** The same axis, wound so that turning about it by `phi` always goes forward. */
@@ -145,7 +191,7 @@ interface Coiled {
   slope: number
 }
 
-function solve(c: CorkscrewCoil): Coiled | null {
+export function coilSpine(c: CorkscrewCoil): CoilSpine | null {
   const angle = Math.abs(c.turns) * TAU
   const plan = coilPlanLength(c)
   if (angle < 1e-6 || plan < 1e-6) return null
@@ -189,30 +235,30 @@ function solve(c: CorkscrewCoil): Coiled | null {
 }
 
 /** How wide the coil is, `phi` radians in. */
-function radiusAt(C: Coiled, phi: number): number {
+export function coilRadiusAt(C: CoilSpine, phi: number): number {
   return C.r0 + C.k * phi
 }
 
 /** How much plan length the coil has laid down, `phi` radians in. */
-function planAt(C: Coiled, phi: number): number {
+function planAt(C: CoilSpine, phi: number): number {
   if (Math.abs(C.k) < 1e-9) return C.r0 * phi
-  return (spiralArc(radiusAt(C, phi), C.k) - spiralArc(C.r0, C.k)) / C.k
+  return (spiralArc(coilRadiusAt(C, phi), C.k) - spiralArc(C.r0, C.k)) / C.k
 }
 
 /** Where the coil has got to, `phi` radians in. */
-function pointAt(C: Coiled, phi: number): THREE.Vector3 {
+export function coilPointAt(C: CoilSpine, phi: number): THREE.Vector3 {
   const out = C.spoke.clone().applyAxisAngle(C.axis, phi)
   return C.centre
     .clone()
-    .addScaledVector(out, radiusAt(C, phi))
+    .addScaledVector(out, coilRadiusAt(C, phi))
     .addScaledVector(C.up, -C.fall * planAt(C, phi))
 }
 
 /** Which way the run is heading, `phi` radians into the coil. */
-function dirAt(C: Coiled, phi: number): THREE.Vector3 {
+export function coilDirAt(C: CoilSpine, phi: number): THREE.Vector3 {
   const out = C.spoke.clone().applyAxisAngle(C.axis, phi)
   const round = new THREE.Vector3().crossVectors(C.axis, out)
-  const r = radiusAt(C, phi)
+  const r = coilRadiusAt(C, phi)
   // In plan the coil both goes round and closes in; the drop keeps pace with
   // however much line those two lay down together.
   const rho = Math.hypot(C.k, r)
@@ -223,10 +269,62 @@ function dirAt(C: Coiled, phi: number): THREE.Vector3 {
     .normalize()
 }
 
+/**
+ * How high the coil has got to, `phi` radians in — measured along the upright,
+ * from the part's own origin.
+ *
+ * The radial term drops out of it: the coil winds about the upright, so going
+ * round moves the run across the axis and never up or down it, and all the
+ * height there is is the drop the plan length has laid down.
+ */
+export function coilHeightAt(C: CoilSpine, phi: number): number {
+  return C.centre.dot(C.up) - C.fall * planAt(C, phi)
+}
+
+/**
+ * Where a point of a given height sits on the coil's axis, in the part's frame.
+ * The axis is the one line of the coil that goes straight up, so a height is all
+ * it takes to name a point on it.
+ */
+export function coilAxisAt(C: CoilSpine, y: number): THREE.Vector3 {
+  return C.centre.clone().addScaledVector(C.up, y - C.centre.dot(C.up))
+}
+
+/**
+ * How wide the coil is at a given height, mm — the taper read the other way
+ * about, which is how anything standing beside a coil rather than running down
+ * it has to read it.
+ *
+ * A coil's width is set per radian and its drop keeps pace with the plan length
+ * instead, so there is no closed form for one against the other: the height is
+ * turned back into an angle by halving the interval, which converges to well
+ * under a printer's resolution in a couple of dozen steps. Past either end of
+ * the coil the answer is the end itself — a cage reaches above the top ring and
+ * below the bottom one, and over that stretch the coil has stopped changing.
+ */
+export function coilRadiusAtHeight(C: CoilSpine, y: number): number {
+  const top = coilHeightAt(C, 0)
+  const bottom = coilHeightAt(C, C.angle)
+  // A coil that neither rises nor falls has no height to read a width off.
+  if (Math.abs(top - bottom) < 1e-6) return C.r0
+  const down = bottom < top
+  if (down ? y >= top : y <= top) return C.r0
+  if (down ? y <= bottom : y >= bottom) return coilRadiusAt(C, C.angle)
+  let lo = 0
+  let hi = C.angle
+  for (let i = 0; i < 40; i++) {
+    const mid = (lo + hi) / 2
+    const at = coilHeightAt(C, mid)
+    if (down ? at > y : at < y) lo = mid
+    else hi = mid
+  }
+  return coilRadiusAt(C, (lo + hi) / 2)
+}
+
 /** Which way the run leaves, in the part's own frame. */
 export function corkscrewExitDir(c: CorkscrewCoil): THREE.Vector3 {
-  const C = solve(c)
-  return C ? dirAt(C, C.angle) : LOCAL_Z.clone()
+  const C = coilSpine(c)
+  return C ? coilDirAt(C, C.angle) : LOCAL_Z.clone()
 }
 
 /**
@@ -240,9 +338,9 @@ export function corkscrewExitDir(c: CorkscrewCoil): THREE.Vector3 {
  * the spiral meets its own radius at a different angle at each end.
  */
 export function corkscrewExit(c: CorkscrewCoil): { slope: number; turn: number } {
-  const C = solve(c)
+  const C = coilSpine(c)
   if (!C) return { slope: 0, turn: 0 }
-  const dir = dirAt(C, C.angle)
+  const dir = coilDirAt(C, C.angle)
   // Heading is measured about the upright, so both directions are laid flat
   // against it first.
   const flat = (v: THREE.Vector3) => v.clone().addScaledVector(C.up, -v.dot(C.up))
@@ -255,9 +353,9 @@ export function corkscrewExit(c: CorkscrewCoil): { slope: number; turn: number }
 
 /** Where the run has got to by the time it leaves, in the part's own frame. */
 function endPoint(c: CorkscrewCoil): THREE.Vector3 {
-  const C = solve(c)
+  const C = coilSpine(c)
   if (!C) return new THREE.Vector3(0, 0, c.entry + c.exit)
-  return pointAt(C, C.angle).addScaledVector(dirAt(C, C.angle), c.exit)
+  return coilPointAt(C, C.angle).addScaledVector(coilDirAt(C, C.angle), c.exit)
 }
 
 /** Centreline length of the whole part, mm — both stubs and the coil between. */
@@ -284,7 +382,7 @@ export function corkscrewFall(c: CorkscrewCoil): number {
  * its roll wound back out of it.
  */
 export function corkscrewPath(c: CorkscrewCoil, step: number, least: number) {
-  const C = solve(c)
+  const C = coilSpine(c)
   if (!C) {
     return {
       points: [new THREE.Vector3(), new THREE.Vector3(0, 0, c.entry + c.exit)],
@@ -297,10 +395,10 @@ export function corkscrewPath(c: CorkscrewCoil, step: number, least: number) {
   // The stub runs along the part's own axis, where dead up is simply +Y.
   const ups = [LOCAL_Y.clone()]
   for (let i = 1; i <= chords; i++) {
-    points.push(pointAt(C, (C.angle * i) / chords))
+    points.push(coilPointAt(C, (C.angle * i) / chords))
     ups.push(C.up.clone())
   }
-  points.push(points[points.length - 1].clone().addScaledVector(dirAt(C, C.angle), c.exit))
+  points.push(points[points.length - 1].clone().addScaledVector(coilDirAt(C, C.angle), c.exit))
   ups.push(C.up.clone())
   return { points, ups }
 }

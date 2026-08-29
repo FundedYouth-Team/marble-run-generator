@@ -36,6 +36,25 @@ export default function App() {
       if (isTyping(e.target)) return
       const s = useRun.getState()
       const action = actionFor(e, s.shortcuts)
+      // Delete and Backspace both mean "get rid of what is picked", the way they
+      // do everywhere else. Bare keys, so they are the app's own rather than
+      // something to bind — and only outside a field, where Backspace is still a
+      // backspace. A binding that lands on either of them still wins, so nothing
+      // set in Settings is quietly overruled here.
+      if (
+        !action &&
+        !e.metaKey &&
+        !e.ctrlKey &&
+        !e.altKey &&
+        !e.shiftKey &&
+        (e.key === 'Delete' || e.key === 'Backspace')
+      ) {
+        // Swallowed either way: Backspace with nothing picked is the browser's
+        // Back button on some setups, which would take the whole run with it.
+        e.preventDefault()
+        if (s.selectedIds.length) s.removeParts(s.selectedIds)
+        return
+      }
       // Ctrl+Shift+Z is the redo every other app also takes, so it stands
       // alongside whatever Redo is bound to — unless something is bound over it.
       const altRedo =

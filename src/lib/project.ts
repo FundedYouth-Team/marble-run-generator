@@ -2,6 +2,7 @@ import {
   ANGLE_DEFAULTS,
   BASE_DEFAULTS,
   BASE_LIMITS,
+  CAGE_LIMITS,
   SUPPORT_DEFAULTS,
   SUPPORT_LIMITS,
   CORKSCREW_DEFAULTS,
@@ -100,8 +101,24 @@ export const PROJECT_FORMAT = 'marble-run-generator'
  * same way: a v10 reader turns a type it has never heard of into a straight
  * tube, so a stage of posts holding the run up would open as a heap of pipes
  * standing on end. Told to stay out for the same reason.
+ * v12 rebuilt the support round the tube instead of under it, and v13 threw both
+ * shapes away for a plain rod struck between two points. Every number a support
+ * carries now means something different from what it meant in either: its
+ * `length` is how far the bar runs rather than how thick a collar is, its
+ * `slope` is which way the bar points rather than a fall it was forbidden, and
+ * its place is anywhere in the air rather than on the floor. A v12 reader would
+ * open a stage of rods as a heap of collars lying on the plate at wrong sizes,
+ * so it is told to stay out. Read the other way round, an older file's supports
+ * come back as rods of about the right thickness lying flat where they stood —
+ * near enough to see, and quicker to strike again than to unpick.
+ * A corkscrew's cage rides along inside v13 without a bump, the same way the
+ * hook's turn plane rode along inside v7: it is three fields on a part that
+ * already existed, and a reader that has never heard of them opens the coil with
+ * the cage every corkscrew now has by default. Which is the right answer as
+ * often as not — a coil left unbraced is the one thing here that reads back
+ * *more* braced than it was saved, and never less.
  */
-export const PROJECT_VERSION = 11
+export const PROJECT_VERSION = 13
 
 /** Double-barrelled so a saved run reads as a project, not as loose data. */
 export const PROJECT_EXT = '.mrun.json'
@@ -337,6 +354,13 @@ function readPiece(raw: unknown, joined: boolean): Piece {
           // Only a coil whose count was set by hand carries one; every other
           // one has its rings counted again on the way in.
           ...(o.ringsSet === true ? { ringsSet: true } : {}),
+          // The cage. Only a coil that was unbraced inside or braced outside
+          // says so — every other one, and every file written before a coil
+          // could be braced at all, opens with the inner cage every corkscrew
+          // out of the library has.
+          ...(o.innerCage === false ? { innerCage: false } : {}),
+          ...(o.outerCage === true ? { outerCage: true } : {}),
+          ...(inRange(o.width, CAGE_LIMITS.width) ? { width: o.width as number } : {}),
         }
       : {}),
     // A funnel is its bowl: how wide the mouth is, how deep it goes, how high
@@ -460,38 +484,36 @@ function readBase(o: Record<string, unknown>, at: Placement | undefined, name?: 
 }
 
 /**
- * A support read back: four sizes, two angles, a colour, a name and somewhere to
- * stand.
+ * A support read back: a thickness, a length, a rounding, and the line it was
+ * struck along.
  *
- * Never joined and never lifted, exactly as a base is never either — a post has
- * no ends to bond and its underside is the workplane by definition, so a file
- * claiming otherwise is describing something this app cannot build.
- *
- * Its fall is dropped as it comes in and its two tilts are kept: the three are
- * easily confused and only two of them are a support's. A post stands square
- * whatever the run around it does; what follows the run is the groove across its
- * top and, where it is standing on the run rather than on the plate, the saddle
- * under it.
+ * Never joined — a rod has no ends to bond, so a file claiming a joint on one is
+ * describing something this app cannot build. But it *is* lifted and it *is*
+ * tipped, which is what tells it from every other piece of structure in one of
+ * these files: a plate lies on the workplane and a rod goes wherever it was
+ * struck.
  */
-function readSupport(o: Record<string, unknown>, at: Placement | undefined, name?: string): Piece {
+function readSupport(
+  o: Record<string, unknown>,
+  at: Placement | undefined,
+  name?: string,
+): Piece {
   const S = SUPPORT_LIMITS
   return makePiece({
     type: 'support',
     ...(name ? { name } : {}),
-    length: num(o.length, S.depth.min, S.depth.max, SUPPORT_DEFAULTS.depth),
+    length: num(o.length, S.length.min, S.length.max, SUPPORT_DEFAULTS.length),
     width: num(o.width, S.width.min, S.width.max, SUPPORT_DEFAULTS.width),
-    height: num(o.height, S.height.min, S.height.max, SUPPORT_DEFAULTS.height),
     radius: num(o.radius, S.radius.min, S.radius.max, SUPPORT_DEFAULTS.radius),
-    sweep: num(o.sweep, S.wrap.min, S.wrap.max, SUPPORT_DEFAULTS.wrap),
-    tilt: num(o.tilt, S.tilt.min, S.tilt.max, SUPPORT_DEFAULTS.tilt),
-    foot: num(o.foot, S.foot.min, S.foot.max, SUPPORT_DEFAULTS.foot),
-    footTilt: num(o.footTilt, S.footTilt.min, S.footTilt.max, SUPPORT_DEFAULTS.footTilt),
-    footShift: num(o.footShift, S.footShift.min, S.footShift.max, SUPPORT_DEFAULTS.footShift),
-    slope: 0,
+    // A rod's fall is its own and is the whole of which way it points, so unlike
+    // every other piece of structure it is read rather than dropped.
+    slope: num(o.slope, PIECE_LIMITS.slope.min, PIECE_LIMITS.slope.max, 0),
     turn: num(o.turn, PIECE_LIMITS.turn.min, PIECE_LIMITS.turn.max, 0),
     ...(isHexColor(o.color) ? { color: o.color.toLowerCase() } : {}),
     ...(o.hidden === true ? { hidden: true } : {}),
-    at: at ? { ...at, y: 0 } : { x: 0, y: 0, z: 0, yaw: 0 },
+    // And its height is its own too — a rod is struck between two points, and
+    // neither of them need be anywhere near the floor.
+    at: at ?? { x: 0, y: 0, z: 0, yaw: 0 },
   })
 }
 

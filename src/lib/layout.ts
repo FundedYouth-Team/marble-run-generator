@@ -7,7 +7,6 @@ import {
   isChainRoot,
   isStructure,
   placementOf,
-  supportBand,
   supportSpec,
   type Piece,
 } from '../store'
@@ -338,12 +337,13 @@ export function buildAssembly(pieces: Piece[]): Assembly {
  * band of height it stands in — or null for anything that is run.
  *
  * A slab's is the slab, from the plane up. A post's is its footprint by
- * {@link supportBand}, which is *not* its seat and is not always the plane
- * either: the material stops a tube's radius short of the seat, a tilted cradle
- * carries one end of it back above the seat again, and a post standing on the
- * run starts well above the floor. The band is deliberately the generous answer
- * at both ends — this box frames the camera and bounds the drawing, and a few
- * millimetres too much crops nothing.
+ * {@link supportBand}, which reaches a whole collar-span *above* the tube's axis
+ * rather than stopping under it, and does not always start at the plane either:
+ * a strut ending in the air starts where it ends. `cradle` is the outer radius
+ * of the tube its collar is threaded onto, which is what says how big that ring
+ * is. The band is deliberately the generous answer at both ends — this box
+ * frames the camera and bounds the drawing, and a few millimetres too much crops
+ * nothing.
  */
 export function structureBox(
   piece: Piece,
@@ -353,8 +353,12 @@ export function structureBox(
     return { width, depth, low: 0, high: height }
   }
   if (piece.type === 'support') {
-    const post = supportSpec(piece)
-    return { width: post.width, depth: post.depth, ...supportBand(post) }
+    const rod = supportSpec(piece)
+    // A bar in its own frame: as thick as itself the two ways across, and as
+    // long as itself down the axis it was struck along. Unlike every other box
+    // here it is not measured up from the workplane, because a rod is not
+    // standing on anything — it goes wherever it was struck.
+    return { width: rod.width, depth: rod.length, low: -rod.width / 2, high: rod.width / 2 }
   }
   return null
 }

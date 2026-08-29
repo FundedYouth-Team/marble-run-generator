@@ -170,6 +170,11 @@ const HELP: Record<HelpTab, Group[]> = {
           note: 'one click rather than a mode — nothing else about the run moves, and a run left sunk below the plane is lifted onto it instead; also on a part’s right-click menu',
         },
         {
+          keys: ['⌶ Rods'],
+          action: 'Click two points and strike a rod between them',
+          note: 'a mode, like the two joint tools: while it is in hand the left button marks a point in space rather than picking a part. The first click is only remembered — nothing is built and nothing reaches the timeline until the second says what the rod is between — and the stage draws it from one to the other as you move. Escape lets go of a half-struck rod; the button’s menu holds Brace Every Run, which paces out the whole stage in one step',
+        },
+        {
           keys: ['Connector'],
           action: 'Join two parts: click the end you want to move, then the end it travels to',
           note: 'the first end picked is the one that moves; an inlet mates with an outlet, and the ends that cannot take the one in hand go grey',
@@ -374,23 +379,24 @@ const HOWTO: Partial<Record<HelpTab, HowTo[]>> = {
     },
     {
       question: 'My tubes are floating in mid-air — how do I hold them up?',
-      lead: 'With Supports: posts that stand on the ground and cradle the tube above them. Every run on this stage hangs in the air, and a printed tube hanging in the air falls on the floor, so this is what turns a run on screen into a run that can be built. Each post has a groove across its top cut to the shape of the pipe it carries, with arms coming up either side so the run sits down in it.',
+      lead: 'With rods. A rod is a plain bar struck between two points you click — that is the whole of it, two ends and a thickness. Every run on this stage hangs in the air, and a printed tube hanging in the air falls on the floor, so this is what turns a run on screen into a run that can be built.',
       steps: [
-        'Press ⌶ Supports on the toolbar. It paces out every run and stands a post wherever one will fit — under the joints, down the long spans, and never where a post would have to go through the run to get there.',
-        'Or add one by hand from Structure in the part library, slide it where you want it with Move, and press Fit to the Run Above: it reads the height, the fall and the heading straight off whatever tube is over it.',
-        'Adjust any post in Part Parameters — how thick it is across the run, how far it reaches along it, and how far its arms wrap round the tube, from a flat seat to a half-round cup.',
+        'Take up ⌶ Rods on the toolbar, click a spot on the run, then click what you want it braced against — the plate, a plinth, another turn of the run, or a rod already struck.',
+        'The stage draws the rod from the first click to wherever the pointer is, so you see it before you commit. Escape lets go of a half-struck one.',
+        'Or open the same button’s menu and pick one of the four braces, which do the whole stage in one step — Under the Run, Over it, or Outside or Inside the bend.',
       ],
-      note: 'Posts already standing are left alone when you press it again, and a new one is cut to match the last one you set up — so shape one post to taste and the rest of the stage follows it.',
+      note: 'A rod is driven a whisker into both ends rather than merely touching them, so the two fuse when the plate is sliced. It knows nothing about what it braces, which is exactly what lets one part be a post down to the plate, a tie between two turns of a coil, and a spine down the outside of one from top to bottom.',
     },
     {
-      question: 'My run doubles back over itself. What holds up the upper level?',
-      lead: 'The lower level does. The floor under a switchback or a spiral tower already has run on it, so a post driven down to the plate would go straight through the pipe it was meant to pass. Instead the post stands on that pipe: its underside becomes a saddle cut to the same tube, straddling it just as the cradle on top cups the one above, and the load goes down through the run to whatever is holding that up.',
+      question: 'How do I brace a corkscrew?',
+      lead: 'It comes braced. Every turn of a coil hangs over the one below with nothing but air between, which is the hardest thing on this stage to print — so a corkscrew carries its own cage: a hoop at the top, a hoop at the bottom, and four posts standing between them, welded to every turn they pass and leaning with the coil the whole way down. It is part of the part, printed in the same lump.',
       steps: [
-        'Press ⌶ Supports and it works this out for itself — it stands each post on the highest thing under it, which is the plate where the plate is clear and the run where it is not.',
-        'By hand, switch Stands on to The run in Part Parameters and set the foot height to the axis of the tube it is standing on.',
-        'Posts stack as many deep as the run does: a three-level tower gets a post on the plate, a post on that level, and a post on the one above it.',
+        'Pick the coil and set Support: Inside, Outside, Both or None. Braced up its hollow middle, the outside stays clear to watch the marble go down; braced outside, the middle stays clear to look down through. Both is what a tall coil in thin tube wants.',
+        'Set the Bar to say how thick the hoops and posts are. Every bar stands flush with the channel — its face sits on the bore rather than in it — so a fatter one is stiffer without ever being in the marble’s way.',
+        'A coil too tight to hold a cage inside it says so, and wants either a wider coil, a thinner bar, or the outside instead.',
+        'Anything the cage does not cover is a job for ⌶ Rods, which go wherever you click: a leg out to a plinth, a tie to the run alongside, a spine down the outside of a coil already caged inside.',
       ],
-      note: 'It will not stand a post on a tube crossing underneath at a sharp angle — a straight groove sits across such a pipe on two points rather than along it — nor squeeze one into a gap too small to be worth printing. Where it declines, the run is propped from the next place along instead.',
+      note: 'The hoops sit flush with the top and the bottom of the part, so the bottom one lands on whatever the coil is standing on — and on a bar thicker than the tube’s wall it stands a whisker proud of the tube, because a hoop hung any lower would reach down into the stub’s bore.',
     },
     {
       question: 'Why did my marble fall out of the tube?',
@@ -410,6 +416,18 @@ const HOWTO: Partial<Record<HelpTab, HowTo[]>> = {
         'Steepen the parts before the stall, or drop the Tube grip in Settings.',
         'Check for a sharp corner just before it: a hard turn bleeds off speed the run then has to make up again.',
       ],
+      note: 'A corkscrew stalls for the same reason and is steepened differently: it has no Start angle to raise, because its height and its widths already fix the one angle it can sit at. Set its Fall instead — the coil winds its rings in or out to suit, and keeps the height and the footprint it had.',
+    },
+    {
+      question: 'How do I make the marble go faster down a corkscrew?',
+      lead: 'Set the coil’s Fall. It is the one part on the stage whose angle is not a free field — a coil of a given height and width going round a given number of times has exactly one angle it can run at — so a corkscrew is steepened by winding it, and the Fall field is that wind stated as the angle you actually care about.',
+      steps: [
+        'Pick the coil and drag Fall, marked Slower to Faster. Fewer rings over the same height is a steeper coil; more is gentler.',
+        'Nothing else about the part moves: the height, both widths and the drop are all held, so the run bonded under the coil stays exactly where it was and only the speed changes.',
+        'The count goes in whole quarter turns, so the angle lands on the nearest one those can give and the field snaps to what it got. On a coil of a few rings that is a fraction of a degree; on a coil of one it is coarse.',
+        'The two ends of the range are printed beside the field. Too gentle to reach means the coil is short or wide for the fall you want — raise the height, or narrow it.',
+      ],
+      note: 'Setting the Fall pins the ring count by hand, which is what the Rings switch was already offering: counted, the rings follow the height and the fall barely moves, because each new ring takes up exactly the room the extra height gave it.',
     },
   ],
 }
@@ -460,6 +478,11 @@ function alwaysGroup(keys: ShortcutMap): Group {
         keys: [formatShortcut(keys.duplicateJoined)],
         action: 'Duplicate what is selected, joined onto the run',
         note: 'the copies land on the open end a new part would land on, bonded there',
+      },
+      {
+        keys: ['Del', '⌫'],
+        action: 'Delete what is selected',
+        note: 'the run closes up behind it, and Undo puts it back',
       },
       { keys: ['?'], action: 'Open this help' },
       { keys: ['Esc'], action: 'Close this help' },

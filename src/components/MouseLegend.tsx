@@ -33,6 +33,7 @@ export const ORBIT_MOUSE: MouseConfig = {
     ['left-click', 'select'],
     [`${MOD_LABEL.toLowerCase()}-click`, 'add to the set'],
     ['click end', 'join / unjoin'],
+    ['click run', 'stand a post'],
     ['drag arrow', 'move the run'],
     ['drag ring', 'turn the run'],
     ['right-click part', 'part menu'],

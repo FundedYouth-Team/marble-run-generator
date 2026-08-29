@@ -1050,11 +1050,11 @@ function AssemblyDraft({ shifted }: { shifted: boolean }) {
       // and neither a slab nor a post travels anywhere, so there is no honest
       // place on the page to put one.
       //
-      // A post is boxed rather than cradled. The groove across its top is a
-      // curve on a face pointing away from every one of these views, so drawing
-      // it would put a line on the paper that says nothing about where the part
-      // stands or how big it is — which is the whole of what an ortho view of a
-      // support is for. See {@link supportRise} for the box.
+      // A post is boxed rather than drawn as the collar and strut it is. Both
+      // the bore and the corners are curves on faces pointing away from every
+      // one of these views, so drawing them would put lines on the paper that
+      // say nothing about where the part stands or how big it is — which is the
+      // whole of what an ortho view of a support is for.
       if (isStructure(piece)) {
         if (flat) continue
         const box = structureBox(piece)

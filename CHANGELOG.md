@@ -13,64 +13,130 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
-- **The Support.** A post that stands on the ground and cradles the tube above
-  it — the other half of the base, and the part that makes a run printable at
-  all: every tube on this stage hangs in mid-air, and a printed tube hanging in
-  mid-air falls on the floor. The groove across its top is cut to the shape of
-  the pipe it carries, a shade wide so the tube beds down in it rather than
-  perching on the arms. Set how high the tube it holds sits, how thick the post
-  is across the run and how far it reaches along it, how far the arms wrap round
-  — from a flat seat to a half-round cup — and how far its own corners are
-  rounded. Found under Structure, beside the base.
-- **It stands square.** A printed post leaning over is a post that needs propping
-  itself, so a support stands dead upright whatever the run above it is doing and
-  the fall of that run goes into the *cradle* instead: the groove is cut on the
-  slope and drops through the top at the angle the tube is already falling at. It
-  states its own fall the way a base and a coil do, and the fall it states is
-  none. Its underside is on the workplane and stays there — stand one on a base
-  and the two overlap and print as one solid.
-- **Where the run is stacked over itself, the posts stack too.** The floor under
-  the upper level of a switchback already has the lower level on it, and a post
-  driven down to the plate would go straight through the pipe it was meant to
-  pass. So it stands on that pipe: its underside becomes a saddle cut to the same
-  tube, straddling it by the same wrap the cradle cups with, and the load goes
-  down through the run to whatever is holding *that* up. Posts stack as many deep
-  as the run does. The saddle is cut where the lower pipe really passes rather
-  than through the middle of the post, because a post is centred under what it
-  carries and almost never over what it stands on.
-- **⌶ Supports**, on the toolbar: paces out every run on the stage and stands a
-  post wherever one will fit. It declines three kinds of spot — where the ground
-  is already holding the tube up, where a post is standing already, and where the
-  column would have to go through the run to get there. Where the last is only
-  true of the *plate*, it stacks instead. New posts are cut to match the last one
-  on the stage, so shaping one by hand and pressing it again gives a stage of
-  posts that agree. Three spots it declines outright, and says so: a tube
-  crossing underneath at more than a few degrees off parallel, which a straight
-  groove would balance on rather than sit along; a gap between two levels too
-  small to leave a post worth printing; and a lower tube of a different size from
-  the one being carried, since one post cuts one groove radius. In each case that
-  stretch is propped from the next place along it.
-- **Fit to the Run Above**, in Part Parameters: reads the height, the fall and
-  the heading straight off whatever tube is passing over the post, and works out
-  whether it should be standing on the plate or on the run. Where it stands in
-  plan is left alone — sliding a post about the floor is something you can see
-  yourself doing, and reading a height off a run to a tenth of a millimetre is
-  not.
-- The cradle and the saddle are solved rather than carved. A cylinder lying
-  across a post cuts a surface that is straight in one axis at every point across
-  the other, so one closed form gives the whole of the top face at once — the
-  groove, the two arms, the flat shoulders outside them and the way all four tilt
-  with the run — and the same form upside down gives the underside. The solid is
-  those slices lofted, which makes it watertight by construction whatever the
-  numbers.
-- The marble meets a post as a rounded box, like a base, but only between the
-  crown of its saddle and the floor of its cradle: over the pipe and under the
-  pipe there is nothing to hit, and a box drawn any further would stand in the
-  bore of the very tube the post is holding.
+- **A corkscrew's fall is now something you set.** Drag **Fall**, marked Slower
+  to Faster, and the marble comes down the coil as fast as you want it to. It is
+  the one part on the stage whose angle was never a field: a coil of a given
+  height and width going round a given number of times has exactly one angle it
+  can run at, so its Start angle has always been a readout. This is that
+  equation read backwards — you state the angle, and the coil winds its rings in
+  or out to be a coil that runs at it.
+- **Nothing else about the coil moves.** The height, both widths and the drop are
+  all held, so the footprint is the footprint it was and every part bonded under
+  the coil stays exactly where it was standing. All that changes is how many
+  times the marble goes round on the way down, which is the whole of what makes
+  it faster or slower.
+- The count still goes in whole quarter turns, so the outlet still lands on a
+  heading square to the inlet — which means the angle lands on the nearest one a
+  quarter turn can give and the field snaps to what it got. On a coil of a few
+  rings that is a fraction of a degree; on a coil of one it is coarse, and says
+  so. The gentlest and steepest falls that height and width can reach are printed
+  beside the field.
+- Setting the fall pins the ring count by hand, which is what the Rings switch
+  was already offering — left counted, the rings follow the height and the fall
+  barely moves, because each new ring takes up exactly the room the extra height
+  gave it. Under **Rings**, and beside the Start angle readout, which now says
+  where to go.
+- **A corkscrew brings its own cage.** Two hoops and four posts standing between
+  them, welded to every turn they pass, printed in the same lump as the coil. A
+  coil is the one part in the library that cannot stand up on its own — every
+  ring hangs over the one below with nothing between them — and a rod struck by
+  hand fixes one turn at a time. This fixes all of them, and it arrives already
+  fixed: every corkscrew now comes braced up its hollow middle.
+- **Support: Inside, Outside, Both or None**, under the coil's own figures.
+  Which side is a real choice rather than a preference. Braced up the middle, the
+  outside stays clear to watch the marble come down; braced round the outside,
+  the middle stays clear to look down through; both is what a tall coil in thin
+  tube wants. Set the bar's thickness beside it — square in section, like a rod
+  left unrounded.
+- **The cage leans with the coil.** A coil that narrows as it falls is a cone,
+  and a cage standing square inside one would meet the tube at the top and be
+  nowhere near it at the bottom. Instead each post follows the coil's own taper
+  turn by turn, so it meets every ring it passes at exactly the depth it met the
+  one above.
+- **Every bar stands flush with the channel.** Its face looking at the coil sits
+  a whisker off the bore, so it welds into the wall behind it for very nearly the
+  wall's whole thickness and stops dead where the marble starts. Nothing the
+  marble touches is moved and nothing it could hit is added — which is what lets
+  a fatter bar be stiffer rather than more in the way.
+- **A trough facing the cage is tied under its own lip.** The one thing the open
+  side changes: on the side a coil's trough opens onto, the wall a post wants to
+  weld to is the wall that was cut away to open the channel. Reaching in far
+  enough to find material would put the bar across the marble's path, so on that
+  side alone the post stands clear and each turn is tied to it underneath, below
+  the bore, where there is nothing to be in the way of. Every other side — up,
+  down, or facing away — welds to the lips and needs no tie.
+- The hoops sit flush with the top and the bottom of the part, so the bottom one
+  lands on whatever the coil is standing on. On a bar thicker than the tube's
+  wall a hoop stands a whisker proud of the tube instead: hung any lower it would
+  reach down past the crown of the stub that runs into the coil and into that
+  stub's bore, which is the one place a hoop can meet a tube that is heading out
+  of the coil rather than round it.
+- A coil too tight to hold a cage up its middle says so and stays unbraced there
+  — the inside is the one side that can run out of room, since outside a coil
+  there is always more of it further out.
+- The cage goes wherever the coil goes: swung with the body to meet a joint,
+  keyed into the part's shape so two alike still share one mesh, carried into
+  every export, and saved with the project — which needs no new file version, a
+  coil from an older file simply opening with the cage every corkscrew now has.
+- **Delete throws away what is picked.** Press Delete or Backspace on either
+  stage and the selected parts go, the run closing up behind them exactly as the
+  right-click Delete closes it — one step in the timeline, so Undo puts them
+  back. It is the app's own key rather than a bindable one, and it stands down
+  inside a field, where Backspace is still a backspace. With nothing picked the
+  press is swallowed anyway: on some setups a bare Backspace is the browser's
+  Back button, which would take the whole run with it.
+- **The Rod.** A plain bar struck between two points — the other half of the
+  base, and the part that makes a run printable at all: every tube on this stage
+  hangs in mid-air, and a printed tube hanging in mid-air falls on the floor. Two
+  ends and a thickness is the whole of it. It knows nothing about what it is
+  bracing, and that is exactly what lets one part be a post down to the plate, a
+  tie between two turns of a coil, and a spine run down the outside of one from
+  top to bottom. Found under Structure, beside the base.
+- **⌶ Rods**, on the toolbar, is a tool you click with, and it takes two clicks:
+  the first is only remembered, the second says what the rod is between. The
+  stage draws it from one to the other as you move, so you see it before you
+  commit; Escape lets go of a half-struck one. Anything solid answers a click —
+  the run, a plinth, the workplane, or a rod already struck — so braces can be
+  tied onto braces. Each rod is its own step in the timeline.
+- **A corkscrew can be braced.** Every turn of a coil hangs over the one below
+  with nothing between, and no rule was ever going to find the line that fixes
+  it: one rod down the outside from the top turn to the plate, tying every turn
+  it passes. That is a single gesture. Ties between turns, inside or out, are the
+  same gesture repeated.
+- **Four braces**, in the same button's menu, each doing the whole stage in one
+  press: Under the Run, Over it, and Outside or Inside the bend. Where a rod
+  leaves the tube is the whole question on anything that curves — a coil braced
+  up its hollow middle keeps its outside clear to watch the marble go down, and
+  one braced outside keeps the middle clear to look down through. A coil that
+  narrows as it falls wants the outside, since inside it the turns are closing in
+  on one another. Under and over are the plain answers for everything else, and
+  are what a run with no bend in it gets whichever is picked. All four leave rods
+  already struck alone, skip a tube that is already resting on something, and
+  never drop one that would have to go through the run to get where it is going.
+- **A coil is braced once a turn, staggered.** One tie is enough to hold a turn
+  and more than one is a fence round the very thing a coil is built to watch, so
+  the stretch of a run that is corkscrew is paced by its own turns rather than by
+  the stride the rest of the stage gets. Each rod sits a little further round the
+  coil than the one before it, so they spiral rather than stacking into a ladder
+  up one side — and where the turns would divide neatly enough for that to happen
+  anyway, one more rod is struck, which shifts them all round again.
+- Set a rod's length, its thickness, and how far its four long corners are
+  rounded: to half the thickness it is a round bar, and left square it is the
+  flattest thing there is to print. It is driven a whisker past both points it
+  was struck between, so it fuses with them rather than merely touching.
+- A rod is the one piece of structure that neither lies flat nor stands square.
+  It takes no joint, carries no marble and is no part of any run, like a base —
+  but it goes where it was struck, at whatever angle, however far off the floor.
+  That split is two questions rather than one now: whether a part is *run*, and
+  whether it is *on the floor*.
+- The marble meets a rod as the bar it is: a box with its long edges rounded off,
+  held in the rod's own frame, which is already tipped onto whatever line it was
+  struck along.
 - It goes everywhere a part goes: picked and moved on the stage, listed in Active
   Parts, drawn in the six ortho views of the 2D draft, saved with the project,
-  and laid on the print plate standing the way it prints — flat footprint down,
-  cradle looking at the ceiling, every wall square. Project files are now v11.
+  and laid on the print plate the way it prints — on its side, a bar flat on the
+  plate with no overhang anywhere in it, whatever line it was struck along up in
+  the air. Project files are now v13.
 
 - **The Base.** A flat plate that stands on the workplane and fills the space
   under the run. It is the first part in the library that is not a length of
@@ -142,6 +208,31 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   3/4 Open; cutting a tube open is now a deliberate choice, along with the side
   it opens on. Saved files are unaffected — they carry their own style — and one
   written before the side existed opens on the top, where every opening was.
+
+### Fixed
+
+- **A rod knows how tall a pipe is where it actually passes.** Bracing measured
+  every tube as though it were at full height however far off to the side it
+  passed, so the floor under a coil came out a couple of millimetres below the
+  turn above it and every rod between those two was refused for being too short
+  to be worth striking. That is why a tapering coil came back with a bare stretch
+  down the middle of it. A pipe is round: its surface is highest on its own
+  centreline and falls away to either side, and that is what is read now.
+- **How far round a coil has gone is counted by its turning, not by its length.**
+  An outer turn of a tapering coil is half as long again as an inner one, so
+  sharing the run out evenly put two rods on one turn and none on the next. The
+  turning is added up from the run's own heading instead, chord by chord, which
+  needs no knowing where the coil's axis is — and the ties come out one a turn,
+  evenly spread, whatever the taper.
+- A coil's straight stubs are no longer counted as part of its coil. They are
+  ordinary run and are paced with the rest of it; counted as turns they threw
+  every station along the whole coil off.
+
+- **A corkscrew gets braced now.** Bracing the stage in one press used to walk
+  straight past every coil on it and leave a couple of props under the bottom
+  turn — the one part whose whole length floats was the one part that never got
+  held up. Brace Every Run now ties each turn to the one below it, and a rod
+  struck by hand down the outside does the job properly in one go.
 
 ### Tooling
 

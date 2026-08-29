@@ -83,13 +83,12 @@ function layFlat(piece: Piece, own: TubeSpec): THREE.Matrix4 {
   // nothing overhanging and no opening to point anywhere. All it wants is the
   // turn from this app's Y-up world into the slicer's Z-up one, which is the
   // very same turn the assembly export gives the whole stage.
-  //
-  // A support prints the way it stands, and for once that is the whole point of
-  // the shape: it is a post on a flat footprint with its cradle looking at the
-  // ceiling, so every wall in it goes down square and the one curved face is the
-  // one face pointing up. Standing it any other way would need supports under
-  // the support.
-  if (piece.type === 'base' || piece.type === 'support') return Y_TO_Z.clone()
+  if (piece.type === 'base') return Y_TO_Z.clone()
+  // A rod is laid down flat, exactly as a length of tube is and by the same
+  // turn: on its side along the plate, where it is a bar with no overhang
+  // anywhere in it whatever line it was struck along in the world. It takes no
+  // roll — a bar has no opening to point anywhere — and no tip, having no bend.
+  if (piece.type === 'support') return LAY_FLAT.clone()
   const roll = own.closed || piece.type === 'funnel' ? 0 : OPEN_SIDE_ANGLE[own.openSide]
   const m = roll === 0 ? LAY_FLAT.clone() : LAY_FLAT.clone().multiply(new THREE.Matrix4().makeRotationZ(roll))
   if (piece.type !== 'angle') return m
@@ -112,7 +111,9 @@ const PLATE_GAP = 5
  */
 function plateReach(piece: Piece, own: TubeSpec): number {
   if (piece.type === 'base') return baseSpec(piece).depth / 2
-  if (piece.type === 'support') return supportSpec(piece).depth / 2
+  // A rod lies along the row like a length of tube, so what it reaches across
+  // one is its own half thickness.
+  if (piece.type === 'support') return supportSpec(piece).width / 2
   return own.outerR
 }
 

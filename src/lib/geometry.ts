@@ -1,15 +1,20 @@
 import * as THREE from 'three'
-import { centerlineFor, chordUps, type Centerline } from './centerline'
+import { centerlineFor, chordUps, leadSwing, type Centerline } from './centerline'
+import { coilCageSolids } from './cage'
+import { coilSpine } from './corkscrew'
 import { FUNNEL_SOCKET_KEEP, funnelShell, funnelSpoutUp, type FunnelBowl } from './funnel'
 import {
   baseSpec,
+  corkscrewCage,
+  corkscrewCaged,
+  corkscrewSpec,
   funnelDrainSpec,
   funnelSpec,
   jointSpec,
   supportSpec,
   type BaseSlab,
   type Piece,
-  type SupportPost,
+  type SupportRod,
   type TubeSpec,
 } from '../store'
 
@@ -350,16 +355,67 @@ export function buildPartGeometry(spec: TubeSpec, piece: Piece): THREE.BufferGeo
   // The other part that is not a swept tube, and the plainer of the two: a base
   // is a slab, built from its own four numbers with the tube nowhere in it.
   if (piece.type === 'base') return buildBaseGeometry(baseSpec(piece))
-  // A support is not swept either, and the tube is in it in one place only: the
-  // groove across its top is the shape of the pipe it has to hold, so the post's
-  // own numbers say where the cradle is and the tube says how big it is.
-  if (piece.type === 'support') return buildSupportGeometry(supportSpec(piece), spec.outerR)
+  // And the plainest of the three: a rod is a bar, built from its own two
+  // numbers with the tube nowhere in it at all.
+  if (piece.type === 'support') return buildRodGeometry(supportSpec(piece))
   if (piece.type === 'funnel') {
     // The bowl and the feed tube are cut to the part's own tube; the spout may be
     // styled on its own, so it is asked for separately.
     return buildFunnelGeometry(spec, funnelSpec(piece), funnelDrainSpec(spec, piece))
   }
-  return buildPieceGeometry(spec, centerlineFor(piece))
+  const line = centerlineFor(piece)
+  const tube = buildPieceGeometry(spec, line)
+  // A corkscrew may be braced, and its cage is part of the part: printed in the
+  // same lump, so the coil lands already held up rather than needing to be tied
+  // turn by turn afterwards.
+  if (piece.type === 'corkscrew' && corkscrewCaged(piece)) {
+    const cage = coilCageFor(spec, piece, line)
+    if (cage.length) return mergeSolids([tube, ...cage])
+  }
+  return tube
+}
+
+/**
+ * A corkscrew's cage, stood in the same frame as the tube it braces.
+ *
+ * The coil is solved again here rather than read off the centreline, because
+ * what a cage needs is not the path: it is the axis the coil winds about, the
+ * rate its width closes in and the height every turn crosses at, none of which
+ * survive being chopped into chords. What it then has to share with the tube is
+ * the swing a joint's lead puts on the part's body — the coil pivots about the
+ * end of its lock to meet whatever it is plugged into, and a cage left behind
+ * would stand beside the part rather than round it. See {@link leadSwing}.
+ *
+ * The hoops are set flush with the ends of the whole part, tube and all, which
+ * is what puts the bottom one on the floor the coil stands on and the top one
+ * level with its highest point.
+ */
+export function coilCageFor(
+  spec: TubeSpec,
+  piece: Piece,
+  line: Centerline = centerlineFor(piece),
+): THREE.BufferGeometry[] {
+  const C = coilSpine(corkscrewSpec(piece))
+  if (!C) return []
+  const swing = leadSwing(piece)
+  if (swing) {
+    const { pivot, rotation } = swing
+    C.up.applyQuaternion(rotation)
+    C.axis.applyQuaternion(rotation)
+    C.spoke.applyQuaternion(rotation)
+    C.centre.sub(pivot).applyQuaternion(rotation).add(pivot)
+  }
+  // How far the run itself reaches either way along the coil's upright. The
+  // cage works the ends of the part out from that and its own tube: how much of
+  // the wall it may stand in is its business rather than this one's.
+  let crown = -Infinity
+  let floor = Infinity
+  for (const p of line.points) {
+    const y = p.dot(C.up)
+    crown = Math.max(crown, y)
+    floor = Math.min(floor, y)
+  }
+  return coilCageSolids(C, corkscrewCage(piece), spec, crown, floor)
 }
 
 /**
@@ -1247,285 +1303,104 @@ export function buildBaseGeometry(slab: BaseSlab): THREE.BufferGeometry {
   return geom
 }
 
-/**
- * How much wider than the tube the cradle is cut, mm — on the radius.
- *
- * A support prints as its own part and the run drops into it afterwards, so the
- * groove has to be a seat rather than an interference fit. This is about one
- * printed layer's worth of slack: enough that the tube beds down in the cradle
- * instead of perching on its two arms, and far too little to let it rattle.
- */
-const CRADLE_SLACK = 0.2
+/** How finely a rod's rounded corners are chopped, degrees. */
+const ROD_STEP = 12
 
 /**
- * How much more slack again, per mm of the post's reach along the run.
+ * A support as a watertight solid: a plain bar running from the origin down its
+ * own +Z for its own length.
  *
- * The groove is straight and a run very often is not — it is falling through a
- * bend, or winding round a coil — so a cradle cut dead to size fits in the
- * middle and pinches at its two ends. How much it pinches goes with the square
- * of how far it reaches, which is why the answer is to give a long groove more
- * room rather than to forbid one. At the reach a post arrives at this is a
- * couple of tenths; at the longest reach anyone would set it is a shade over a
- * millimetre, which is the right order for a groove that long.
+ * The simplest solid in the app, and the point of it. A rod knows nothing about
+ * the run — not what it braces, not which way that run falls, not whether it is
+ * standing on the plate or tying one turn of a coil to the next. It is two ends
+ * and a thickness. Everything else about a brace is *where it was put*, and
+ * where a part is put is the placement every part on this stage already has.
+ *
+ * That is why it prints on its own without a thought: laid on its side it is a
+ * bar on the plate, flat all along its length, with no overhang anywhere in it
+ * whatever the run it came off looked like.
+ *
+ * Its section is a square with the corners rounded, held to half the thickness —
+ * so nought is a square bar and the ceiling is a round one, with no case of its
+ * own for either. The frame is the one every part is built in: the origin at the
+ * end it starts from, +Z along it, so standing one in the world is the very same
+ * job as standing a length of tube in it.
  */
-const CRADLE_PER_REACH = 0.04
+export function buildRodGeometry(rod: SupportRod): THREE.BufferGeometry {
+  const half = rod.width / 2
+  const r = Math.max(0, Math.min(rod.radius, half))
+  const flat = half - r
 
-/**
- * How much wider again the saddle under a stacked post is cut, mm — on the
- * radius, on top of {@link CRADLE_SLACK}.
- *
- * The cradle is cut to a tube the post is aimed squarely at, and it fits it
- * exactly. The saddle is not so lucky: what a post stands on is whatever
- * happened to be underneath it, and that is allowed to be a little off — a
- * degree or two out of parallel, or a ring of a coil curving away across the
- * post's own length. The groove is straight, so a pipe that is not is met at its
- * ends first. This is the room that gives it.
- */
-const SADDLE_EASE = 0.6
-
-/** How finely the cradle's arc is chopped, degrees per chord. */
-const CRADLE_STEP = 5
-
-/**
- * The least material left under the cradle at its thinnest, mm.
- *
- * A post whose seat is lower than the tube it is carrying is fat has no top left
- * — the groove has eaten straight through the floor — and the shape would turn
- * itself inside out. Rather than refusing to build such a thing, the top is held
- * up to a web this thick, so a post asked for an impossible seat comes out as
- * the wafer it really is and can be seen to be wrong on the stage.
- */
-const POST_WEB = 0.6
-
-/**
- * A support as a watertight solid: a post standing on the workplane with the
- * tube it carries cut out of its top.
- *
- * The frame is the one every part is built in — the origin on the workplane at
- * the middle of the post, +Y up, +Z along the run it holds — so standing one in
- * the world is the same job as standing a length of tube in it. See
- * `supportLine`.
- *
- * ## The whole of the top in one line
- *
- * The cradle is the shape a cylinder leaves behind, and it is *solved* rather
- * than carved. Take the tube's axis to pass through (0, seat, 0) running along
- * +Z, tipped by the cradle's own fall. For a point at (x, y, z) the distance out
- * to that axis works out to `x² + (a·cos t + z·sin t)²` with `a = y − seat`,
- * which is to say: at a given x, the surface of the cylinder is a straight line
- * in z. So the top of the post is
- *
- *     top(x, z) = seat − (max(√(R² − x²), R·cos wrap) + z·sin t) / cos t
- *
- * and that one expression is the whole top face — the groove, the two arms, the
- * flat shoulders outside them, and the way all four of them tilt with the run.
- * Where the arc is higher than the shoulder the tube is what cuts; where it is
- * lower the shoulder is, and the two meet exactly at the ends of the arms. Wrap
- * the arms to nothing and it collapses to a flat seat under the pipe; wrap them
- * right round to a right angle and it is a half-round cup.
- *
- * ## And the underside is the same line upside down
- *
- * A post that cannot reach the plate stands on the run instead — see
- * {@link SupportPost.foot} — and its underside is then the same cylinder cut the
- * other way about, arching over the tube below rather than cupping the one
- * above:
- *
- *     bottom(x, z) = foot + (max(√(R² − s²), R·cos wrap) − z·sin tf) / cos tf
- *
- * with `s = x − shift`, because a post is centred under the tube it carries and
- * almost never over the tube it stands on. Both signs flip, because the material
- * is now above the cylinder rather than below it. The arms of that saddle hang down the sides of the lower tube by
- * exactly as far as the arms of the cradle climb the sides of the upper one,
- * which is what stops a stacked post sliding off the pipe it is standing on. A
- * post on the plate has no such tube and its underside is simply y = 0.
- *
- * ## Why it is built in strips along x
- *
- * Because both faces are straight in z at every x, a slice of the post at one x
- * is a plain quadrilateral, and the whole solid is those slices lofted along x.
- * Four strips — the underside, the two side walls and the top — carry the entire
- * shape between them, and each keeps its own vertices, so they shade as the four
- * faces they are instead of being smeared into one blob. Only the two ends are
- * not strips, and each of those is a single flat quad, because a quadrilateral
- * standing at one x lies in the plane x = that.
- *
- * `cradle` is the outer radius of the tube the post has to carry, and — where it
- * is standing on the run — of the tube it is standing on.
- */
-export function buildSupportGeometry(post: SupportPost, cradle: number): THREE.BufferGeometry {
-  const hw = post.width / 2
-  const hd = post.depth / 2
-  const r = Math.max(0, Math.min(post.radius, hw, hd))
-  const R = Math.max(0, cradle) + CRADLE_SLACK + post.depth * CRADLE_PER_REACH
-  /** The saddle's own radius — the cradle's, with room for a pipe that wanders. */
-  const F = R + SADDLE_EASE
-  const tilt = (post.tilt * Math.PI) / 180
-  const cos = Math.cos(tilt)
-  const sin = Math.sin(tilt)
-  const footTilt = (post.footTilt * Math.PI) / 180
-  const footCos = Math.cos(footTilt)
-  const footSin = Math.sin(footTilt)
-  const wrap = (post.wrap * Math.PI) / 180
-  // Where the cradle's arms stop — how far out in x its arc reaches before the
-  // flat shoulder takes over. The saddle's arms stop a shade further out, being
-  // cut round a shade wider a circle.
-  const reach = R * Math.sin(wrap)
-
-  /**
-   * How far the post reaches in z at this x — the rounded rectangle's own plan,
-   * with no branch for the square case: a corner rounded to nothing leaves the
-   * arc's centre on the corner itself, and the arc collapses onto it.
-   */
-  const edge = (x: number) => {
-    const past = Math.max(0, Math.abs(x) - (hw - r))
-    return hd - r + Math.sqrt(Math.max(0, r * r - past * past))
-  }
-
-  /**
-   * How far a cylinder of radius `rr` stands off its own axis at this much
-   * across it — the arc where the wrap has reached, and the flat shoulder
-   * outside it.
-   */
-  const off = (x: number, rr: number) =>
-    Math.max(Math.sqrt(Math.max(0, rr * rr - x * x)), rr * Math.cos(wrap))
-
-  /**
-   * The underside, everywhere on it: the plate, or the saddle a stacked post
-   * arches over the tube it is standing on. Never below the plate — a post is
-   * held on the workplane, and a saddle deep enough to reach through it is a
-   * saddle that has been asked for something it cannot have.
-   */
-  const bottom = (x: number, z: number) =>
-    post.foot <= 0
-      ? 0
-      : Math.max(0, post.foot + (off(x - post.footShift, F) - z * footSin) / footCos)
-
-  /** The top face, everywhere on it — see the note above. */
-  const top = (x: number, z: number) =>
-    Math.max(bottom(x, z) + POST_WEB, post.height - (off(x, R) + z * sin) / cos)
-
-  // Where the loft is cut. Dense round the two arcs that actually curve — the
-  // cradle across the top and the rounded corners in plan — and nowhere else,
-  // since between them the shape is ruled and one slice either side of a span
-  // describes the whole of it.
-  const cuts: number[] = [-hw, hw]
-  if (wrap > 0) {
-    const steps = Math.max(2, Math.ceil(post.wrap / CRADLE_STEP))
-    for (let i = 0; i <= steps; i++) {
-      const x = R * Math.sin((wrap * i) / steps)
-      if (x < hw) cuts.push(x, -x)
+  // The section, walked once anticlockwise: the four corner arcs, which collapse
+  // onto the corners themselves when the radius is nought and swallow the flats
+  // whole when it is the full half-thickness.
+  const chords = r > 1e-6 ? Math.max(2, Math.ceil(90 / ROD_STEP)) : 1
+  const section: THREE.Vector2[] = []
+  const corners: [number, number, number][] = [
+    [flat, flat, 0],
+    [-flat, flat, Math.PI / 2],
+    [-flat, -flat, Math.PI],
+    [flat, -flat, (Math.PI * 3) / 2],
+  ]
+  for (const [cx, cy, from] of corners) {
+    for (let i = 0; i <= chords; i++) {
+      const a = from + ((Math.PI / 2) * i) / chords
+      section.push(new THREE.Vector2(cx + Math.cos(a) * r, cy + Math.sin(a) * r))
     }
   }
-  // And again round the saddle, which is the same arc a shade wider and shifted
-  // across the post.
-  if (post.foot > 0 && wrap > 0) {
-    const steps = Math.max(2, Math.ceil(post.wrap / CRADLE_STEP))
-    for (let i = 0; i <= steps; i++) {
-      const x = F * Math.sin((wrap * i) / steps)
-      for (const at of [post.footShift + x, post.footShift - x]) {
-        if (at > -hw && at < hw) cuts.push(at)
-      }
-    }
-  }
-  if (r > 1e-6) {
-    const steps = Math.max(
-      CORNER_MIN_CHORDS,
-      Math.min(CORNER_MAX_CHORDS, Math.ceil(((Math.PI / 2) * r) / CORNER_CHORD)),
-    )
-    for (let i = 0; i <= steps; i++) {
-      const x = hw - r + r * Math.sin(((Math.PI / 2) * i) / steps)
-      cuts.push(Math.min(hw, x), Math.max(-hw, -x))
-    }
-  }
+  // Points that landed on the one before — every arc of a square bar, and the
+  // seam where one arc's last point meets the next side's first.
+  const loop = section.filter((p, i) => {
+    const q = section[(i - 1 + section.length) % section.length]
+    return p.distanceToSquared(q) > 1e-12
+  })
 
-  // Two slices where the surface genuinely kinks — the end of an arm, and the
-  // start of a corner arc. Sharing vertices there would shade the kink as a
-  // curve; a second slice in the very same place gives each side its own
-  // normals, and the strip of nothing between them has no area to contribute.
-  const key = (x: number) => Math.round(x * 1e6)
-  const kinks = new Set<number>()
-  if (wrap > 0 && reach < hw) kinks.add(key(reach)).add(key(-reach))
-  if (post.foot > 0 && wrap > 0) {
-    for (const at of [post.footShift + F * Math.sin(wrap), post.footShift - F * Math.sin(wrap)]) {
-      if (at > -hw && at < hw) kinks.add(key(at))
-    }
-  }
-  if (r > 1e-6 && r < hw) kinks.add(key(hw - r)).add(key(-(hw - r)))
-
-  const xs: number[] = []
-  for (const x of [...new Set(cuts.map(key))].sort((a, b) => a - b)) {
-    const at = x / 1e6
-    xs.push(at)
-    if (kinks.has(x)) xs.push(at)
-  }
-
+  const n = loop.length
   const positions: number[] = []
   const indices: number[] = []
-  /** One vertex, and where it landed. */
   const put = (x: number, y: number, z: number) => {
     const at = positions.length / 3
     positions.push(x, y, z)
     return at
   }
-  /**
-   * A quad strip between two rings walked together, wound so the material is on
-   * the far side of `a` from `b` — pass the rings the way round that puts the
-   * outside of the solid on the left, and the whole strip faces out.
-   */
-  const strip = (a: number[], b: number[]) => {
-    for (let i = 0; i < a.length - 1; i++) {
-      indices.push(a[i], b[i], b[i + 1])
-      indices.push(a[i], b[i + 1], a[i + 1])
-    }
+
+  // The wall. Its two rings are shared along the section, so a rounded corner
+  // shades round as the curve it is; a square one gets a vertex to each side of
+  // itself so the edge stays an edge.
+  const creased = loop.map((p, i) => {
+    const before = new THREE.Vector2().subVectors(p, loop[(i - 1 + n) % n]).normalize()
+    const after = new THREE.Vector2().subVectors(loop[(i + 1) % n], p).normalize()
+    return before.dot(after) < CREASE_COS
+  })
+  const arrive: number[] = []
+  const leave: number[] = []
+  for (let i = 0; i < n; i++) {
+    const p = loop[i]
+    const at = put(p.x, p.y, 0)
+    put(p.x, p.y, rod.length)
+    arrive.push(at)
+    leave.push(creased[i] ? put(p.x, p.y, 0) : at)
+    if (creased[i]) put(p.x, p.y, rod.length)
+  }
+  for (let i = 0; i < n; i++) {
+    const a = leave[i]
+    const b = arrive[(i + 1) % n]
+    indices.push(a, b + 1, a + 1)
+    indices.push(a, b, b + 1)
   }
 
-  // Each face keeps its own copy of the rings it runs between, so the underside,
-  // the walls and the top meet at edges rather than blending into one another.
-  const floorBack: number[] = []
-  const floorFront: number[] = []
-  const backLow: number[] = []
-  const backHigh: number[] = []
-  const frontLow: number[] = []
-  const frontHigh: number[] = []
-  const roofBack: number[] = []
-  const roofFront: number[] = []
-  for (const x of xs) {
-    const front = edge(x)
-    const back = -front
-    const yF = top(x, front)
-    const yB = top(x, back)
-    const uF = bottom(x, front)
-    const uB = bottom(x, back)
-    floorBack.push(put(x, uB, back))
-    floorFront.push(put(x, uF, front))
-    backLow.push(put(x, uB, back))
-    backHigh.push(put(x, yB, back))
-    frontLow.push(put(x, uF, front))
-    frontHigh.push(put(x, yF, front))
-    roofBack.push(put(x, yB, back))
-    roofFront.push(put(x, yF, front))
+  // The two ends get rings of their own, so each flat face and the wall beside
+  // it keep their own normal and the rim between them stays an edge.
+  const back = positions.length / 3
+  for (const p of loop) positions.push(p.x, p.y, 0)
+  const front = positions.length / 3
+  for (const p of loop) positions.push(p.x, p.y, rod.length)
+  // Fanned from the first point of each ring — the section is convex by
+  // construction, so a fan is a proper triangulation of it.
+  for (let i = 1; i < n - 1; i++) {
+    indices.push(back, back + i + 1, back + i)
+    indices.push(front, front + i, front + i + 1)
   }
-
-  strip(floorFront, floorBack) // underside, facing down
-  strip(backLow, backHigh) // the -Z wall, facing back
-  strip(frontHigh, frontLow) // the +Z wall, facing front
-  strip(roofBack, roofFront) // the cradle and its shoulders, facing up
-
-  // The two ends. Each is one flat quad — the top is straight in z, so nothing
-  // about an end face is curved however the cradle is cut.
-  const last = xs.length - 1
-  const cap = (i: number, out: 1 | -1) => {
-    const front = edge(xs[i])
-    const b0 = put(xs[i], bottom(xs[i], -front), -front)
-    const b1 = put(xs[i], bottom(xs[i], front), front)
-    const t1 = put(xs[i], top(xs[i], front), front)
-    const t0 = put(xs[i], top(xs[i], -front), -front)
-    if (out < 0) indices.push(b0, b1, t1, b0, t1, t0)
-    else indices.push(b0, t1, b1, b0, t0, t1)
-  }
-  cap(0, -1)
-  cap(last, 1)
 
   const geom = new THREE.BufferGeometry()
   geom.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3))
