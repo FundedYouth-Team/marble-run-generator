@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 import { useRun, HISTORY_LIMIT } from '../store'
+import HoverHint from './HoverHint'
 import { UndoIcon, RedoIcon } from './icons'
 
 /** Clock time on the step, so a list of similar edits is still tellable apart. */
@@ -16,7 +17,9 @@ function clock(at: number) {
  * theme and playback are view state, so stepping back never moves the view.
  */
 export default function HistoryPanel({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const { history, historyIndex, gotoHistory, undo, redo } = useRun()
+  const { history, historyIndex, gotoHistory, undo, redo, shortcuts } = useRun()
+  const canUndo = historyIndex > 0
+  const canRedo = historyIndex < history.length - 1
 
   useEffect(() => {
     if (!open) return
@@ -41,12 +44,24 @@ export default function HistoryPanel({ open, onClose }: { open: boolean; onClose
       </header>
 
       <div className="history-actions">
-        <button onClick={undo} disabled={historyIndex <= 0}>
-          <UndoIcon /> Undo
-        </button>
-        <button onClick={redo} disabled={historyIndex >= history.length - 1}>
-          <RedoIcon /> Redo
-        </button>
+        <HoverHint
+          label="Undo"
+          hint={canUndo ? 'Step back one change on the timeline' : 'Nothing to undo yet'}
+          keys={canUndo ? shortcuts.undo : undefined}
+        >
+          <button onClick={undo} disabled={!canUndo}>
+            <UndoIcon /> Undo
+          </button>
+        </HoverHint>
+        <HoverHint
+          label="Redo"
+          hint={canRedo ? 'Step forward again into the change you took back' : 'Nothing to redo'}
+          keys={canRedo ? shortcuts.redo : undefined}
+        >
+          <button onClick={redo} disabled={!canRedo}>
+            <RedoIcon /> Redo
+          </button>
+        </HoverHint>
       </div>
 
       <div className="parts-body history-body">

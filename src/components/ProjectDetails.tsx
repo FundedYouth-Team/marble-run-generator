@@ -231,6 +231,7 @@ export default function ProjectDetails() {
   return (
     <>
       <HoverHint
+        className="details-slot"
         label="Details"
         hint="Everything the run measures — its length and the room it needs, the tube it is cut from, the ball it is cut for, and a count of the parts on the stage."
       >

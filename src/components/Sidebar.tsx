@@ -1,8 +1,7 @@
-import { useMemo } from 'react'
+import { useMemo, useRef } from 'react'
 import * as THREE from 'three'
 import NumberField from './NumberField'
 import ColorField from './ColorField'
-import CollapsiblePanel from './CollapsiblePanel'
 import HoverHint from './HoverHint'
 import Note from './Note'
 import { pieceAxisLength } from '../lib/centerline'
@@ -83,6 +82,7 @@ import {
   breakAngleOf,
   mitreBite,
   turnLimitsFor,
+  type LeftPanel,
   type OpenSide,
   type TubeVariant,
 } from '../store'
@@ -131,8 +131,28 @@ function listWords(words: string[]): string {
   return `${words.slice(0, -1).join(', ')} and ${words[words.length - 1]}`
 }
 
-export default function Sidebar() {
+interface SidebarProps {
+  /** Which of the rail's menus is showing, or null while the column is put away. */
+  panel: LeftPanel
+  /** The menu's name, for the header — the rail's own label for it. */
+  title: string
+  /** Fold the column away, leaving the rail. */
+  onClose: () => void
+}
+
+export default function Sidebar({ panel, title, onClose }: SidebarProps) {
   const s = useRun()
+  /**
+   * What the column last had in it. Closing is a slide rather than a
+   * disappearance, so the menu has to keep its contents on the way out — the
+   * alternative is an empty white column sliding off the edge.
+   */
+  const last = useRef<{ panel: Exclude<LeftPanel, null>; title: string }>({
+    panel: 'tubeSize',
+    title: 'Tube Size',
+  })
+  if (panel) last.current = { panel, title }
+  const view = last.current
   const selectedIndex = s.pieces.findIndex((p) => p.id === s.selectedId)
   const selected = selectedIndex >= 0 ? s.pieces[selectedIndex] : null
   // The style the buttons show and act on: the selected part's, or the run's
@@ -390,36 +410,54 @@ export default function Sidebar() {
   }
 
   return (
-    <aside className="sidebar">
-      {/* Measurements, tube and colour are all a part's own; with nothing picked
-          the same fields set what the run — and every part following it — is
-          made to. That is worth saying, but only once it is asked for: the
-          heading carries it as a hover hint rather than standing text, so the
-          fields themselves start at the top of the column. */}
-      <header className="scope-head">
+    <aside className="sidebar" aria-hidden={panel === null}>
+      {/* The menu's own title bar. The name is the rail's, so the icon you
+          pressed and the column it opened say the same word; the cross is the
+          other way to put it away, for anyone who has already moved the pointer
+          off the rail. Measurements, tube and colour are all a part's own — with
+          nothing picked the same fields set the run instead — which the title
+          carries as a hover hint rather than standing text. */}
+      <header className="menu-head">
         <HoverHint
-          label="Part Parameters"
+          label={view.title}
           hint={
             selected
               ? 'Measurements, tube size, style and color belong to this part alone. Apply to All Parts puts any of them on the whole run.'
-              : 'Pick a part in Active Parts or the list below to edit its measurements, tube size, style and color. With nothing picked, these set the run — every part that has none of its own follows it.'
+              : 'Pick a part in Active Parts or on the stage to edit its measurements, tube size, style and color. With nothing picked, these set the run — every part that has none of its own follows it.'
           }
         >
           <h2>
-            Part Parameters
+            {view.title}
             <span className={selected ? 'scope-name' : 'scope-name none'}>
-              {selected ? pieceLabel(selected, selectedIndex) : 'none'}
+              {selected ? pieceLabel(selected, selectedIndex) : 'the run'}
             </span>
           </h2>
         </HoverHint>
+        <button className="menu-close" onClick={onClose} aria-label="Close menu" title="Close">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round">
+            <path d="M5.5 5.5 18.5 18.5M18.5 5.5 5.5 18.5" />
+          </svg>
+        </button>
       </header>
 
-      {/* The three panels that describe the tube, and the one that describes how a
-          part meets the run. A base has none of that — no bore, no wall, no
-          style, no joints — so with one picked they are put away rather than
-          left standing as controls that would do nothing to what is selected. */}
-      {!ground && (
-      <CollapsiblePanel title="Tube Size">
+      {/* Only the menu that is lit on the rail. A base and a post are not cut
+          from tube — no bore, no wall, no style, no joints — so where one of
+          those is picked the three tube menus say so rather than standing there
+          as controls that would do nothing to what is selected. */}
+      {ground && view.panel !== 'color' && view.panel !== 'measurement' && (
+        <section className="panel">
+          {/* Said in full rather than through Note, which clips itself to a line:
+              an empty menu is all room, and this is the only thing in it. */}
+          <p className="note">
+            {pieceLabel(selected!, selectedIndex)} is not cut from tube — it has no bore, wall,
+            style or joints. Pick a length of run to set those, or open Measurement for what this
+            part does have.
+          </p>
+        </section>
+      )}
+
+      {view.panel === 'tubeSize' && !ground && (
+      <section className="panel">
         <span className="field-label">
           {selected ? pieceLabel(selected, selectedIndex) : 'Run tube'}
           <em>
@@ -511,11 +549,11 @@ export default function Sidebar() {
             Marble opens it to Ø{lengthText(marbleBore, s.units)}.
           </p>
         )}
-      </CollapsiblePanel>
+      </section>
       )}
 
-      {!ground && (
-      <CollapsiblePanel title="Tube Style">
+      {view.panel === 'tubeStyle' && !ground && (
+      <section className="panel">
         <span className="field-label">
           {selected ? pieceLabel(selected, selectedIndex) : 'Run style'}
           <em>
@@ -584,17 +622,24 @@ export default function Sidebar() {
               ? `Every part already opens on the ${OPEN_SIDE_LABEL[side].toLowerCase()}.`
               : 'No parts yet — this is the side the first one opens on.'}
         </Note>
-      </CollapsiblePanel>
+      </section>
       )}
 
-      <CollapsiblePanel title="Color">
-        <ColorField
-          label={selected ? pieceLabel(selected, selectedIndex) : 'Run color'}
-          hint={
-            selected
+      {view.panel === 'color' && (
+      <section className="panel">
+        {/* What is being painted, said at the top in the boxed line the other
+            menus open with, so all five say what they are acting on the same
+            way. The field under it is then just the colour. */}
+        <span className="field-label">
+          {selected ? pieceLabel(selected, selectedIndex) : 'Run color'}
+          <em>
+            {selected
               ? 'this part only'
-              : 'every part that has not been painted on its own, and every part added next'
-          }
+              : 'every part that has not been painted on its own, and every part added next'}
+          </em>
+        </span>
+        <ColorField
+          label="Color"
           value={color}
           onChange={(v) => (selected ? s.setPartColor(selected.id, v) : s.setPieceColor(v))}
           presets={PIECE_SWATCHES}
@@ -610,9 +655,11 @@ export default function Sidebar() {
               : 'No parts yet — this is the color the first one arrives in.'}{' '}
           3D view only — colors are never exported.
         </Note>
-      </CollapsiblePanel>
+      </section>
+      )}
 
-      <CollapsiblePanel title="Measurement">
+      {view.panel === 'measurement' && (
+      <section className="panel">
         {/* Only the selected part is editable here — Active Parts is the full list. */}
         <div className="piece-list">
           {selected ? (
@@ -1695,13 +1742,14 @@ export default function Sidebar() {
           two ends of the same kind with the Connector and the run you picked first is turned end
           for end to meet the other — same parts, travelled the other way.
         </Note>
-      </CollapsiblePanel>
+      </section>
+      )}
 
       {/* Every angle the draft sets by dragging a joint, typed in exactly —
           read along the run: the angle it starts at, what it does in the
           middle, and the angle it hands on. */}
-      {!ground && (
-      <CollapsiblePanel title="Angles and Joints">
+      {view.panel === 'angles' && !ground && (
+      <section className="panel">
         {selected ? (
           <>
             <span className="field-label">
@@ -1950,7 +1998,7 @@ export default function Sidebar() {
               : 'No parts yet — pick one from Add Part in the top bar.'}
           </Note>
         )}
-      </CollapsiblePanel>
+      </section>
       )}
     </aside>
   )

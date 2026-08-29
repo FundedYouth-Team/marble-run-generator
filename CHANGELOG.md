@@ -11,6 +11,84 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- **Every button that answers to a key now says so on hover, in the hint itself.**
+  A shortcut was only discoverable by going looking for it in Settings: the tool
+  buttons wrote theirs into the end of their sentence, and Undo, Redo and Add
+  Part carried theirs in a browser tooltip — a different popup, in a different
+  place, after a different delay, saying it in a different way. The hint the app
+  draws now carries the binding on a line of its own under the description, ruled
+  off from it and drawn as key caps — the same caps Settings → Shortcut Keys
+  shows, off the same binding, so a re-bound key reads correctly here the moment
+  it is changed. Undo and Redo say what the step actually is rather than just
+  "Undo", and the pair in the History panel say it too. A greyed-out button says
+  why it is greyed out and stops there: its key does nothing either, and offering
+  one would be pointing at a way in that is not open.
+
+- **The left column is a rail of five icons, and one menu beside it.** Every
+  part parameter used to be in a single scrolling column behind a Parameters
+  tab: five panels stacked one on another, each foldable, so the one you were
+  reading was rarely the one on screen and the column was either all of it or
+  none of it. The left edge is now a 46px rail of five switches — Tube Size,
+  Tube Style, Part Color, Measurement, Angles and Joints — and pressing one
+  opens that menu and only that menu, in a 300px column beside it. Pressing the
+  lit one puts the menu away again, as does the cross in its title bar. The rail
+  is white, is always there, and never changes width, so the icon you pressed
+  stays under the pointer while its menu opens. Each icon draws the thing its
+  menu is about — the tube down the
+  barrel for its size, three-quarters of a wall for its style, a colour wheel, a
+  length dimensioned end to end, and a run broken over a baseline with the angle
+  swept in — and each says its name and what it sets on hover.
+- **The menu is a popup rather than a drawer, and wears a blue title bar.** It
+  used to run floor to ceiling and butt against the toolbar and the rail on
+  every side, which made three separate things — bar, rail, menu — read as one
+  slab of chrome. It stands clear of all of them now: a ten-pixel gap off the
+  toolbar, the rail and the floor, rounded corners, a border and a drop shadow,
+  and only as tall as what is in it, scrolling inside itself when a menu has
+  more than the window has room for. It fades in and out on the spot instead of
+  sliding, which is what a popup does. The title bar is filled solid blue with
+  white text on it, so the menu has a head the way a CAD dialog does, and the
+  cross in it lights rather than reddens — on a blue ground the danger red goes
+  muddy, and closing a menu loses nothing.
+- **The Active Parts tree stays exactly where it is, and the popup covers it.**
+  It used to slide right by the menu's width, which meant the tree shuffled
+  sideways every time a menu was opened or shut. It sits still now, on the layer
+  under the popup: the menu lies over it while it is open and is gone the moment
+  it is closed.
+- **The menu comes out over the stage rather than beside it**, the way History,
+  Settings and Add-ons already do on the right edge. Standing in the row, it
+  took its 300px out of the stage: the view resized and the model jumped
+  sideways every time a menu was opened or shut, and the toolbar lost the same
+  width off its right end, which is where the speed and travel readouts are. It
+  floats now, and the stage under it is exactly the stage that was there before
+  — same width, same camera, nothing moved. It opens under the toolbar rather
+  than across it, so no tool is ever covered; the one thing that does step aside
+  is the 2D draft's two rows of controls over the drawing, which is what already
+  happens on their other end when a right-hand panel is out. The rail hangs over the stage on the same terms and starts where
+  the toolbar ends, so the bar runs the full width of the window with History
+  and Tools hard against the left edge, and the rail drops in underneath it
+  rather than notching a column out of the bar. Put away, the menu is taken out
+  of the page entirely, so nothing of it is still in the tab order.
+- **A base or a post dims the three tube icons rather than emptying the column.**
+  Neither is cut from tube, so Tube Size, Tube Style and Angles and Joints have
+  nothing to set on one; they used to vanish out of the column, taking whatever
+  you were reading with them. The icons go dim instead, say why on hover, and if
+  one of those menus was already open when the base was picked it says so in
+  place rather than standing there as controls that would do nothing.
+- **The menus are drawn as a CAD dialog rather than as more of the app.** A
+  title bar carries the menu's name and the part it is set on — or "the run",
+  where nothing is picked, which is exactly when these fields set the run
+  instead. Under it the scope is boxed and tinted the way a feature dialog boxes
+  its selection, the rows are tighter, and what is picked is blue: the green
+  accent is the run's own, and a menu that used it read as part of the model
+  rather than as the tool set over it. Every other panel in the app is
+  untouched — the styling is the left column's alone.
+- **The X/Y/Z triad in the bottom corner stands clear of the icon rail.** It was
+  placed against the window's left edge back when nothing else was there; the
+  rail now runs down that edge, and the triad's arrows were crowding the white
+  bar. It sits the same distance off the inside of the rail that it used to sit
+  off the edge of the window.
 ### Added
 
 - **Three axis lines run out from the middle of the workplane.** The grid ruled

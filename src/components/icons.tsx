@@ -380,3 +380,97 @@ export function TrashIcon({ size = 14 }: { size?: number }) {
     </svg>
   )
 }
+
+/* ---------------- the left rail's five menus ----------------
+   One glyph per menu, all drawn on the same 24 grid at the same weight, so the
+   column reads as one row of switches rather than five borrowed pictures. Each
+   one is the thing itself seen the way its panel talks about it: the tube down
+   the barrel for its size and its style, along its length for a measurement,
+   and from the side for the angle it bends through. */
+
+/** Tube down the barrel, bore dimensioned across — "how wide, and how thick". */
+export function TubeSizeIcon({ size = 21 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+      {/* Outside wall and bore — the two circles every tube figure in the app is. */}
+      <circle cx="12" cy="12" r="9" />
+      <circle cx="12" cy="12" r="4.7" />
+      {/* The bore called out across itself, arrowheads inward the way a
+          dimension is drawn when it will not fit outside the line. */}
+      <path d="M7.3 12h9.4" />
+      <path d="m9.4 10.2-1.9 1.8 1.9 1.8M14.6 10.2l1.9 1.8-1.9 1.8" />
+    </svg>
+  )
+}
+
+/** The same barrel with a quarter of its wall gone — "how far round it closes". */
+export function TubeStyleIcon({ size = 21 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+      {/* Three quarters of wall, left open at the top-left corner: the gap is
+          the whole of what this menu sets, so it is what the eye lands on. */}
+      <path d="M12 3a9 9 0 1 1-9 9" />
+      {/* The bore, and the two cut faces the opening ends at. */}
+      <circle cx="12" cy="12" r="4.4" />
+      <path d="M12 3v4.6M3 12h4.6" />
+    </svg>
+  )
+}
+
+/** Wheel of colour round a bare middle — "what this part is painted". */
+export function PartColorIcon({ size = 21 }: { size?: number }) {
+  // Six sixths of a wheel, clockwise from the right. Painted rather than drawn
+  // in the ink of the rail: a colour control that is itself grey says nothing,
+  // and the ring and hub still take `currentColor`, so the button's hover and
+  // lit states read on it exactly as they do on the other four.
+  const WEDGES: [string, string][] = [
+    ['M12 12 21 12 A9 9 0 0 1 16.5 19.79Z', '#e2574c'],
+    ['M12 12 16.5 19.79 A9 9 0 0 1 7.5 19.79Z', '#a25bb0'],
+    ['M12 12 7.5 19.79 A9 9 0 0 1 3 12Z', '#4173d6'],
+    ['M12 12 3 12 A9 9 0 0 1 7.5 4.21Z', '#2a9e35'],
+    ['M12 12 7.5 4.21 A9 9 0 0 1 16.5 4.21Z', '#e8b53a'],
+    ['M12 12 16.5 4.21 A9 9 0 0 1 21 12Z', '#e08a2e'],
+  ]
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+      {WEDGES.map(([d, fill]) => (
+        <path key={fill} d={d} fill={fill} stroke="none" />
+      ))}
+      <circle cx="12" cy="12" r="9" />
+      {/* Hub, filled in the panel's own ground so the wedges stop at it. */}
+      <circle cx="12" cy="12" r="3.5" fill="var(--panel)" />
+    </svg>
+  )
+}
+
+/** A length of tube from the side, dimensioned end to end — "how long". */
+export function MeasurementIcon({ size = 21 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+      {/* The dimension over the part, witness lines dropped to it at both ends. */}
+      <path d="M4 3.6v4.8M20 3.6v4.8" />
+      <path d="M4 6h16" />
+      <path d="m6.4 4.3-2 1.7 2 1.7M17.6 4.3l2 1.7-2 1.7" />
+      {/* The tube itself, ends squared off the way a cut length is. */}
+      <rect x="3.2" y="12.4" width="17.6" height="8" rx="4" />
+      <path d="M7.2 12.6v7.6" />
+    </svg>
+  )
+}
+
+/** Run broken over a baseline, the break called out — "what angle, and where". */
+export function AngleJointIcon({ size = 21 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+      {/* The level the angle is read against, carried on past the break. */}
+      <path d="M2.6 18.4h18.8" strokeWidth="1.3" strokeDasharray="2.4 2.6" opacity="0.6" />
+      {/* The run: in flat, out climbing. Drawn heaviest of the three, so the
+          bend is what the glyph is at a glance. */}
+      <path d="M2.6 18.4h9l7.2-10" strokeWidth="2.3" />
+      {/* The joint, marked across the leg the way a cut line is. */}
+      <path d="m17.1 14-3.1-2.2" strokeWidth="1.3" />
+      {/* The angle swept between the two, which is the number this menu sets. */}
+      <path d="M17.6 18.4a6 6 0 0 0-2.5-4.87" strokeWidth="1.3" />
+    </svg>
+  )
+}

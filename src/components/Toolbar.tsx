@@ -19,7 +19,7 @@ import {
 } from './icons'
 import { telemetry } from '../lib/telemetry'
 import { UNIT_LABEL, UNIT_WORD, coarseText, formatLength, fromMm, stepFor, toMm } from '../lib/units'
-import { MOD_LABEL, TOOL_ACTION, formatShortcut } from '../lib/shortcuts'
+import { MOD_LABEL, TOOL_ACTION, formatShortcut, type Shortcut } from '../lib/shortcuts'
 import { partsBox, type Assembly } from '../lib/layout'
 import {
   ALIGN_AXES,
@@ -109,7 +109,7 @@ function ToolButton({
   label,
   icon,
   title,
-  keyCap,
+  keys,
   disabled,
   onClick,
 }: {
@@ -121,8 +121,8 @@ function ToolButton({
   icon: ReactNode
   /** The longer line under the name, saying what the tool does. */
   title: string
-  /** The bare key that takes this tool up, for a tool that has one. */
-  keyCap?: string
+  /** The key that takes this tool up, for a tool that has one. */
+  keys?: Shortcut
   disabled?: boolean
   onClick: () => void
 }) {
@@ -131,18 +131,11 @@ function ToolButton({
     // still hanging under it would be about a tool that is no longer in hand.
     <HoverHint
       label={label}
-      hint={
-        // Said on the hint rather than on the button, which has room for the
-        // picture and nothing else — and left unsaid while the tool is greyed
-        // out, when the key does nothing either.
-        keyCap && !disabled ? (
-          <>
-            {title} — or press <kbd>{keyCap}</kbd>
-          </>
-        ) : (
-          title
-        )
-      }
+      hint={title}
+      // Said on the hint rather than on the button, which has room for the
+      // picture and nothing else — and left unsaid while the tool is greyed out,
+      // when the key does nothing either.
+      keys={disabled ? undefined : keys}
       hideOnClick
     >
       <button
@@ -487,7 +480,7 @@ export default function Toolbar({ spec, asm }: { spec: TubeSpec; asm: Assembly }
           label="Select"
           icon={<SelectIcon />}
           title="Pick parts with the left button — the resting state"
-          keyCap={formatShortcut(shortcuts[TOOL_ACTION.select])}
+          keys={shortcuts[TOOL_ACTION.select]}
           onClick={() => setTool('select')}
         />
         {/* Both handles take hold of what is picked and of nothing else, so each
@@ -506,7 +499,7 @@ export default function Toolbar({ spec, asm }: { spec: TubeSpec; asm: Assembly }
               ? 'Nothing to move yet — add a part first'
               : "Move the picked part's run about the workplane on the three axis arrows, which stand in the middle of what is picked — pick parts in several runs and they all travel together, by the one distance, so the model keeps its shape"
           }
-          keyCap={formatShortcut(shortcuts[TOOL_ACTION.move])}
+          keys={shortcuts[TOOL_ACTION.move]}
           onClick={() => pick('move')}
         />
         <ToolButton
@@ -519,7 +512,7 @@ export default function Toolbar({ spec, asm }: { spec: TubeSpec; asm: Assembly }
               ? 'Nothing to aim yet — add a part first'
               : "Aim the picked part on three rings, standing in the middle of what is picked, on the same axes the move arrows travel on. A bonded part bends the run where it stands: everything ahead of it holds still and everything past it swings with it. A run's head has nothing in front of it, so its green ring turns the whole run — about that middle, carrying any other run picked alongside it round the same point. Its own settings appear on a strip under the bar while it is in hand"
           }
-          keyCap={formatShortcut(shortcuts[TOOL_ACTION.rotate])}
+          keys={shortcuts[TOOL_ACTION.rotate]}
           onClick={() => pick('rotate')}
         />
         {/* A mode rather than a click, because what it measures is whatever you
@@ -558,7 +551,7 @@ export default function Toolbar({ spec, asm }: { spec: TubeSpec; asm: Assembly }
               ? 'Nothing to line up yet — alignment needs two parts'
               : 'Line the picked parts up on one face — their own outermost, or the face of the part you picked last. Keep picking with it in hand and the datum follows'
           }
-          keyCap={formatShortcut(shortcuts[TOOL_ACTION.align])}
+          keys={shortcuts[TOOL_ACTION.align]}
           onClick={() => pick('align')}
         />
         <ToolButton
@@ -691,7 +684,7 @@ export default function Toolbar({ spec, asm }: { spec: TubeSpec; asm: Assembly }
               ? 'Nothing to join yet — a joint needs two parts that are not already in the same run'
               : 'Join two parts: click the end you want to move, then the end it travels to'
           }
-          keyCap={formatShortcut(shortcuts[TOOL_ACTION.connect])}
+          keys={shortcuts[TOOL_ACTION.connect]}
           onClick={() => pick('connect')}
         />
         <ToolButton

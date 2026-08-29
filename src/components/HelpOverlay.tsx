@@ -138,7 +138,7 @@ function helpFor(keys: ShortcutMap): Record<HelpTab, Group[]> {
       {
         title: 'Parts',
         rows: [
-          { keys: ['Left-click a part'], action: 'Select it and open its settings in the sidebar' },
+          { keys: ['Left-click a part'], action: 'Select it and open its settings in the left menus' },
           {
             keys: [`${MOD_LABEL}-click a part`],
             action: 'Add it to the selection, or take it back out',
@@ -276,7 +276,7 @@ function helpFor(keys: ShortcutMap): Record<HelpTab, Group[]> {
       {
         title: 'Editing',
         rows: [
-          { keys: ['Click a piece'], action: 'Select it and open its settings in the sidebar' },
+          { keys: ['Click a piece'], action: 'Select it and open its settings in the left menus' },
           {
             keys: [`${MOD_LABEL}-click a piece`],
             action: 'Add it to the selection, or take it back out',
@@ -286,7 +286,7 @@ function helpFor(keys: ShortcutMap): Record<HelpTab, Group[]> {
           {
             keys: ['Angles and Joints'],
             action: 'Type any angle in exactly, instead of dragging for it',
-            note: 'in the sidebar: start, middle and end angle for the selected part, and whether the joint behind it is closed',
+            note: 'the Angles and Joints menu on the left rail: start, middle and end angle for the selected part, and whether the joint behind it is closed',
           },
           {
             keys: ['Drag a joint'],
@@ -407,7 +407,7 @@ const HOWTO: Partial<Record<HelpTab, HowTo[]>> = {
       lead: 'With a Base, in the Structure shelf of the part library. It is a flat plate that stands on the workplane and fills the space under everything — not a length of run: nothing plugs into it, the marble never travels it, and it takes no part in any joint.',
       steps: [
         'Click ＋ Add Part, open Structure and pick Base. It lands on the workplane on its own, whatever Join onto the run is set to.',
-        'With it selected, press Fit Under the Run in Part Parameters. It sizes itself to everything on the stage that is not a base and slides under the middle of it.',
+        'With it selected, open Measurement on the left rail and press Fit Under the Run. It sizes itself to everything on the stage that is not a base and slides under the middle of it.',
         'Or pick your machine from Printer bed above it — a Bambu A1, an A1 mini, a Sovol SV06 Plus — and the plate is sized to that bed instead. It is remembered, so the next base arrives on it.',
         'Set the thickness and the corner radius to taste, and use Move to slide it about — it stays on the plane however far it goes.',
       ],
@@ -439,11 +439,11 @@ const HOWTO: Partial<Record<HelpTab, HowTo[]>> = {
       lead: 'The bore is not a free number: it is the ball plus 4mm of slack, and that is the only figure the marble rolls down instead of jamming in or rattling about. Picking a ball off the list in Settings → Marble Size & Color does that sum for the whole stage on its own; typing a diameter in the box under it changes the ball alone, and the tubes are fitted to it with a button.',
       steps: [
         'For the whole stage: Fit Every Part to This Ball, under the diameter box in Settings. The bore becomes the run’s, and any part holding a bore of its own is put back onto it — a run is cut for one ball, and a part left on another bore would neither take this one nor mate with its neighbours.',
-        'For some of it: pick the parts on the stage, then use the fit button in the sidebar’s Tube Size panel — Fit This Part to Marble on one, Fit 3 Picked Parts to Marble on three. Only what is picked is cut, and the rest of the run is left exactly as it was.',
-        'With nothing picked, the same sidebar button reads Fit Every Part to Marble and does what the Settings one does — the panel sets the run when there is nothing in hand.',
+        'For some of it: pick the parts on the stage, then use the fit button in the Tube Size menu on the left rail — Fit This Part to Marble on one, Fit 3 Picked Parts to Marble on three. Only what is picked is cut, and the rest of the run is left exactly as it was.',
+        'With nothing picked, the same menu button reads Fit Every Part to Marble and does what the Settings one does — the panel sets the run when there is nothing in hand.',
         'Either way the button greys out once there is nothing left to cut, which is how you tell the stage is already rolling the ball it says it is.',
       ],
-      note: 'Walls are never touched by any of this — a part printed thicker is printed thicker whatever rolls through it. Parts cut to different bores do not mate at the joint, so the sidebar says so in red while any two disagree.',
+      note: 'Walls are never touched by any of this — a part printed thicker is printed thicker whatever rolls through it. Parts cut to different bores do not mate at the joint, so the Tube Size menu says so in red while any two disagree.',
     },
     {
       question: 'Why did my marble fall out of the tube?',

@@ -1908,6 +1908,9 @@ function SizeFigures() {
 /** Width of the slide-out settings panel; the corner controls step aside by this much. */
 const SETTINGS_WIDTH = 312
 
+/** Width of the left icon rail — `--rail-w`. Always there, so the axis triad clears it. */
+const RAIL_WIDTH = 46
+
 /**
  * How far down the stage starts: the toolbar, plus the strip of settings a tool
  * with any of its own hangs under it.
@@ -1919,7 +1922,8 @@ const SETTINGS_WIDTH = 312
  * settings in: nothing already in the bar should have to give up its place to a
  * tool that has just been picked up.
  */
-const barHeight = (tool: Tool) => TOOLBAR_HEIGHT + (hasToolOptions(tool) ? TOOL_OPTIONS_HEIGHT : 0)
+export const barHeight = (tool: Tool) =>
+  TOOLBAR_HEIGHT + (hasToolOptions(tool) ? TOOL_OPTIONS_HEIGHT : 0)
 
 /** How far the pointer may wander between press and release and still count as a click, in px. */
 const CLICK_SLOP = 4
@@ -2319,12 +2323,14 @@ export default function Scene3D() {
         >
           <ViewCube palette={palette.cube} onPick={snapTo} onOrbit={orbit} />
         </GizmoHelper>
-        {/* Bottom left — the one corner with nothing else in it. Each gizmo draws
-            in a pass of its own, so this one takes the later priority: the first
-            pass draws the run, and a second one that also cleared it would wipe
-            the cube out. */}
+        {/* Bottom left — the one corner with nothing else in it, save the icon
+            rail down the edge. Margin is the triad's centre, so it clears the
+            rail by the same gap it used to stand off the window edge by. Each
+            gizmo draws in a pass of its own, so this one takes the later
+            priority: the first pass draws the run, and a second one that also
+            cleared it would wipe the cube out. */}
         {overlays.axes && (
-          <GizmoHelper alignment="bottom-left" margin={[62, 62]} renderPriority={2}>
+          <GizmoHelper alignment="bottom-left" margin={[RAIL_WIDTH + 62, 62]} renderPriority={2}>
             <AxisTriad />
           </GizmoHelper>
         )}

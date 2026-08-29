@@ -7,9 +7,10 @@ import {
   type Template,
   type TemplateBuild,
 } from '../lib/templates'
+import HoverHint from './HoverHint'
 import { PROJECT_EXT } from '../lib/project'
 import { formatCoarse } from '../lib/units'
-import { actionFor, formatShortcut, isTyping } from '../lib/shortcuts'
+import { actionFor, isTyping } from '../lib/shortcuts'
 
 /**
  * A plain length of pipe seen side-on, with a dimension bar under it for the
@@ -495,17 +496,20 @@ export default function PartLibrary() {
 
   return (
     <>
-      <button
-        className="add-part-btn"
-        onClick={() => openOn('all')}
-        title={
+      <HoverHint
+        className="add-part-slot"
+        label="Add Part"
+        hint={
           targetName
-            ? `Browse the part library (${formatShortcut(shortcuts.openLibrary)}) — the next part joins onto ${targetName}`
-            : `Browse the part library (${formatShortcut(shortcuts.openLibrary)})`
+            ? `Browse the part library — the next part joins onto ${targetName}`
+            : 'Browse the part library and set a part on the stage'
         }
+        keys={shortcuts.openLibrary}
       >
-        <span aria-hidden="true">＋</span> Add Part
-      </button>
+        <button className="add-part-btn" onClick={() => openOn('all')}>
+          <span aria-hidden="true">＋</span> Add Part
+        </button>
+      </HoverHint>
 
       {/* Its own button rather than only a shelf inside the window: a template
           is where a run starts, and nobody looking for one would think to open

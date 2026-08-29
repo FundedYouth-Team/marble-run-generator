@@ -101,6 +101,33 @@
   --flow-in: #1f8a2e;
   --flow-out: #c85a10;
 
+  /* The left menu, which is drawn the way a CAD feature dialog is: a plain
+     grey-blue ground, white boxes for what you can change, and a blue rather
+     than green highlight — the green accent is the run's, and a menu that used
+     it read as part of the model rather than as the tool set over it. */
+  --menu-bg: #eef2f6;
+  --menu-head: #e2e8ef;
+  --menu-line: #d3dce5;
+  --menu-box: #ffffff;
+  --menu-ink: #1d2a37;
+  --menu-dim: #5a6c7e;
+  --menu-blue: #2b6cb0;
+  --menu-blue-soft: #e8f1fa;
+  --menu-blue-line: #b6d1ea;
+  /* The menu's title bar — solid, so the dialog has a head on it the way a CAD
+     dialog does, and its own token because the ink on it is white in both
+     themes and the tint that reads as blue on white does not survive being
+     filled in. */
+  --menu-bar: #2b6cb0;
+  --menu-bar-ink: #ffffff;
+  --menu-bar-dim: rgba(255, 255, 255, 0.76);
+  /* The rail is the app's own furniture rather than part of the menu, so it is
+     left the plain panel white the rest of the chrome is. */
+  --rail-bg: #ffffff;
+  /* Wide enough for a glyph and nothing else. Named because the stage furniture
+     standing beside the rail has to clear it, and both have to agree on it. */
+  --rail-w: 46px;
+
   --font: 'IBM Plex Sans', 'Segoe UI', system-ui, -apple-system, sans-serif;
   --mono: 'IBM Plex Mono', 'SF Mono', ui-monospace, Menlo, monospace;
 
@@ -130,6 +157,20 @@
   --accent-soft: rgba(63, 212, 100, 0.22);
   --accent-2: #ff7a45;
   --danger: #ff5f6d;
+
+  --menu-bg: #141d28;
+  --menu-head: #1a2532;
+  --menu-line: #26333f;
+  --menu-box: #0d151e;
+  --menu-ink: #dbe7f3;
+  --menu-dim: #8ba3bd;
+  --menu-blue: #7fb4ff;
+  --menu-blue-soft: rgba(65, 115, 214, 0.18);
+  --menu-blue-line: rgba(127, 180, 255, 0.35);
+  --menu-bar: #1c4a80;
+  --menu-bar-ink: #ffffff;
+  --menu-bar-dim: rgba(255, 255, 255, 0.72);
+  --rail-bg: #111a25;
 
   --stage-bg: #0a0f16;
   --topbar-a: #16212e;
@@ -411,11 +452,14 @@ body {
 
 /* The run's figures used to sit out on the bar as three chips; they are behind
    this button now, and it inherits their auto margin so the mode toggle stays
-   centred between the brand and this end of the bar. Only the Details button is
-   a hint slot of the bar's own — the ones inside .project are nested deeper. */
+   centred between the brand and this end of the bar. Named rather than taken as
+   "the bar's own hint slot": Add Part is one too, and it must not be pushed. */
 .topbar > .tool-slot {
-  margin-left: auto;
   flex: 0 0 auto;
+}
+
+.topbar > .tool-slot.details-slot {
+  margin-left: auto;
 }
 
 .details-btn {
@@ -959,53 +1003,143 @@ body {
 /* ---------------- layout ---------------- */
 
 .workspace {
+  position: relative;
   flex: 1 1 auto;
   display: flex;
   min-height: 0;
 }
 
-/* The left column and its filing tabs travel together: the tabs sit on the
-   column's inner edge, against the stage, so they stay put as it folds. */
+/* The left edge: the icon rail, and the menu that folds out beside it. Both hang
+   over the stage rather than standing in the row beside it, and both start where
+   the toolbar ends — the bar runs the full width of the window, flush to the
+   left edge, so the History and Tools groups are hard against it and the rail
+   drops in underneath. The rail is fixed furniture from there down: it never
+   moves and never changes width, so the icon you press stays under the pointer
+   while its menu opens. */
 .left-dock {
-  position: relative;
+  position: absolute;
+  left: 0;
+  top: var(--toolbar-h);
+  bottom: 0;
   display: flex;
   min-height: 0;
-  flex: 0 0 auto;
   z-index: 6;
 }
 
-/* Hung off the column's outer edge rather than parked in the row: the tabs
-   take no width of their own, so the stage — grid and all — runs on behind
-   them, the way the right-hand tabs sit over it. */
-.left-dock-tabs {
-  position: absolute;
-  top: 50%;
-  left: 100%;
-  transform: translateY(-50%);
+/* One column of switches, wide enough for a glyph and nothing else. It is drawn
+   over the menu so the menu can slide out from under it rather than having to
+   be hidden first. */
+.icon-rail {
+  position: relative;
+  z-index: 2;
+  flex: 0 0 auto;
+  width: var(--rail-w);
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 0;
+  background: var(--rail-bg);
+  border-right: 1px solid var(--menu-line);
 }
 
+.icon-rail .tool-slot {
+  display: block;
+}
+
+.rail-btn {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--menu-dim);
+}
+
+.rail-btn:hover:not(:disabled) {
+  background: var(--menu-bg);
+  border-color: var(--menu-line);
+  color: var(--menu-ink);
+}
+
+/* The lit icon, marked twice over: the tile it sits in, and a bar on the inner
+   edge pointing at the menu it opened. */
+.rail-btn.on {
+  background: var(--menu-blue-soft);
+  border-color: var(--menu-blue-line);
+  color: var(--menu-blue);
+}
+
+.rail-btn.on::after {
+  content: '';
+  position: absolute;
+  /* Hard against the rail's inner edge — the tile is 34 wide in a 46 rail, so
+     six out lands it on the border it is meant to sit in. */
+  right: -6px;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  border-radius: 2px 0 0 2px;
+  background: var(--menu-blue);
+}
+
+.rail-btn:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.rail-btn svg {
+  display: block;
+}
+
+/* The menu floats over the stage rather than standing beside it, the way the
+   History, Settings and Add-ons panels do on the right edge: the stage keeps
+   the width it had, so the view under the menu neither resizes nor shifts as it
+   opens. It starts where the toolbar ends, so the tools are never covered. */
 .sidebar {
-  width: 322px;
-  flex: 0 0 auto;
+  position: absolute;
+  z-index: 1;
+  /* A popup rather than a drawer: clear of the rail it hangs off, clear of the
+     toolbar above and the floor below, and only as tall as what is in it. It
+     reads as a dialog lying over the stage rather than as another storey of the
+     bar — the lit icon's marker is what ties it back to the rail. */
+  left: calc(100% + 10px);
+  top: 10px;
+  bottom: auto;
+  max-height: calc(100% - 20px);
+  width: 300px;
   overflow-y: auto;
   overflow-x: hidden;
-  background: var(--panel);
-  border-right: 1px solid var(--line);
-  padding: 12px;
+  background: var(--menu-bg);
+  color: var(--menu-ink);
+  border: 1px solid var(--menu-line);
+  border-radius: 10px;
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  transition: margin-left 0.24s ease;
+  box-shadow: 0 10px 30px rgba(12, 24, 38, 0.22);
+  transform-origin: left top;
+  transition:
+    opacity 0.14s ease,
+    transform 0.14s ease;
 }
 
-/* Folded away — slid off the edge rather than squeezed shut, so the fields
-   keep their width on the way out and nothing reflows as it moves. The stage
-   takes the width back: a negative margin is off the flex row's books. */
+/* Put away — gone rather than parked off the edge: a popup does not slide back
+   into anything, it simply stops being there. */
 .left-dock:not(.open) .sidebar {
-  margin-left: -322px;
+  opacity: 0;
+  transform: translateX(-8px) scale(0.98);
+  /* Taken out of the page once it has faded, so nothing is left in the tab
+     order or under the pointer. */
+  visibility: hidden;
+  transition:
+    opacity 0.14s ease,
+    transform 0.14s ease,
+    visibility 0s linear 0.14s;
 }
 
 .stage {
@@ -2132,9 +2266,22 @@ button.danger {
   padding-right: var(--parts-w);
 }
 
+/* And the same again for the left menu, which comes out over this pane's other
+   edge: the drawing under it is left exactly where it was, and only the two
+   rows of controls step out from behind it. */
+.stage-2d > .pane > .pane-head {
+  padding-left: calc(12px + var(--rail-w) + var(--left-menu-w, 0px));
+}
+
+.stage-2d > .pane > .pane-body > .draft-wrap > .draft-toolbar {
+  padding-left: calc(10px + var(--rail-w) + var(--left-menu-w, 0px));
+}
+
 .pane-head,
 .draft-toolbar {
-  transition: padding-right 0.24s ease;
+  transition:
+    padding-right 0.24s ease,
+    padding-left 0.24s ease;
 }
 
 .pane-head {
@@ -2942,6 +3089,30 @@ button.danger {
   color: var(--ink-faint);
 }
 
+/* The key that does the same thing, on its own line under the description: caps
+   rather than words, because the point of the line is to be read at a glance,
+   and set off from the sentence above so it is never mistaken for part of it. */
+.tool-tip-keys {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 3px;
+  padding-top: 4px;
+  border-top: 1px solid var(--line);
+}
+
+/* Each cap and its plus travel as one, so a two-part binding never wraps
+   between the sign and the key it belongs to. */
+.tool-tip-keys > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.tool-tip-plus {
+  color: var(--ink-faint);
+}
+
 /* A tool in hand reads as pressed: until it is switched off, every click on the
    stage belongs to it. */
 .toolbar button.on:not(.primary) {
@@ -3016,10 +3187,14 @@ button.danger {
 /* ---------------- active parts tree ---------------- */
 
 /* The CAD-style model tree, hanging under the toolbar in the stage's top-left. */
+/* Parked beside the rail and left there. The menu is a popup that comes out
+   over the stage, this tree included: it lies on top for as long as it is open
+   and is gone again the moment it is closed, which is a plainer thing to watch
+   than a tree that shuffles sideways every time a menu is opened. */
 .active-parts {
   position: absolute;
   top: calc(var(--toolbar-h) + 14px);
-  left: 14px;
+  left: calc(14px + var(--rail-w));
   width: 196px;
   /* Clears the toolbar above and the control hint pinned to the bottom-left. */
   max-height: calc(100% - var(--toolbar-h) - 80px);
@@ -3047,7 +3222,7 @@ button.danger {
    uses the full height of the drawing area. */
 .draft-canvas .active-parts {
   top: 10px;
-  left: 10px;
+  left: calc(10px + var(--rail-w));
   max-height: calc(100% - 56px);
 }
 
@@ -3525,19 +3700,6 @@ button.danger {
   border-color: var(--primary-border);
 }
 
-/* Same tab, hung the other way round — it leans on the left column instead. */
-.dock-tab.left {
-  border-right: 1px solid var(--line);
-  border-left: none;
-  border-radius: 0 10px 10px 0;
-  box-shadow: 2px 0 8px rgba(0, 0, 0, 0.12);
-}
-
-.dock-tab.left.on {
-  border-color: var(--primary-border);
-  border-left: none;
-}
-
 /* Slides out below the toolbar, so the bar stays unbroken across the stage. */
 .parts-panel {
   position: absolute;
@@ -3604,12 +3766,19 @@ button.danger {
   color: var(--ink-dim);
 }
 
-.undo-redo button:first-child {
+/* The halves are addressed through their hint wrappers rather than directly:
+   each button is an only child of its own slot, so :first-child on the button
+   would be true of both and the pair would come out as two rounded buttons
+   rather than one segmented control. */
+.undo-redo > *:first-child button {
   border-radius: 6px 0 0 6px;
 }
 
-.undo-redo button:last-child {
+.undo-redo > *:last-child {
   margin-left: -1px;
+}
+
+.undo-redo > *:last-child button {
   border-radius: 0 6px 6px 0;
 }
 
@@ -3632,8 +3801,14 @@ button.danger {
   padding: 10px 10px 0;
 }
 
-.history-actions button {
+/* The pair share the width evenly, which is now asked of the hint slots around
+   them — a button left to size itself inside one would shrink to its label. */
+.history-actions .tool-slot {
   flex: 1 1 0;
+}
+
+.history-actions button {
+  width: 100%;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -3982,4 +4157,269 @@ button.danger {
 
 .sidebar::-webkit-scrollbar-track {
   background: transparent;
+}
+
+/* ---------------- the left menu ----------------
+   Everything below is scoped to `.sidebar`, so it dresses the five part menus
+   and nothing else: the same fields, notes and segmented controls keep the
+   app's own look wherever else they are used. What they take on here is the
+   look of a CAD feature dialog — a title bar, dense rows, white boxes for what
+   can be changed, and blue for what is picked. */
+
+/* Title bar: the menu's name, the part it is acting on, and the way out. Stuck
+   to the top, so scrolling a long menu never loses which menu it is. */
+.menu-head {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 8px 8px 12px;
+  background: var(--menu-bar);
+  color: var(--menu-bar-ink);
+  border-bottom: 1px solid var(--menu-bar);
+}
+
+.menu-head .tool-slot {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.menu-head h2 {
+  margin: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--menu-bar-ink);
+  cursor: default;
+}
+
+/* What the menu is set on — the picked part, or the run when nothing is. */
+.menu-head .scope-name {
+  flex: 0 1 auto;
+  overflow: hidden;
+  font-size: 10.5px;
+  font-weight: 500;
+  color: var(--menu-bar-dim);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.menu-close {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--menu-bar-dim);
+}
+
+/* Lit rather than reddened: on a filled blue bar the danger red goes muddy, and
+   the cross is a way out of the menu rather than a way to lose any work. */
+.menu-close:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.18);
+  border-color: rgba(255, 255, 255, 0.32);
+  color: var(--menu-bar-ink);
+}
+
+/* A menu is one panel now, so the card it used to be drawn as is dropped: it
+   would be a box round the whole of what is on screen, which says nothing. */
+.sidebar .panel {
+  flex: 1 1 auto;
+  align-content: start;
+  background: none;
+  border: 0;
+  border-radius: 0;
+  padding: 10px 11px 14px;
+  gap: 9px;
+}
+
+/* The line naming what is being set — "Tube 1 · this part only". It is this
+   menu's selection box: the one thing everything under it applies to, so it is
+   boxed and tinted the way a CAD dialog boxes its selection. */
+.sidebar .panel > .field-label {
+  display: block;
+  padding: 6px 8px;
+  background: var(--menu-blue-soft);
+  border: 1px solid var(--menu-blue-line);
+  border-radius: 5px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--menu-ink);
+}
+
+.sidebar .panel > .field-label em {
+  display: block;
+  margin-top: 1px;
+  font-size: 10px;
+  font-weight: 400;
+  color: var(--menu-dim);
+}
+
+/* Rows: the name on the left, what it is on the right, on one line. */
+.sidebar .field {
+  gap: 3px;
+}
+
+.sidebar .field-label {
+  color: var(--menu-dim);
+  font-size: 11px;
+}
+
+.sidebar .field-label em {
+  color: var(--menu-dim);
+  opacity: 0.8;
+}
+
+.sidebar .numbox {
+  background: var(--menu-box);
+  border-color: var(--menu-line);
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+
+.sidebar .numbox input {
+  width: 46px;
+  color: var(--menu-ink);
+  font-size: 11.5px;
+}
+
+.sidebar .numbox i {
+  color: var(--menu-dim);
+}
+
+.sidebar input[type='range'] {
+  accent-color: var(--menu-blue);
+}
+
+.sidebar .text-field,
+.sidebar select {
+  background: var(--menu-box);
+  border-color: var(--menu-line);
+  color: var(--menu-ink);
+}
+
+/* Choices read as the dialog's own tabs — flat, with the picked one lit blue
+   and underlined, rather than as the green pills the rest of the app uses. */
+.sidebar .segmented {
+  border-color: var(--menu-line);
+  border-radius: 4px;
+  background: var(--menu-box);
+}
+
+.sidebar .segmented button {
+  background: var(--menu-box);
+  color: var(--menu-dim);
+  padding: 5px 8px;
+  font-size: 11.5px;
+  border-bottom: 2px solid transparent;
+}
+
+.sidebar .segmented button + button {
+  border-left: 1px solid var(--menu-line);
+}
+
+.sidebar .segmented button:hover:not(:disabled) {
+  color: var(--menu-ink);
+  background: var(--menu-head);
+}
+
+.sidebar .segmented button.on {
+  background: var(--menu-blue-soft);
+  border-bottom-color: var(--menu-blue);
+  color: var(--menu-blue);
+  font-weight: 600;
+}
+
+/* Plain buttons — Apply to All and the rest — sit as full-width bars, which is
+   how a dialog offers the one thing it does. */
+.sidebar .panel > button {
+  background: var(--menu-box);
+  border-color: var(--menu-line);
+  color: var(--menu-ink);
+  font-size: 11.5px;
+  padding: 5px 10px;
+}
+
+.sidebar .panel > button:hover:not(:disabled) {
+  background: var(--menu-blue-soft);
+  border-color: var(--menu-blue-line);
+  color: var(--menu-blue);
+}
+
+/* The three figures a tube reads out — boxed, and in the menu's blue. */
+.sidebar .readout {
+  gap: 5px;
+}
+
+.sidebar .readout div {
+  background: var(--menu-box);
+  border-color: var(--menu-line);
+  padding: 5px 4px;
+}
+
+.sidebar .readout b {
+  font-size: 13px;
+  color: var(--menu-blue);
+}
+
+.sidebar .readout span {
+  color: var(--menu-dim);
+}
+
+.sidebar .note {
+  font-size: 10.5px;
+  line-height: 1.42;
+  color: var(--menu-dim);
+  opacity: 0.92;
+}
+
+.sidebar .swatch,
+.sidebar .preset {
+  border-color: var(--menu-line);
+}
+
+/* The part being measured, in the Measurement menu: a boxed group with its
+   name across the top, the way a dialog groups the fields for one thing. */
+.sidebar .piece {
+  background: var(--menu-box);
+  border-color: var(--menu-line);
+  border-radius: 5px;
+}
+
+/* Always the picked part in here, so the green "this one" ring it wears in the
+   model tree would be marking the only thing on show. */
+.sidebar .piece.on {
+  border-color: var(--menu-blue-line);
+  box-shadow: none;
+}
+
+.sidebar .piece-head {
+  background: var(--menu-blue-soft);
+  border-bottom: 1px solid var(--menu-line);
+  padding: 6px 8px;
+}
+
+.sidebar .piece.on .tag {
+  background: var(--menu-blue);
+  color: var(--menu-box);
+}
+
+.sidebar .piece-name {
+  color: var(--menu-ink);
+}
+
+.sidebar .piece-dim,
+.sidebar .piece-type {
+  color: var(--menu-dim);
 }

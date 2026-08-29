@@ -134,8 +134,14 @@ export type Theme = 'light' | 'dark'
 export type Shading = 'solid' | 'transparent'
 /** Which slide-out is showing on the right edge of the stage, if any. */
 export type RightPanel = 'settings' | 'history' | 'ai' | null
-/** Which column is folded out on the left edge of the workspace, if any. */
-export type LeftPanel = 'parameters' | null
+/**
+ * Which of the part-parameter menus the left icon rail has open, if any.
+ *
+ * One at a time: the rail is the whole of the left edge, and the menu beside it
+ * shows whichever icon is lit. Clicking the lit one puts the menu away, which is
+ * what `null` is.
+ */
+export type LeftPanel = 'tubeSize' | 'tubeStyle' | 'color' | 'measurement' | 'angles' | null
 
 /**
  * A piece of on-screen furniture the user can switch off. None of these are
@@ -4104,7 +4110,7 @@ interface RunState {
   /** Which slide-out is open on the right edge — one at a time, shared by both stages. */
   rightPanel: RightPanel
 
-  /** Which column is out on the left edge — the part parameters, folded away or not. */
+  /** Which part-parameter menu the left icon rail has open, or null for none. */
   leftPanel: LeftPanel
 
   /** Which pieces of on-screen furniture are showing. Kept per machine, not per run. */
@@ -4621,7 +4627,7 @@ export const useRun = create<RunState>((set, get) => {
     rightPanel: null,
     // The parameters are what most of the work is typed into, so the column
     // starts out — the tab is there to win the width back, not to find it.
-    leftPanel: 'parameters',
+    leftPanel: 'tubeSize',
 
     // The run always has somewhere to step back to, even before the first edit.
     history: [

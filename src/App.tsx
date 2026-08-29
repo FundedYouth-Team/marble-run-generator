@@ -1,7 +1,7 @@
 import { useEffect } from 'react'
 import LeftDock from './components/LeftDock'
 import Draft2D from './components/Draft2D'
-import Scene3D from './components/Scene3D'
+import Scene3D, { barHeight } from './components/Scene3D'
 import ThemeToggle from './components/ThemeToggle'
 import HelpOverlay from './components/HelpOverlay'
 import PartLibrary from './components/PartLibrary'
@@ -25,8 +25,22 @@ function toolReady(tool: KeyedTool, pieces: Piece[]): boolean {
   return pieces.length > 0
 }
 
+/**
+ * How much room the open left menu takes off the stage — the 300px the
+ * stylesheet gives `.sidebar`, plus the gap it stands off the rail by. What
+ * steps aside for it clears the whole popup rather than stopping at its edge.
+ */
+const LEFT_MENU_WIDTH = 310
+
 export default function App() {
-  const { mode, setMode } = useRun()
+  const { mode, setMode, tool, leftPanel } = useRun()
+  /**
+   * How far down the stage's own chrome starts, hung on the workspace rather
+   * than on the stage: the left menu floats over the stage, and it has to know
+   * where the toolbar ends to open under it rather than across it. The 2D draft
+   * carries no such bar, so there it is nothing.
+   */
+  const barH = mode === '3d' ? barHeight(tool) : 0
 
   // The shortcuts, wherever you are — both stages share the one timeline. The
   // bindings are read at press time rather than watched, so re-binding one in
@@ -130,7 +144,19 @@ export default function App() {
         <ThemeToggle />
       </header>
 
-      <div className="workspace">
+      <div
+        className="workspace"
+        style={
+          {
+            '--toolbar-h': `${barH}px`,
+            // What the open menu covers, so the stage furniture standing where
+            // it opens — the Active Parts tree — can step aside for it, the way
+            // the furniture on the right steps aside for the panels there. The
+            // view itself is untouched: only the tree moves.
+            '--left-menu-w': leftPanel ? `${LEFT_MENU_WIDTH}px` : '0px',
+          } as React.CSSProperties
+        }
+      >
         <LeftDock />
         <main className="stage">{mode === '2d' ? <Draft2D /> : <Scene3D />}</main>
       </div>
