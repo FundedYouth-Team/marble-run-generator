@@ -57,7 +57,6 @@ import {
   type Placement,
   type Port,
   type Tool,
-  type ToolScope,
   type TubeSpec,
   type Theme,
 } from '../store'
@@ -817,36 +816,6 @@ function pickedChains(asm: Assembly, ids: string[], lead: string | null) {
   return runs
 }
 
-/**
- * Which part the handles stand on and which runs they take hold of, at the reach
- * the tool was taken up with.
- *
- * At `selected` reach that is the part picked last, and the runs the picked
- * parts stand in — what {@link pickedChains} already works out. At `all` it is
- * every run on the stage, and the handle moves to the head of the run the pick
- * was in: the rings only swing whole runs about a run's head, so a reach that
- * takes everything has to stand on one to mean it. With nothing picked it stands
- * on the head of the first run, which is the one the marble sets off down.
- */
-function handleRuns(
-  asm: Assembly,
-  ids: string[],
-  lead: string | null,
-  scope: ToolScope,
-): { lead: string | null; runs: { pieceId: string; at: Placement }[] } {
-  if (scope !== 'all') return { lead, runs: pickedChains(asm, ids, lead) }
-  const from = lead ? asm.placed.find((p) => p.piece.id === lead)?.chain ?? 0 : 0
-  // The picked run first, so the handle stands on it and the timeline step is
-  // named after it — the same order pickedChains puts the lead in.
-  const order = [from, ...asm.chains.map((_, i) => i).filter((i) => i !== from)]
-  const runs = order.flatMap((i) => {
-    const root = asm.chains[i]?.pieces[0]
-    if (root === undefined) return []
-    return [{ pieceId: asm.placed[root].piece.id, at: placementOf(asm.placed[root].piece) }]
-  })
-  return { lead: runs[0]?.pieceId ?? null, runs }
-}
-
 /** Tenths of a millimetre — finer than anything printable, and it keeps the
  *  numbers in the timeline readable. */
 const tidyMm = (v: number) => Math.round(v * 10) / 10
@@ -865,7 +834,7 @@ const tidyMm = (v: number) => Math.round(v * 10) / 10
  * is what turns a drag there into a placement here.
  */
 function MoveGizmo({ asm, specOf }: { asm: Assembly; specOf: (piece: Piece) => TubeSpec }) {
-  const { selectedId, selectedIds, toolScope, placeChains } = useRun()
+  const { selectedId, selectedIds, placeChains } = useRun()
   const [proxy, setProxy] = useState<THREE.Object3D | null>(null)
   /**
    * Where every run being dragged stood when the drag began; null between drags.
@@ -876,12 +845,12 @@ function MoveGizmo({ asm, specOf }: { asm: Assembly; specOf: (piece: Piece) => T
   const from = useRef<{ pieceId: string; at: Placement }[] | null>(null)
   const [origin, setOrigin] = useState<Placement | null>(null)
   const [setControls] = useTidyGizmo()
-  const reach = handleRuns(asm, selectedIds, selectedId, toolScope)
-  const placed = asm.placed.find((p) => p.piece.id === reach.lead)
+  const runsPicked = pickedChains(asm, selectedIds, selectedId)
+  const placed = asm.placed.find((p) => p.piece.id === selectedId)
   const root = placed ? asm.chains[placed.chain]?.pieces[0] : undefined
   const at = root === undefined ? null : placementOf(asm.placed[root].piece)
 
-  if (!placed || !at || !reach.lead) return null
+  if (!placed || !at || !selectedId) return null
   // Where the head of the run under the arrows stands relative to the part they
   // sit on. The run is rigid, so this holds for the whole drag.
   const dx = at.x - placed.start.x
@@ -894,9 +863,7 @@ function MoveGizmo({ asm, specOf }: { asm: Assembly; specOf: (piece: Piece) => T
   // from every side.
   const box = new THREE.Box3()
   for (const chain of new Set(
-    asm.placed
-      .filter((p) => toolScope === 'all' || selectedIds.includes(p.piece.id))
-      .map((p) => p.chain),
+    asm.placed.filter((p) => selectedIds.includes(p.piece.id)).map((p) => p.chain),
   )) {
     box.union(chainBox(asm, chain, (piece) => specOf(piece).outerR))
   }
@@ -916,7 +883,7 @@ function MoveGizmo({ asm, specOf }: { asm: Assembly; specOf: (piece: Piece) => T
           space="world"
           size={0.85}
           onMouseDown={() => {
-            from.current = reach.runs
+            from.current = runsPicked
             setOrigin(at)
           }}
           onMouseUp={() => {
@@ -927,7 +894,7 @@ function MoveGizmo({ asm, specOf }: { asm: Assembly; specOf: (piece: Piece) => T
             // The run under the arrows goes where the drag has put it; the rest
             // go the same distance from where they each began.
             const lead = { x: tidyMm(proxy.position.x + dx), y: tidyMm(proxy.position.y + dy), z: tidyMm(proxy.position.z + dz) }
-            const runs = from.current ?? reach.runs
+            const runs = from.current ?? runsPicked
             const anchor = runs[0]?.at ?? at
             const gx = lead.x - anchor.x
             const gy = lead.y - anchor.y
@@ -1017,7 +984,7 @@ function aimOf(dir: THREE.Vector3, keepYaw: number) {
  * place the rings do less than they look like they should.
  */
 function RotateGizmo({ asm }: { asm: Assembly }) {
-  const { selectedId, selectedIds, toolScope, placeChains, aimPart, rotateStep } = useRun()
+  const { selectedId, selectedIds, placeChains, aimPart, rotateStep } = useRun()
   const [proxy, setProxy] = useState<THREE.Object3D | null>(null)
   /**
    * Where the runs stood when the drag began, what they are turning about, and
@@ -1039,8 +1006,8 @@ function RotateGizmo({ asm }: { asm: Assembly }) {
     axis: string | null
   } | null>(null)
   const [setControls, controls] = useTidyGizmo()
-  const reach = handleRuns(asm, selectedIds, selectedId, toolScope)
-  const lead = reach.lead
+  const runsPicked = pickedChains(asm, selectedIds, selectedId)
+  const lead = selectedId
   const placed = asm.placed.find((p) => p.piece.id === lead)
   const root = placed ? asm.chains[placed.chain]?.pieces[0] : undefined
   const at = root === undefined ? null : placementOf(asm.placed[root].piece)
@@ -1048,8 +1015,7 @@ function RotateGizmo({ asm }: { asm: Assembly }) {
   if (!placed || !at || !lead || root === undefined) return null
   const piece = placed.piece
   // A run's head is the one part with nothing in front of it to hold still, so
-  // it is the one part whose green ring still swings the run it stands in. At
-  // `all` reach the handle is always stood on one, so the green ring always does.
+  // it is the one part whose green ring still swings the run it stands in.
   const head = asm.placed[root].piece.id === lead
   const snap = (deg: number) => (rotateStep > 0 ? Math.round(deg / rotateStep) * rotateStep : deg)
 
@@ -1074,7 +1040,7 @@ function RotateGizmo({ asm }: { asm: Assembly }) {
           rotationSnap={rotateStep > 0 ? THREE.MathUtils.degToRad(rotateStep) : null}
           onMouseDown={() => {
             from.current = {
-              runs: reach.runs,
+              runs: runsPicked,
               pivot: placed.start.clone(),
               frame: proxy.quaternion.clone(),
               dir: directionFor(placed.yaw, placed.pitch),

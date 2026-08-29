@@ -157,12 +157,12 @@ const HELP: Record<HelpTab, Group[]> = {
         {
           keys: ['Move'],
           action: 'Drag the three axis arrows to move the selected part about the workplane',
-          note: `red is X, green Y, blue Z; anything joined to that part travels with it, and with a set picked (${MOD_LABEL}-click) every run in the set travels the same distance. The button asks how far the arrows reach: Move Selected, which is that, or Move All, which takes every run on the stage whatever is picked`,
+          note: `red is X, green Y, blue Z; anything joined to that part travels with it, and with a set picked (${MOD_LABEL}-click) every run in the set travels the same distance. The arrows reach exactly as far as the selection does — to move more, pick more`,
         },
         {
           keys: ['Rotate'],
           action: 'Drag any of the three rings to aim the selected part — red X, green Y, blue Z, the same axes the arrows travel on',
-          note: 'a bonded part bends the run where it stands: it swings about the joint it is plugged into, everything ahead of it holds still, and everything past it comes along holding its shape. On a run’s head, which has nothing in front of it to hold, the green ring turns the whole run instead — and carries any set picked alongside it round that same point. a strip appears under the bar while it is in hand, carrying its own two settings: Step, the notch every swing is held to, and Joint pivot, whether the break it bends at is rounded off or left a mitred corner. The button asks how far the rings reach: Rotate Selected, which is all of the above, or Rotate All, which stands the rings on the head of the picked run and turns every run on the stage about it',
+          note: 'a bonded part bends the run where it stands: it swings about the joint it is plugged into, everything ahead of it holds still, and everything past it comes along holding its shape. On a run’s head, which has nothing in front of it to hold, the green ring turns the whole run instead — and carries any set picked alongside it round that same point. a strip appears under the bar while it is in hand, carrying its own two settings: Step, the notch every swing is held to, and Joint pivot, whether the break it bends at is rounded off or left a mitred corner. The rings reach exactly as far as the selection does — to turn more, pick more',
         },
         {
           keys: ['Measure'],

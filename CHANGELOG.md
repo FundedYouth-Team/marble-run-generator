@@ -11,6 +11,31 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- **Move and Rotate are one button each again, and each takes hold of what you
+  have picked and nothing else.** Both were split-buttons asking how far they
+  reached on the way in — Move Selected against Move All, Rotate Selected
+  against Rotate All — which put a question in front of the tool that the
+  selection had already answered. The reach is the selection now: to move more,
+  pick more, which is the gesture you were going to make anyway.
+- **Rotate All has gone with it, and with it the case where the rings stood
+  somewhere other than on the part you picked.** At the wide reach they were
+  moved onto the head of the picked run so the green ring had a head to swing
+  about, so the handle appeared on a part you had not clicked and the Joint
+  pivot setting went blank because the part under the rings was never a bonded
+  one. The rings stand on the picked part in every case now, and Joint pivot is
+  live whenever that part is bonded.
+- **Nothing the wide reach did is lost** — picking every part and dragging is the
+  same move, the same one step in the timeline, and it was always the several
+  runs that travelled together rather than the parts. What is gone is a mode
+  that moved runs you had not picked.
+- **`toolScope` is out of the store**, along with the `ToolScope` type, the
+  second argument to `setTool`, and `handleRuns` in the stage, which existed
+  only to answer "which runs, at this reach" — both gizmos ask `pickedChains`
+  directly. The toolbar's hints, the right-click menu's tick, and the two Tools
+  entries in Help are all a case shorter for it.
+
 ### Added
 
 - **The explanations under the controls in the Parameters column are kept to one

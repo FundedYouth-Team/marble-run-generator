@@ -86,7 +86,6 @@ export default function PartContextMenu({
     toggleSelect,
     leadPart,
     tool,
-    toolScope,
     setTool,
     dropToWorkplane,
     togglePieceHidden,
@@ -198,17 +197,12 @@ export default function PartContextMenu({
    */
   /**
    * Whether the item is the state the stage is actually in: this part in hand,
-   * with that tool, reaching no further than what is picked. A handle spread
-   * across the whole stage is a different thing from the one the item offers, so
-   * the item is not ticked for it.
+   * with that tool.
    */
-  const held = (t: Tool) => picked && tool === t && toolScope === 'selected'
+  const held = (t: Tool) => picked && tool === t
 
   const hold = (next: Tool) =>
     run(() => {
-      // A handle reaching across the whole stage is not the one this item is
-      // offering, so taking it up on a part brings it back to that part rather
-      // than putting the tool down — the tool is the same, the reach is not.
       if (held(next)) {
         setTool('select')
         return

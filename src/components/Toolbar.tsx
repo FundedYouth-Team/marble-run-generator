@@ -36,7 +36,6 @@ import {
   rotateStepLabel,
   useRun,
   type Tool,
-  type ToolScope,
   type TubeSpec,
 } from '../store'
 
@@ -289,7 +288,6 @@ function ToolMenuButton({
 export default function Toolbar({ spec, asm }: { spec: TubeSpec; asm: Assembly }) {
   const {
     tool,
-    toolScope,
     setTool,
     pendingPort,
     pieces,
@@ -357,13 +355,9 @@ export default function Toolbar({ spec, asm }: { spec: TubeSpec; asm: Assembly }
 
   // The part the Rotate tool's pivot setting is about: only a bonded one has an
   // inlet joint to round off, so a run's head is left out and the setting is
-  // only remembered for the next part that does. At the wider reach the rings
-  // stand on the head of the picked run rather than on the picked part, so there
-  // is no inlet joint under them however deep in a run the pick was.
+  // only remembered for the next part that does.
   const bonded =
-    toolScope !== 'all' && selectedIndex >= 0 && !isChainRoot(pieces, selectedIndex)
-      ? pieces[selectedIndex]
-      : null
+    selectedIndex >= 0 && !isChainRoot(pieces, selectedIndex) ? pieces[selectedIndex] : null
   // What that part's joint is cut at, or what the next one aimed will be. A part
   // that has never been told either way shows the setting, because the setting
   // is what its first swing will give it — see `aimPart`.
@@ -399,25 +393,12 @@ export default function Toolbar({ spec, asm }: { spec: TubeSpec; asm: Assembly }
     // A set of parts is a set of runs to the handles, since a bonded part cannot
     // travel on its own — so the bar says what is actually about to move.
     if (tool === 'move') {
-      // At the wider reach nothing has to be picked for the arrows to have
-      // something to take hold of, so the bar says what they have rather than
-      // asking for a part.
-      if (toolScope === 'all') {
-        return runs > 1
-          ? `Drag an arrow to move all ${runs} runs together`
-          : 'Drag an arrow to move the whole run'
-      }
       if (!lead) return 'Select a part to move its run'
       return runsPicked > 1
         ? `Drag an arrow to move ${runsPicked} runs together`
         : `Drag an arrow to move ${lead}'s run`
     }
     if (tool === 'rotate') {
-      if (toolScope === 'all') {
-        return runs > 1
-          ? `Drag the green ring to turn all ${runs} runs together`
-          : 'Drag a ring to aim the head of the run, and the run with it'
-      }
       if (!lead) return 'Select a part to aim it'
       // A bonded part bends the run where it stands; a run's head has nothing
       // in front of it to hold, so its rings still swing the whole run.
@@ -472,11 +453,9 @@ export default function Toolbar({ spec, asm }: { spec: TubeSpec; asm: Assembly }
     return `Pick a part — ${MOD_LABEL}-click to pick more`
   }
 
-  // Taking up the tool already in hand, at the reach it is already at, puts it
-  // back down — the same toggle the plain tool buttons have always had. Asking
-  // the same tool for the other reach just switches the reach.
-  const pick = (next: Tool, scope: ToolScope = 'selected') =>
-    setTool(tool === next && toolScope === scope ? 'select' : next, scope)
+  // Taking up the tool already in hand puts it back down — the same toggle the
+  // tool buttons have always had.
+  const pick = (next: Tool) => setTool(tool === next ? 'select' : next)
 
   return (
     <div className="toolbar">
@@ -493,65 +472,43 @@ export default function Toolbar({ spec, asm }: { spec: TubeSpec; asm: Assembly }
           title="Pick parts with the left button — the resting state"
           onClick={() => setTool('select')}
         />
-        {/* Both handles ask how far they reach on click: taking hold of what is
-            picked and taking hold of the lot are the same gesture asked of two
-            different sets, so it is a question about the tool rather than a
-            second tool that looks like it. */}
-        <ToolMenuButton
+        {/* Both handles take hold of what is picked and of nothing else, so each
+            is the one button it looks like: there is nothing to ask on the way
+            in, and picking wider is how you move more — which is the gesture you
+            were going to make anyway. The left button goes on picking while
+            either is in hand, so the tool can be taken up before the part it is
+            to work on, and the handles follow the pick from run to run. */}
+        <ToolButton
           on={tool === 'move'}
           label="Move"
           icon={<MoveIcon />}
-          title="Move runs about the workplane on the three axis arrows — either the runs you have picked, or every run on the stage"
-          items={[
-            {
-              label: 'Move Selected',
-              icon: <MoveIcon size={14} />,
-              title:
-                "Move the picked part's run about the workplane on the three axis arrows — pick parts in several runs and they all travel together",
-              on: tool === 'move' && toolScope === 'selected',
-              onClick: () => pick('move', 'selected'),
-            },
-            {
-              label: 'Move All',
-              icon: <MoveIcon size={14} />,
-              title:
-                'Move every run on the stage together on the three axis arrows, whatever is picked — they all travel the one distance, so the model keeps its shape',
-              on: tool === 'move' && toolScope === 'all',
-              disabled: !pieces.length,
-              onClick: () => pick('move', 'all'),
-            },
-          ]}
+          disabled={!pieces.length}
+          title={
+            !pieces.length
+              ? 'Nothing to move yet — add a part first'
+              : "Move the picked part's run about the workplane on the three axis arrows — pick parts in several runs and they all travel together, by the one distance, so the model keeps its shape"
+          }
+          onClick={() => pick('move')}
         />
-        <ToolMenuButton
+        <ToolButton
           on={tool === 'rotate'}
           label="Rotate"
           icon={<RotateIcon />}
-          title="Aim parts and swing runs on three rings, the same axes the move arrows travel on — either what you have picked, or every run on the stage. Its own settings appear on a strip under the bar while it is in hand"
-          items={[
-            {
-              label: 'Rotate Selected',
-              icon: <RotateIcon size={14} />,
-              title:
-                "Aim the picked part on three rings. A bonded part bends the run where it stands: everything ahead of it holds still and everything past it swings with it. A run's head has nothing in front of it, so its green ring turns the whole run",
-              on: tool === 'rotate' && toolScope === 'selected',
-              onClick: () => pick('rotate', 'selected'),
-            },
-            {
-              label: 'Rotate All',
-              icon: <RotateIcon size={14} />,
-              title:
-                'Turn every run on the stage about the head of the picked run on the green ring, whatever is picked — they all turn by the one angle, so the model keeps its arrangement. Red and blue still aim that head part, and tip its run with it',
-              on: tool === 'rotate' && toolScope === 'all',
-              disabled: !pieces.length,
-              onClick: () => pick('rotate', 'all'),
-            },
-          ]}
+          disabled={!pieces.length}
+          title={
+            !pieces.length
+              ? 'Nothing to aim yet — add a part first'
+              : "Aim the picked part on three rings, the same axes the move arrows travel on. A bonded part bends the run where it stands: everything ahead of it holds still and everything past it swings with it. A run's head has nothing in front of it, so its green ring turns the whole run — and carries any other run picked alongside it round that same point. Its own settings appear on a strip under the bar while it is in hand"
+          }
+          onClick={() => pick('rotate')}
         />
         {/* A mode rather than a click, because what it measures is whatever you
             pick next: the left button goes on picking parts while it is in hand,
-            and the box follows the pick from part to part. No reach menu, for
-            the same reason — it is the parts themselves it takes, not the runs
-            they stand in, so there is no second set for it to ask about. */}
+            and the box follows the pick from part to part. It differs from the
+            handles in taking the parts themselves rather than the runs they
+            stand in, and in taking the whole stage when nothing is picked —
+            there is always a box worth reading, where there is nothing to move
+            until something is picked to move. */}
         <ToolButton
           on={tool === 'measure'}
           label="Measure"
@@ -903,9 +860,7 @@ export default function Toolbar({ spec, asm }: { spec: TubeSpec; asm: Assembly }
 
       {tool === 'rotate' && (
         <div className="toolbar-row options">
-          <span className="tool-options-tool">
-            {toolScope === 'all' ? 'Rotate All' : 'Rotate'}
-          </span>
+          <span className="tool-options-tool">Rotate</span>
 
           <ToolOption name="Step">
             <div className="segmented small">

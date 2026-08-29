@@ -96,12 +96,6 @@ export type Tool =
   | 'disconnect'
   | 'support'
 /**
- * How wide a handle tool reaches: the runs that were picked, or every run on the
- * stage. See {@link RunState.toolScope} — the two handles do the same thing
- * either way, so this says what they do it to rather than what they do.
- */
-export type ToolScope = 'selected' | 'all'
-/**
  * Which of the world's three axes an alignment slides along. The parts travel
  * on this one and on no other: lining a set up on their left edges must not
  * quietly change how high any of them stands.
@@ -3979,19 +3973,6 @@ interface RunState {
   /** What the left button does on the 3D stage. */
   tool: Tool
   /**
-   * How wide the handle tools reach — what the arrows and the rings take hold of
-   * when they are dragged. The two handles are the same gesture asked of two
-   * different sets, so which set it is belongs to the tool rather than to the
-   * selection, and is picked from the tool's own menu when it is taken up.
-   *
-   * `selected` is the resting answer: the runs the picked parts stand in. `all`
-   * takes every run on the stage, whatever is picked — the handle still sits on
-   * a part, since a drag has to start somewhere, but nothing is left behind.
-   *
-   * Only Move and Rotate read it; the other tools leave it as they found it.
-   */
-  toolScope: ToolScope
-  /**
    * The first end the Connector has been given, waiting for the one it is to be
    * bonded to. Null with nothing picked yet, and cleared the moment a joint is
    * made — one click is half a joint, not a mode.
@@ -4258,11 +4239,10 @@ interface RunState {
 
   /**
    * Switches what the left button does on the 3D stage; any half-made joint is
-   * dropped. A handle tool is taken up with the reach it is to work at — see
-   * {@link RunState.toolScope} — and anything else puts that back to `selected`,
-   * so a reach picked once never quietly outlives the tool it was picked for.
+   * dropped. The handle tools take hold of what is picked and of nothing else,
+   * so there is nothing to say here beyond which tool is in hand.
    */
-  setTool: (t: Tool, scope?: ToolScope) => void
+  setTool: (t: Tool) => void
   /**
    * Hands the Connector an end. The first one is held; the second makes the
    * joint if the two can take one, and is ignored if they cannot. Null lets go
@@ -4586,7 +4566,6 @@ export const useRun = create<RunState>((set, get) => {
     selectedId: INITIAL_SNAPSHOT.selectedId,
     selectedIds: INITIAL_SNAPSHOT.selectedIds,
     tool: 'select',
-    toolScope: 'selected',
     pendingPort: null,
   pendingSpot: null,
 
@@ -5030,12 +5009,8 @@ export const useRun = create<RunState>((set, get) => {
     // Changing tool drops any half-made joint: the end you picked belonged to the
     // gesture you have just walked away from. The Align strip's hover goes the
     // same way, for the same reason — the pointer left it when the strip did.
-    setTool: (tool, scope = 'selected') =>
-      set((s) =>
-        s.tool === tool && s.toolScope === scope
-          ? s
-          : { tool, toolScope: scope, pendingPort: null, alignHover: null },
-      ),
+    setTool: (tool) =>
+      set((s) => (s.tool === tool ? s : { tool, pendingPort: null, alignHover: null })),
 
     pickPort: (port) => {
       const s = get()
