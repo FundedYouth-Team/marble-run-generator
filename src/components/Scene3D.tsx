@@ -22,13 +22,22 @@ import {
   chainBox,
   directionFor,
   frameFor,
-  placedBox,
+  partsBox,
   type Assembly,
 } from '../lib/layout'
 import { createMarble, resetMarble, stepMarble } from '../lib/sim'
 import { buildWorld } from '../lib/collide'
 import { telemetry } from '../lib/telemetry'
-import { measure, type MoveMeasure } from '../lib/measure'
+import {
+  SPAN_AXIS,
+  SPAN_KEYS,
+  SPAN_LABEL,
+  measure,
+  spans,
+  type MoveMeasure,
+  type SizeMeasure,
+  type SizeSpan,
+} from '../lib/measure'
 import { tidyGizmo, type GizmoControls } from '../lib/gizmo'
 import { addsToSelection } from '../lib/shortcuts'
 import { formatLength, type Unit } from '../lib/units'
@@ -81,6 +90,12 @@ interface ScenePalette {
   cellColor: string
   sectionColor: string
   shadowOpacity: number
+  /**
+   * The measuring box. Held to the same value as `--dim-line` in the stylesheet,
+   * because the box in the scene and the figures drawn over it are one drawing:
+   * a wireframe in a different colour from its own dimensions reads as two.
+   */
+  dim: string
   cube: CubePalette
 }
 
@@ -119,6 +134,7 @@ const PALETTE: Record<Theme, ScenePalette> = {
     cellColor: '#c6d3e0',
     sectionColor: '#93b0c9',
     shadowOpacity: 0.28,
+    dim: '#5c748c',
     cube: { face: '#f7fafc', text: '#2c3d4f', line: '#aebfd0', hover: '#7fb2f5' },
   },
   dark: {
@@ -130,6 +146,7 @@ const PALETTE: Record<Theme, ScenePalette> = {
     cellColor: '#22364b',
     sectionColor: '#3b6a94',
     shadowOpacity: 0.45,
+    dim: '#7fa3c1',
     cube: { face: '#1b2836', text: '#cfe0f0', line: '#3d5f80', hover: '#4d8fd6' },
   },
 }
@@ -497,6 +514,264 @@ function MoveProbe({
   // Nothing selected, or the tool put down: the figures go with the arrows.
   useEffect(() => () => void (measure.live = false), [])
   return null
+}
+
+/**
+ * Scratch, so the measuring box's per-frame path allocates nothing either.
+ */
+const boxScratch = {
+  a: new THREE.Vector3(),
+  b: new THREE.Vector3(),
+  mid: new THREE.Vector3(),
+}
+
+/**
+ * The twelve edges of a box, as a geometry to draw them with — what both the
+ * measuring box and the alignment datum are drawn as, since both are the same
+ * annotation: a frame round the parts in question that hides none of them.
+ *
+ * Held to the box it was built from and disposed with it, so panning the camera
+ * round a stationary box rebuilds nothing.
+ */
+function useBoxWire(box: THREE.Box3) {
+  const wire = useMemo(() => {
+    const size = box.getSize(new THREE.Vector3())
+    // A run drawn on one plane has a span of nought the third way, and a box
+    // geometry of zero depth is a plane with no edges to draw. A hair of
+    // thickness keeps all twelve, and is far under anything printable.
+    const solid = new THREE.BoxGeometry(
+      Math.max(size.x, 0.01),
+      Math.max(size.y, 0.01),
+      Math.max(size.z, 0.01),
+    )
+    const edges = new THREE.EdgesGeometry(solid)
+    solid.dispose()
+    return edges
+  }, [box])
+  useEffect(() => () => wire.dispose(), [wire])
+  return wire
+}
+
+/**
+ * The box drawn round what is being measured, and the three edges its spans are
+ * dimensioned on.
+ *
+ * A wireframe rather than a solid, and drawn with the depth test off, so it
+ * frames the run without hiding any of it — a measurement is an annotation on
+ * the model, not another thing standing in front of it.
+ *
+ * Which three of the twelve edges carry the figures is decided from where the
+ * camera is, so none of them ever goes round the back: the two spans across the
+ * plan are dimensioned along the foot of the box on the two sides nearest the
+ * eye, and the height up the upright at the far end of the width — the near face
+ * carrying its width along the bottom and its height up one side, which is how
+ * an elevation is dimensioned. Hung all three off the one corner they would
+ * crowd into each other on a small part; a span apart, they never can.
+ *
+ * They only swap sides when the camera crosses a face of the box, which is the
+ * one moment a figure that stayed put would be the wrong one to read.
+ */
+function MeasureBox({ box, color }: { box: THREE.Box3; color: string }) {
+  const camera = useThree((s) => s.camera)
+  const view = useThree((s) => s.size)
+  const wire = useBoxWire(box)
+
+  useFrame(() => {
+    const { min, max } = box
+    boxScratch.mid.set((min.x + max.x) / 2, (min.y + max.y) / 2, (min.z + max.z) / 2)
+    // The corner turned toward the camera on the plan, at the foot of the box —
+    // and, for the height, the far end of the width, so the three figures are
+    // spread along the near face rather than piled on one corner of it.
+    const nx = camera.position.x >= boxScratch.mid.x ? max.x : min.x
+    const nz = camera.position.z >= boxScratch.mid.z ? max.z : min.z
+    const fx = nx === max.x ? min.x : max.x
+
+    /** Onto the glass; false for a point that has gone behind the camera. */
+    const put = (v: THREE.Vector3, out: { x: number; y: number }) => {
+      ndc.copy(v).project(camera)
+      out.x = (ndc.x * 0.5 + 0.5) * view.width
+      out.y = (0.5 - ndc.y * 0.5) * view.height
+      return ndc.z <= 1
+    }
+    const middle = { x: 0, y: 0 }
+    put(boxScratch.mid, middle)
+
+    /** Dimensions one edge, given its two ends in the world. */
+    const dim = (span: SizeSpan, mm: number, a: THREE.Vector3, b: THREE.Vector3) => {
+      span.mm = mm
+      span.on = [put(a, span.a), put(b, span.b)].every(Boolean)
+      const dx = span.b.x - span.a.x
+      const dy = span.b.y - span.a.y
+      const len = Math.hypot(dx, dy) || 1
+      let px = -dy / len
+      let py = dx / len
+      // Thrown out on whichever side of the edge faces away from the middle of
+      // the box, so the figure never lands back on top of what it measures.
+      if (px * ((span.a.x + span.b.x) / 2 - middle.x) + py * ((span.a.y + span.b.y) / 2 - middle.y) < 0) {
+        px = -px
+        py = -py
+      }
+      span.off.x = px
+      span.off.y = py
+    }
+
+    dim(
+      spans.width,
+      max.x - min.x,
+      boxScratch.a.set(min.x, min.y, nz),
+      boxScratch.b.set(max.x, min.y, nz),
+    )
+    dim(
+      spans.length,
+      max.z - min.z,
+      boxScratch.a.set(nx, min.y, min.z),
+      boxScratch.b.set(nx, min.y, max.z),
+    )
+    dim(
+      spans.height,
+      max.y - min.y,
+      boxScratch.a.set(fx, min.y, nz),
+      boxScratch.b.set(fx, max.y, nz),
+    )
+    spans.live = true
+  })
+
+  // The tool put down, or nothing left to measure: the figures go with the box.
+  useEffect(() => () => void (spans.live = false), [])
+
+  return (
+    <lineSegments
+      geometry={wire}
+      position={[(box.min.x + box.max.x) / 2, (box.min.y + box.max.y) / 2, (box.min.z + box.max.z) / 2]}
+      renderOrder={3}
+    >
+      <lineBasicMaterial color={color} depthTest={false} transparent opacity={0.95} toneMapped={false} />
+    </lineSegments>
+  )
+}
+
+/**
+ * How far the datum plane is thrown out past the box it is read off, so it reads
+ * as a plane the parts are being brought onto rather than as one more face of
+ * that box. A fraction of the box, with a floor under it for a box small enough
+ * that a fraction of it would be nothing.
+ */
+const DATUM_MARGIN = 0.18
+const DATUM_MARGIN_MIN = 14
+
+/**
+ * The box the Align tool takes its datum off, and — while the pointer is resting
+ * on one of the nine faces — the plane that face works out to.
+ *
+ * The box says what is being aligned *to*: the whole picked set, or the one part
+ * the rest are coming to. Drawn the same way the measuring box is, and for the
+ * same reason: it is an annotation on the model, not another thing standing in
+ * front of it.
+ *
+ * The plane is the half the buttons cannot say. Nine buttons that all mean "line
+ * these up" are told apart by which face each one means, and a face is a place in
+ * the model — so it is shown in the model, before the click rather than after
+ * it. It is thrown out past the box on all four sides, since the parts coming
+ * onto it are by definition outside the face they are coming from.
+ */
+function AlignDatum({
+  box,
+  at,
+  color,
+}: {
+  box: THREE.Box3
+  at: { axis: 'x' | 'y' | 'z'; edge: 'min' | 'mid' | 'max' } | null
+  color: string
+}) {
+  const wire = useBoxWire(box)
+
+  // The plane's own two spans, where it stands, and how it is turned to face
+  // down the axis. PlaneGeometry lies in XY looking down +Z, so Z needs no turn
+  // at all and the other two are a quarter turn off it.
+  const datum = useMemo(() => {
+    if (!at) return null
+    const size = box.getSize(new THREE.Vector3())
+    const mid = box.getCenter(new THREE.Vector3())
+    const pad = Math.max(Math.max(size.x, size.y, size.z) * DATUM_MARGIN, DATUM_MARGIN_MIN)
+    const where =
+      at.edge === 'min' ? box.min[at.axis] : at.edge === 'max' ? box.max[at.axis] : mid[at.axis]
+    const position = mid.clone()
+    position[at.axis] = where
+    const [w, h, rotation]: [number, number, [number, number, number]] =
+      at.axis === 'x'
+        ? [size.z, size.y, [0, Math.PI / 2, 0]]
+        : at.axis === 'y'
+          ? [size.x, size.z, [-Math.PI / 2, 0, 0]]
+          : [size.x, size.y, [0, 0, 0]]
+    return {
+      position: position.toArray() as [number, number, number],
+      rotation,
+      width: Math.max(w, 0.01) + pad * 2,
+      height: Math.max(h, 0.01) + pad * 2,
+    }
+  }, [box, at])
+
+  return (
+    <>
+      <lineSegments
+        geometry={wire}
+        position={[
+          (box.min.x + box.max.x) / 2,
+          (box.min.y + box.max.y) / 2,
+          (box.min.z + box.max.z) / 2,
+        ]}
+        renderOrder={3}
+      >
+        <lineBasicMaterial color={color} depthTest={false} transparent opacity={0.95} toneMapped={false} />
+      </lineSegments>
+      {datum && (
+        <group position={datum.position} rotation={datum.rotation}>
+          <DatumPlane width={datum.width} height={datum.height} color={color} />
+        </group>
+      )}
+    </>
+  )
+}
+
+/**
+ * The face itself: a wash of colour with its own outline round it, square to
+ * whichever axis the group it is in has been turned to.
+ *
+ * Faint enough to read the run through — it is a datum, not a wall — and outlined
+ * at full strength so it has an edge rather than fading into a haze with no
+ * boundary. Both geometries are built together and thrown away together, since
+ * the outline is the fill's own edges.
+ */
+function DatumPlane({ width, height, color }: { width: number; height: number; color: string }) {
+  const [face, outline] = useMemo(() => {
+    const plane = new THREE.PlaneGeometry(width, height)
+    return [plane, new THREE.EdgesGeometry(plane)] as const
+  }, [width, height])
+  useEffect(
+    () => () => {
+      face.dispose()
+      outline.dispose()
+    },
+    [face, outline],
+  )
+  return (
+    <>
+      <mesh geometry={face} renderOrder={4}>
+        <meshBasicMaterial
+          color={color}
+          transparent
+          opacity={0.16}
+          depthTest={false}
+          depthWrite={false}
+          side={THREE.DoubleSide}
+          toneMapped={false}
+        />
+      </mesh>
+      <lineSegments geometry={outline} renderOrder={5}>
+        <lineBasicMaterial color={color} depthTest={false} transparent opacity={0.9} toneMapped={false} />
+      </lineSegments>
+    </>
+  )
 }
 
 /**
@@ -1442,6 +1717,112 @@ function MoveFigures() {
   )
 }
 
+/** How far the size figures stand off the edge they dimension, in px. */
+const SIZE_OFF = 34
+
+/**
+ * The three figures the measuring box is read by: its width, its length and its
+ * height, each set into a dimension line struck along the edge it is taken from.
+ *
+ * Drawn over the canvas rather than in it for the reason {@link MoveFigures} is —
+ * the text stays crisp and the right way up however the camera is swung — and
+ * sampled on the same clock, so a stage nobody is touching costs nothing.
+ */
+function SizeFigures() {
+  const { units } = useRun()
+  const [m, setM] = useState<SizeMeasure | null>(null)
+  /** What was last drawn, so an unchanged frame never re-renders. */
+  const stamp = useRef('')
+
+  useEffect(() => {
+    let id = 0
+    const tick = () => {
+      const key = spans.live
+        ? SPAN_KEYS.flatMap((k) => {
+            const s = spans[k]
+            return [s.mm, s.on, Math.round(s.a.x), Math.round(s.a.y), Math.round(s.b.x), Math.round(s.b.y)]
+          }).join(',')
+        : ''
+      if (key !== stamp.current) {
+        stamp.current = key
+        setM(
+          spans.live
+            ? {
+                live: true,
+                width: { ...spans.width, a: { ...spans.width.a }, b: { ...spans.width.b }, off: { ...spans.width.off } },
+                length: { ...spans.length, a: { ...spans.length.a }, b: { ...spans.length.b }, off: { ...spans.length.off } },
+                height: { ...spans.height, a: { ...spans.height.a }, b: { ...spans.height.b }, off: { ...spans.height.off } },
+              }
+            : null,
+        )
+      }
+      id = requestAnimationFrame(tick)
+    }
+    id = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(id)
+  }, [])
+
+  if (!m) return null
+
+  /** One dimension line, offset off its edge, with its figure set into it. */
+  const draw = (key: (typeof SPAN_KEYS)[number], span: SizeSpan) => {
+    const ox = span.off.x * SIZE_OFF
+    const oy = span.off.y * SIZE_OFF
+    const over = SIZE_OFF + EXT_OVER
+    return (
+      <g key={key}>
+        <line className="ext" x1={span.a.x} y1={span.a.y} x2={span.a.x + span.off.x * over} y2={span.a.y + span.off.y * over} />
+        <line className="ext" x1={span.b.x} y1={span.b.y} x2={span.b.x + span.off.x * over} y2={span.b.y + span.off.y * over} />
+        <line
+          className="bar"
+          x1={span.a.x + ox}
+          y1={span.a.y + oy}
+          x2={span.b.x + ox}
+          y2={span.b.y + oy}
+          markerStart="url(#size-tick)"
+          markerEnd="url(#size-tick)"
+        />
+      </g>
+    )
+  }
+
+  const shown = SPAN_KEYS.filter((k) => m[k].on)
+
+  return (
+    <div className="move-figures" aria-hidden="true">
+      <svg className="move-dim">
+        <defs>
+          {/* The same head both ends, turned about on the near one, so the pair
+              point outward onto the lines they are measured between. */}
+          <marker id="size-tick" markerWidth="9" markerHeight="9" refX="8.5" refY="4.5" orient="auto-start-reverse" markerUnits="userSpaceOnUse">
+            <path d="M 1 1 L 8.5 4.5 L 1 8 z" />
+          </marker>
+        </defs>
+        {shown.map((k) => draw(k, m[k]))}
+      </svg>
+      {shown.map((k) => {
+        const span = m[k]
+        return (
+          <div
+            className="move-figure"
+            key={k}
+            style={{
+              left: (span.a.x + span.b.x) / 2 + span.off.x * SIZE_OFF,
+              top: (span.a.y + span.b.y) / 2 + span.off.y * SIZE_OFF,
+            }}
+          >
+            <span className="cap">{SPAN_LABEL[k]}</span>
+            <b>
+              <i>{SPAN_AXIS[k]}</i>
+              {formatLength(span.mm, units)}
+            </b>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 /** Width of the slide-out settings panel; the corner controls step aside by this much. */
 const SETTINGS_WIDTH = 312
 
@@ -1498,13 +1879,21 @@ function Land({ color, y }: { color: string; y: number }) {
 }
 
 export default function Scene3D() {
-  const { pieces, innerDiameter, wallThickness, variant, openSide, selectedId, selectedIds, select, pickPart, theme, pieceColor, shading, rightPanel, simStarted, tool, overlays, workplane, pendingSpot, strikeRod, dropSpot } =
+  const { pieces, innerDiameter, wallThickness, variant, openSide, selectedId, selectedIds, select, pickPart, theme, pieceColor, shading, rightPanel, simStarted, tool, overlays, workplane, pendingSpot, strikeRod, dropSpot, alignTo, alignHover } =
     useRun()
   // Either slide-out takes the same gutter, so the corner controls step aside for both.
   const docked = rightPanel !== null
   // A joint tool owns the left button while it is in hand: a click belongs to the
   // gesture, not to picking parts.
-  const picking = tool === 'select' || tool === 'move' || tool === 'rotate'
+  // Measure and Align are in here too, and not as an afterthought: neither reads
+  // a click of its own, and changing the pick is the only way to ask either of
+  // them about something else.
+  const picking =
+    tool === 'select' ||
+    tool === 'move' ||
+    tool === 'rotate' ||
+    tool === 'measure' ||
+    tool === 'align'
   /** Whether the left button is standing posts rather than picking parts. */
   const propping = tool === 'support'
   // Escape lets go of a half-struck rod without putting the tool down, and so
@@ -1601,16 +1990,47 @@ export default function Scene3D() {
    * nothing is. A set frames as one, so Fit on several parts takes them all in
    * rather than cropping to whichever one leads.
    */
-  const selectionBox = () => {
-    const box = new THREE.Box3()
-    for (const p of asm.placed) {
-      if (!selectedIds.includes(p.piece.id)) continue
-      // Padded out to that part's own wall, which is not the run's if it has
-      // been sized on its own — and a base, having no wall, framed on its slab.
-      box.union(placedBox(p, specOf(p.piece).outerR))
-    }
-    return box.isEmpty() ? null : box
-  }
+  // Padded out to each part's own wall, which is not the run's if it has been
+  // sized on its own — and a base, having no wall, framed on its slab.
+  const selectionBox = () => partsBox(asm, selectedIds, (piece) => specOf(piece).outerR)
+
+  /**
+   * The box the Measure tool draws and reads its three spans off: what is
+   * picked, or the whole stage when nothing is.
+   *
+   * Falling back to everything is the same answer the 2D draft gives when its
+   * sheet is asked to isolate a selection there is none of — with nothing
+   * picked there is nothing to single out, and the size of the model entire is
+   * the question you were most likely asking anyway.
+   *
+   * Held rather than rebuilt each render, because the box in the scene is built
+   * from it: a fresh one every frame would rebuild the wireframe every frame.
+   */
+  const measureBox = useMemo(
+    () =>
+      tool === 'measure'
+        ? partsBox(asm, selectedIds.length ? selectedIds : null, (piece) => specOf(piece).outerR)
+        : null,
+    [tool, asm, selectedIds, specOf],
+  )
+
+  /**
+   * The box the Align tool reads its datum off: the whole picked set, or the one
+   * part leading it that the rest are coming to.
+   *
+   * The same box, worked out the same way, as the one the store aligns against —
+   * so what the stage draws is the thing the click will actually measure to,
+   * rather than a picture of it. Nothing at all under two picked parts, because
+   * under two there is nothing the tool would do.
+   *
+   * Held rather than rebuilt each render, for the reason the measuring box is:
+   * the wireframe in the scene is built from it.
+   */
+  const alignBox = useMemo(() => {
+    if (tool !== 'align' || selectedIds.length < 2) return null
+    const from = alignTo === 'lead' && selectedId ? [selectedId] : selectedIds
+    return partsBox(asm, from, (piece) => specOf(piece).outerR)
+  }, [tool, alignTo, asm, selectedId, selectedIds, specOf])
 
   // Home stands back at the fixed angle and takes in the whole workplane.
   const home = () =>
@@ -1785,6 +2205,8 @@ export default function Scene3D() {
         {/* The handles are the tools themselves, so each is only on stage with its own in hand. */}
         {tool === 'move' && <MoveGizmo asm={asm} specOf={specOf} />}
         {tool === 'rotate' && <RotateGizmo asm={asm} />}
+        {measureBox && <MeasureBox box={measureBox} color={palette.dim} />}
+        {alignBox && <AlignDatum box={alignBox} at={alignHover} color={palette.dim} />}
         {/* The workplane answers a click too while the tool is in hand, so a rod
             can be run down to the floor rather than only between two parts. */}
         {propping && (
@@ -1848,6 +2270,7 @@ export default function Scene3D() {
       {/* Over the canvas, under the furniture around it: the figures belong to
           the run, but nothing they say is worth covering a control for. */}
       <MoveFigures />
+      <SizeFigures />
       <Toolbar spec={spec} asm={asm} />
       {overlays.parts && <ActiveParts />}
       <div className={docked ? 'view-tools shifted' : 'view-tools'}>

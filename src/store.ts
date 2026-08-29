@@ -18,6 +18,7 @@ import {
   buildAssembly,
   chainBox,
   directionFor,
+  partsBox,
   placedBox,
   type Assembly,
   type Chain,
@@ -78,14 +79,52 @@ export type Mode = '2d' | '3d'
  * state; the rest are modal because each one reads a click as something other
  * than "select this" — a drag on the arrows, one end of a joint, or the spot on
  * the run a post should be stood under.
+ *
+ * `measure` and `align` are the exceptions that prove it: neither takes a click
+ * at all. One draws a box round what is picked and reads its three spans off,
+ * the other slides what is picked onto one face of that box — so for both the
+ * left button goes on picking parts, which is the whole gesture, since changing
+ * the pick is how you ask either of them about something else.
  */
-export type Tool = 'select' | 'move' | 'rotate' | 'connect' | 'disconnect' | 'support'
+export type Tool =
+  | 'select'
+  | 'move'
+  | 'rotate'
+  | 'measure'
+  | 'align'
+  | 'connect'
+  | 'disconnect'
+  | 'support'
 /**
  * How wide a handle tool reaches: the runs that were picked, or every run on the
  * stage. See {@link RunState.toolScope} — the two handles do the same thing
  * either way, so this says what they do it to rather than what they do.
  */
 export type ToolScope = 'selected' | 'all'
+/**
+ * Which of the world's three axes an alignment slides along. The parts travel
+ * on this one and on no other: lining a set up on their left edges must not
+ * quietly change how high any of them stands.
+ */
+export type AlignAxis = 'x' | 'y' | 'z'
+/**
+ * Which face of a part's box is brought onto the datum — its near face, its far
+ * face, or the middle between them. `min` and `max` are said as the world says
+ * them, so on X they are the left and right faces and on Y the underside and the
+ * top; {@link ALIGN_AXES} is where they are given those names.
+ */
+export type AlignEdge = 'min' | 'mid' | 'max'
+/**
+ * What the alignment is taken off.
+ *
+ * `selection` reads the datum off the box the picked parts fill between them, so
+ * they close up onto their own outermost one and nothing travels further than it
+ * has to. `lead` reads it off the one part leading the set — the last one
+ * picked — which then does not move at all and everything else comes to it. That
+ * is the whole reason the lead is worth having here: picking the reference part
+ * last is how you say which part is the reference.
+ */
+export type AlignTo = 'selection' | 'lead'
 /**
  * Which way the 2D draft looks at the run. The six ortho views are named for
  * the side of the model they are taken from, the same way the 3D view cube
@@ -145,6 +184,7 @@ const UNITS_KEY = 'mrg.units'
 const SHORTCUTS_KEY = 'mrg.shortcuts'
 const OVERLAYS_KEY = 'mrg.overlays'
 const ROTATE_STEP_KEY = 'mrg.rotateStep'
+const ALIGN_TO_KEY = 'mrg.alignTo'
 const JOINT_FILLET_KEY = 'mrg.jointFillet'
 const BASE_BED_KEY = 'mrg.baseBed'
 
@@ -311,6 +351,77 @@ function initialRotateStep(): number {
   const saved = typeof localStorage !== 'undefined' ? localStorage.getItem(ROTATE_STEP_KEY) : null
   const step = Number(saved)
   return ROTATE_STEPS.includes(step as (typeof ROTATE_STEPS)[number]) ? step : 0
+}
+
+/**
+ * The nine faces a set of parts can be brought onto, by the axis they are taken
+ * on — three rows of three, which is how they are offered.
+ *
+ * Named the way the view cube names its faces, so the word on the button and the
+ * face of the model it means are the one thing: Left is -X because the view from
+ * -X is the Left view, and Front is +Z for the same reason. Height is the one
+ * axis nobody needs telling: bottom is down.
+ *
+ * `datum` is the face said as a thing rather than as a direction — what the
+ * timeline calls it, where it has to finish the sentence "aligned on ___". The
+ * two centres and the middle carry their axis letter into that name, since
+ * "centre" on its own is three different places.
+ */
+export const ALIGN_AXES: {
+  axis: AlignAxis
+  /** The axis as it is written beside its row, matching {@link SPAN_AXIS}. */
+  letter: string
+  /** What the row is about, said in a word. */
+  name: string
+  edges: { edge: AlignEdge; label: string; datum: string; hint: string }[]
+}[] = [
+  {
+    axis: 'x',
+    letter: 'X',
+    name: 'Across',
+    edges: [
+      { edge: 'min', label: 'Left', datum: 'left edge', hint: 'Bring the left face of each onto the leftmost' },
+      { edge: 'mid', label: 'Centre', datum: 'X centre', hint: 'Bring the middle of each onto the middle, across X' },
+      { edge: 'max', label: 'Right', datum: 'right edge', hint: 'Bring the right face of each onto the rightmost' },
+    ],
+  },
+  {
+    axis: 'y',
+    letter: 'Y',
+    name: 'Up',
+    edges: [
+      { edge: 'min', label: 'Bottom', datum: 'underside', hint: 'Bring the underside of each onto the lowest' },
+      { edge: 'mid', label: 'Middle', datum: 'Y middle', hint: 'Bring the middle of each onto the middle, up Y' },
+      { edge: 'max', label: 'Top', datum: 'top', hint: 'Bring the top of each onto the highest' },
+    ],
+  },
+  {
+    axis: 'z',
+    letter: 'Z',
+    name: 'Along',
+    edges: [
+      { edge: 'min', label: 'Back', datum: 'back edge', hint: 'Bring the back face of each onto the furthest back' },
+      { edge: 'mid', label: 'Centre', datum: 'Z centre', hint: 'Bring the middle of each onto the middle, along Z' },
+      { edge: 'max', label: 'Front', datum: 'front edge', hint: 'Bring the front face of each onto the nearest front' },
+    ],
+  },
+]
+
+/** What one of the nine is called where it has to be named on its own. */
+export function alignDatumLabel(axis: AlignAxis, edge: AlignEdge): string {
+  const row = ALIGN_AXES.find((a) => a.axis === axis)
+  return row?.edges.find((e) => e.edge === edge)?.datum ?? 'edge'
+}
+
+/**
+ * The set's own box is the default, because it is the answer that needs nothing
+ * said first: pick two parts, ask for their left edges, and they close up on the
+ * leftmost. Aligning onto one part is the deliberate act, and asking for it says
+ * which part by which one was picked last.
+ */
+function initialAlignTo(): AlignTo {
+  const saved = typeof localStorage !== 'undefined' ? localStorage.getItem(ALIGN_TO_KEY) : null
+  return saved === 'lead' ? 'lead' : 'selection'
 }
 
 /**
@@ -2861,6 +2972,58 @@ export const MARBLE_CLEARANCE = 4
 /** Bore that a standard marble rolls through comfortably. */
 export const STANDARD_BORE = STANDARD_MARBLE + MARBLE_CLEARANCE
 
+/**
+ * A ball sold by the bag, under the name it is sold under.
+ *
+ * The run is cut around whatever is going to roll down it, so the ball is the
+ * first number and the bore is the second — the bore is only ever the ball plus
+ * {@link MARBLE_CLEARANCE}. That is one sum, and nobody wants to do it twice:
+ * this is the sum done under the name of the thing you tipped out of the bag.
+ */
+export interface MarblePreset {
+  /** Steady across releases — it is what a saved choice would answer to. */
+  id: string
+  /** What the bag calls them, plural, as you would ask for them in a shop. */
+  name: string
+  /** Across, mm. */
+  diameter: number
+  /** Where the figure comes from, for the label to say so. */
+  note: string
+}
+
+/**
+ * The two balls a run like this is nearly always built for.
+ *
+ * The box underneath is still the real control — any diameter at all is typed
+ * in, and reads back as Custom. This is a shortcut to the two common ones, not
+ * the set of sizes allowed.
+ */
+export const MARBLE_PRESETS: MarblePreset[] = [
+  { id: 'glass', name: 'Glass Marbles', diameter: STANDARD_MARBLE, note: 'the 5/8" bag size' },
+  { id: 'steel', name: 'Steel Balls', diameter: 10, note: 'the common bearing size' },
+]
+
+/** The bore a ball of this size rolls through comfortably. */
+export function boreForMarble(diameter: number): number {
+  return diameter + MARBLE_CLEARANCE
+}
+
+/** One preset by the name it answers to, or null if nothing does. */
+export function marbleById(id: string): MarblePreset | null {
+  return MARBLE_PRESETS.find((b) => b.id === id) ?? null
+}
+
+/**
+ * The preset a run is cut for, or null if it is nobody's — which is both halves
+ * of the answer, since a 16mm ball down a bore that is not 20 is not what
+ * picking Glass Marbles would give you, and should not read back as it.
+ */
+export function marbleFor(diameter: number, bore: number): MarblePreset | null {
+  return (
+    MARBLE_PRESETS.find((b) => b.diameter === diameter && boreForMarble(b.diameter) === bore) ?? null
+  )
+}
+
 /** What every new project is called until it is given a name. */
 export const UNTITLED_PROJECT = 'Untitled'
 
@@ -3872,6 +4035,49 @@ interface RunState {
    * way without asking again.
    */
   jointFillet: number
+  /**
+   * What the Align tool takes its datum off — see {@link AlignTo}.
+   *
+   * A preference rather than part of the run, like the two above it: it says
+   * which question the tool is answering, and nothing about what is on the
+   * stage. So it outlives the project and is no step in the timeline.
+   */
+  alignTo: AlignTo
+  setAlignTo: (to: AlignTo) => void
+  /**
+   * The face the pointer is resting on in the Align strip, or null. The stage
+   * draws the datum there so the answer is on screen before the click, which on
+   * a tool whose nine buttons differ only in which face they mean is most of
+   * what makes it readable.
+   *
+   * Not in the timeline and not saved anywhere: it is where the pointer is.
+   */
+  alignHover: { axis: AlignAxis; edge: AlignEdge } | null
+  setAlignHover: (at: { axis: AlignAxis; edge: AlignEdge } | null) => void
+  /**
+   * Lines the picked parts up on one face, sliding each along `axis` and along
+   * nothing else.
+   *
+   * The datum is one number on that axis — read off the box the whole picked set
+   * fills, or off the leading part's own box; see {@link AlignTo}. Every picked
+   * part is then brought to it by the face `edge` names, measured to the outside
+   * of its own tube rather than to its centreline, so parts of different bores
+   * line up on the pipe you can see rather than on the axis you cannot.
+   *
+   * What travels is runs, not parts, for the reason {@link RunState.placeChains}
+   * moves runs: a bonded part cannot go anywhere on its own. So each picked part
+   * names the run it stands in and that whole run slides the distance that part
+   * needs, holding its shape. Two picked parts in the one run cannot send it two
+   * ways, and the first picked is the one that wins — the same rule the move
+   * arrows go by. With the lead as datum its run is pinned before any of that,
+   * so the part you aligned onto never moves out from under the alignment.
+   *
+   * A base only ever travels on the plan: it is held on the workplane by
+   * {@link groundSeat}, so asking a set that includes one to line up on Y lines
+   * up everything but the slab. Nothing is a step in the timeline unless
+   * something actually moved.
+   */
+  alignParts: (axis: AlignAxis, edge: AlignEdge) => void
 
   // 3D appearance. The piece colour is only what a part falls back to when it
   // has none of its own — a preference that outlives any one project.
@@ -4030,7 +4236,16 @@ interface RunState {
   setJointFillet: (mm: number, id?: string) => void
   toggleShading: () => void
   setMarbleDiameter: (v: number) => void
-  resetMarbleFit: () => void
+  /**
+   * Cuts the whole run for one of {@link MARBLE_PRESETS} — the ball, the bore
+   * it rolls in, and every part that had been given a bore of its own.
+   *
+   * That last is the point of it: a run is cut for one ball, and a part left on
+   * a bore of its own would neither take this one nor mate with its neighbours.
+   * Walls are left alone — a part printed thicker is printed thicker whatever
+   * rolls through it.
+   */
+  setMarblePreset: (id: string) => void
   setTimeScale: (v: number) => void
   setFriction: (v: number) => void
   setBounce: (v: number) => void
@@ -4384,6 +4599,8 @@ export const useRun = create<RunState>((set, get) => {
     baseBed: initialBaseBed(),
     rotateStep: initialRotateStep(),
     jointFillet: initialJointFillet(),
+    alignTo: initialAlignTo(),
+    alignHover: null,
 
     marbleDiameter: INITIAL_SNAPSHOT.marbleDiameter,
     running: false,
@@ -4768,13 +4985,24 @@ export const useRun = create<RunState>((set, get) => {
         (s) => (s.marbleDiameter === marbleDiameter ? null : { marbleDiameter }),
         'marble',
       ),
-    // Bore and marble move together, so the fit is right whatever they were scaled to.
-    resetMarbleFit: () =>
-      commit('Reset marble fit', (s) =>
-        s.marbleDiameter === STANDARD_MARBLE && s.innerDiameter === STANDARD_BORE
-          ? null
-          : { marbleDiameter: STANDARD_MARBLE, innerDiameter: STANDARD_BORE },
-      ),
+    setMarblePreset: (id) => {
+      const ball = marbleById(id)
+      if (!ball) return
+      const innerDiameter = boreForMarble(ball.diameter)
+      commit(`${ball.name}: Ø${len(ball.diameter)} ball, Ø${len(innerDiameter)} bore`, (s) => {
+        const sized = s.pieces.some((p) => p.innerDiameter !== undefined)
+        if (s.marbleDiameter === ball.diameter && s.innerDiameter === innerDiameter && !sized) {
+          return null
+        }
+        return {
+          marbleDiameter: ball.diameter,
+          innerDiameter,
+          // Dropping each part's own bore is what makes the choice stick: the
+          // run carries one ball, and stays that way as the ball is changed again.
+          pieces: sized ? s.pieces.map(({ innerDiameter: _d, ...rest }) => rest) : s.pieces,
+        }
+      })
+    },
     setTimeScale: (timeScale) => set({ timeScale }),
     setFriction: (friction) => set({ friction }),
     setBounce: (bounce) => set({ bounce }),
@@ -4800,12 +5028,13 @@ export const useRun = create<RunState>((set, get) => {
     },
 
     // Changing tool drops any half-made joint: the end you picked belonged to the
-    // gesture you have just walked away from.
+    // gesture you have just walked away from. The Align strip's hover goes the
+    // same way, for the same reason — the pointer left it when the strip did.
     setTool: (tool, scope = 'selected') =>
       set((s) =>
         s.tool === tool && s.toolScope === scope
           ? s
-          : { tool, toolScope: scope, pendingPort: null },
+          : { tool, toolScope: scope, pendingPort: null, alignHover: null },
       ),
 
     pickPort: (port) => {
@@ -4939,6 +5168,92 @@ export const useRun = create<RunState>((set, get) => {
           pieces: s.pieces.map((p, j) => (j === root ? { ...p, at: { ...at, y } } : p)),
         }
       }),
+
+    // Which datum the tool works to, and where the pointer is resting in its
+    // strip: how the tool behaves and what it is showing, neither of which is
+    // anything the run has done. So neither is a step, and only the first
+    // outlives the project.
+    setAlignTo: (alignTo) => {
+      if (get().alignTo === alignTo) return
+      remember(ALIGN_TO_KEY, alignTo)
+      set({ alignTo })
+    },
+    setAlignHover: (alignHover) =>
+      set((s) =>
+        s.alignHover?.axis === alignHover?.axis && s.alignHover?.edge === alignHover?.edge
+          ? s
+          : { alignHover },
+      ),
+
+    alignParts: (axis, edge) => {
+      const s0 = get()
+      const lead = s0.alignTo === 'lead' ? s0.selectedId : null
+      // The lead is the datum, not one of the parts brought to it, so it is out
+      // of the set that travels. Under two parts there is nothing to line up
+      // with anything: one part is already on its own datum, and one part plus
+      // the datum it is being aligned onto is the same part twice.
+      const movers = s0.selectedIds.filter((id) => id !== lead)
+      if (!movers.length || s0.selectedIds.length < 2) return
+      const face = alignDatumLabel(axis, edge)
+      // Named by what the set is coming onto, since that is the whole of what
+      // the step did — "on their left edge", or "on Base 1's left edge".
+      const onto = lead ? `${nameOf(s0, lead)}'s ${face}` : `their ${face}`
+      commit(`Align ${movers.length === 1 ? nameOf(s0, movers[0]) : `${movers.length} parts`} on ${onto}`, (s) => {
+        const asm = buildAssembly(s.pieces)
+        // Each part padded out to its own wall, which is not the run's if it has
+        // been sized on its own — the same box the Measure tool reads and the
+        // camera frames, so all three agree about where a part ends.
+        const radiusOf = (piece: Piece) =>
+          boreOf(piece, s.innerDiameter) / 2 + wallOf(piece, s.wallThickness)
+        const boxOf = (ids: string[]) => partsBox(asm, ids, radiusOf)
+        /** The face of one box, on the axis being aligned. */
+        const faceOf = (box: NonNullable<ReturnType<typeof boxOf>>) =>
+          edge === 'min'
+            ? box.min[axis]
+            : edge === 'max'
+              ? box.max[axis]
+              : (box.min[axis] + box.max[axis]) / 2
+        // The whole picked set closing up on its own outermost face, or the one
+        // part everything else is coming to.
+        const from = boxOf(lead ? [lead] : s.selectedIds)
+        if (!from) return null
+        const datum = faceOf(from)
+        // How far each run has to slide, filed under the part it starts at. Two
+        // picked parts of the one run cannot send it two ways and the first
+        // picked wins — and where the lead is the datum, its run is pinned
+        // before any of them get a look in, so the part being aligned onto
+        // cannot be dragged off its own datum by a neighbour of its own.
+        const slides = new Map<number, number>()
+        const rootOf = (id: string) => {
+          const i = s.pieces.findIndex((p) => p.id === id)
+          return i < 0 ? -1 : chainRootOf(s.pieces, i)
+        }
+        if (lead) {
+          const root = rootOf(lead)
+          if (root >= 0) slides.set(root, 0)
+        }
+        for (const id of movers) {
+          const root = rootOf(id)
+          if (root < 0 || slides.has(root)) continue
+          const box = boxOf([id])
+          if (!box) continue
+          slides.set(root, datum - faceOf(box))
+        }
+        let moved = false
+        const pieces = s.pieces.map((p, j) => {
+          const slide = slides.get(j)
+          if (slide === undefined || slide === 0) return p
+          const was = placementOf(p)
+          // Through the seat, so a base asked to travel up the Y stays on the
+          // workplane rather than springing back off it somewhere later.
+          const at = groundSeat(p, { ...was, [axis]: tidy(was[axis] + slide) })
+          if (at.x === was.x && at.y === was.y && at.z === was.z) return p
+          moved = true
+          return { ...p, at }
+        })
+        return moved ? { pieces } : null
+      })
+    },
 
     fitBaseToRun: (pieceId) =>
       commit(`Fit ${nameOf(get(), pieceId)} under the run`, (s) => {

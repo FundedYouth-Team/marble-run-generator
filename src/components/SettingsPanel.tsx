@@ -10,13 +10,15 @@ import {
   useRun,
   OVERLAYS,
   STANDARD_MARBLE,
-  STANDARD_BORE,
   MARBLE_CLEARANCE,
+  MARBLE_PRESETS,
+  boreForMarble,
+  marbleFor,
   DEFAULT_MARBLE_COLOR,
   DEFAULT_WORKPLANE,
 } from '../store'
 import type { Theme, WorkplaneColor } from '../store'
-import { UNIT_NAME, formatDensity, formatLength, type Unit } from '../lib/units'
+import { UNIT_NAME, formatDensity, formatLength, lengthText, type Unit } from '../lib/units'
 
 /** Millimetres first: it is the default, and what the model is kept in. */
 const UNITS: Unit[] = ['mm', 'in']
@@ -71,7 +73,9 @@ function speedWord(timeScale: number) {
 export default function SettingsPanel({ open, onClose }: { open: boolean; onClose: () => void }) {
   const s = useRun()
   const [calibrating, setCalibrating] = useState(false)
-  const standardFit = s.marbleDiameter === STANDARD_MARBLE && s.innerDiameter === STANDARD_BORE
+  // Both numbers, not just the ball: a 16mm marble down a bore somebody has
+  // opened out by hand is not what picking Glass Marbles gives you.
+  const ball = marbleFor(s.marbleDiameter, s.innerDiameter)
   const workplane = s.workplane[s.theme]
   const stock = DEFAULT_WORKPLANE[s.theme]
   const stockWorkplane = workplane.sky === stock.sky && workplane.land === stock.land
@@ -182,6 +186,35 @@ export default function SettingsPanel({ open, onClose }: { open: boolean; onClos
         </CollapsiblePanel>
 
         <CollapsiblePanel title="Marble Size & Color" defaultOpen={false}>
+          {/* Above the box it sets, because it is that box said in one word —
+              the thing you tip out of the bag. Everything under it stays typeable. */}
+          <span className="field-label">
+            What rolls down it
+            <em>sizes the ball and cuts every part's bore to suit</em>
+          </span>
+          <select
+            className="ball-select"
+            value={ball?.id ?? ''}
+            onChange={(e) => s.setMarblePreset(e.target.value)}
+            title={
+              ball
+                ? `${ball.name} — ${ball.note}`
+                : 'This ball and bore are not a pair anything on the list is sold in'
+            }
+          >
+            {/* Only ever a read-out: Custom is what the boxes say when they say
+                something neither bag does, and there is nothing for picking it to do. */}
+            <option value="" disabled>
+              Custom — Ø{lengthText(s.marbleDiameter, s.units)} ball, Ø
+              {lengthText(s.innerDiameter, s.units)} bore
+            </option>
+            {MARBLE_PRESETS.map((b) => (
+              <option key={b.id} value={b.id} title={b.note}>
+                {b.name} — Ø{lengthText(b.diameter, s.units)} ball, Ø
+                {lengthText(boreForMarble(b.diameter), s.units)} bore
+              </option>
+            ))}
+          </select>
           <NumberField
             label="Marble diameter"
             hint={`a standard glass marble is ${formatLength(STANDARD_MARBLE, s.units)}`}
@@ -191,14 +224,13 @@ export default function SettingsPanel({ open, onClose }: { open: boolean; onClos
             max={Math.max(4, s.innerDiameter - 1)}
             step={0.5}
           />
-          <button onClick={s.resetMarbleFit} disabled={standardFit}>
-            ↺ {standardFit ? 'Standard marble size' : 'Reset to standard marble'}
-          </button>
-          <InfoNote label="What is the standard marble size?">
-            A shop-bought glass marble is about {formatLength(STANDARD_MARBLE, s.units)} across.
-            Reset sets the marble to that and opens the bore to{' '}
-            {formatLength(STANDARD_BORE, s.units)} — {formatLength(MARBLE_CLEARANCE, s.units)} of
-            slack so it rolls instead of jamming. Scale both however you like; this brings them back.
+          <InfoNote label="What does picking a ball change?">
+            Both numbers a run is built around. The ball itself, and the bore every part is cut to —
+            the ball plus {formatLength(MARBLE_CLEARANCE, s.units)} of slack, so it rolls instead of
+            jamming. Any part you had given a bore of its own comes back onto the run's, since a run
+            carries one ball and a part left on its own bore would neither take it nor mate with its
+            neighbours; walls are left as they are. Type a diameter here afterwards, or a bore in
+            Tube Size, and the list reads Custom — the boxes are still the real control.
           </InfoNote>
           <ColorField
             label="Ball color"

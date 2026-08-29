@@ -11,7 +11,139 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **The explanations under the controls in the Parameters column are kept to one
+  line, and the rest of each opens in a card beside the column when the pointer
+  rests on it.** The panels explain themselves as they go, and the explanations
+  run longer than a 322px column is wide — so three controls in a row arrived as
+  a wall of grey text with the controls buried in it. Every one of the 27 notes
+  in the column now reads as a single line, ending in an ellipsis where there is
+  more behind it.
+- **A note that fits on its line is left exactly as it was.** Whether it is
+  clipped is measured rather than guessed — the text is worked out from the
+  model and changes under itself, so it is watched with a `ResizeObserver` and
+  re-measured when the sentence is rewritten or the column resized. Only a
+  clipped note is given the ⓘ mark, so the mark means "there is more here"
+  rather than decorating every line.
+- **Clicking the ⓘ pins the card open** — Escape or a click anywhere else
+  dismisses it — which is the only way to read a note on a touch screen, and the
+  way to keep one up while working from it. Keyboard travel opens it on focus,
+  as the toolbar's hints do.
+- **The card is thrown beside the column rather than under the note**, so it
+  covers the stage instead of the controls the note is about, and drops below
+  the note only when the window is too narrow for that. It is placed in window
+  pixels and follows the note as the column scrolls, since the column clips its
+  own overflow and a card inside it would be cut off at the edge.
+- **The clipping is done in the paint only**: the whole sentence stays in the
+  page, so anything reading the page aloud is given it entire, and the card is
+  marked as the picture of it that it is. The red warnings are left spelled out
+  in full — they fire rarely and mean something is wrong with the model right
+  now, which is no time to be hiding the reason behind a hover.
+
+- **A ball to pick, at the top of Marble Size & Color: Glass Marbles at 16mm or
+  Steel Balls at 10mm, and the tube cut to whichever you pick.** The two numbers
+  a run is built around are the ball and the bore it rolls in, and the second is
+  only ever the first plus four millimetres of slack. That is one sum, done
+  twice in two different boxes, and getting it wrong shows up as a marble that
+  jams or a ball that rattles — so it is now done once, under the name of the
+  thing you tipped out of the bag.
+- **Picking one also brings any part with a bore of its own back onto the
+  run's** — the same rule Apply to All Parts goes by, and for the same reason: a
+  run carries one ball, and a part left on its own bore would neither take this
+  one nor mate with its neighbours at the joint. Walls are left alone, a part
+  printed thicker being printed thicker whatever rolls through it.
+- **The boxes underneath are still the real control.** The list is a shortcut to
+  the two sizes nearly every run is built for, not the set of sizes allowed:
+  type any diameter or any bore you like and the list reads back **Custom**,
+  with the pair it is currently cut to spelled out beside the word. Picking
+  Glass Marbles is the way back, and is one step in the timeline like any other
+  — the reset button it replaces did the same job for one of the two sizes.
+
+- **Align, beside Measure in the Tools band: bring the parts you have picked
+  onto one face.** Measure draws a box round what is picked and reads it; this
+  is that same box asked the next question — line these up on it. Until now the
+  only way to get two runs standing level, or a coil centred over the plate
+  under it, was to read a figure off one and type it into the other, and a
+  figure typed to a tenth is only ever nearly right.
+- **Nine faces, three to an axis** — Left, Centre and Right across X, Bottom,
+  Middle and Top up Y, Back, Centre and Front along Z. Named the way the view
+  cube names its faces, so Left is -X and Front is +Z, and each row carries its
+  axis letter: Left and Back are both "sideways" until something says which way,
+  and nothing but the letter tells the two centres apart.
+- **The nine are drawn rather than named**: each button is a little picture of
+  the alignment it makes — three parts of different sizes brought flush against
+  a datum, with the datum drawn where that face actually is, and a centreline
+  through the middle of them for the three that centre. "Left" is a word for a
+  picture in the first place, and nine of those words across three rows is a
+  wall of text on a strip one line high. The words survive on hover and for
+  anything reading the page aloud. X and Z share the one form, since they are
+  the same alignment on two axes and a plan has no up in it to tell them apart
+  by — the axis letter beside the row is what does that, as it does for the two
+  centres.
+- **Two datums, asked before the faces, because the same button means two
+  different places depending on the answer.** *The set* lines the picked parts
+  up on their own outermost face, so they close up on each other and none
+  travels further than it has to. *The lead part* — the one picked last — stays
+  exactly where it is while every other picked part comes to it, which is how
+  you say "line these up on that one": pick the reference part last.
+- **Resting on any of the nine draws that face on the stage.** Nine buttons that
+  all mean "line these up" are told apart only by which face each one means, and
+  a face is a place in the model — so it is shown in the model, before the click
+  rather than after it. The datum plane is thrown out past the box on all four
+  sides, since the parts coming onto it are by definition outside the face they
+  are coming from.
+- **It takes no click of its own**, the way Measure takes none: the left button
+  goes on picking parts while it is in hand, and the datum follows the pick.
+- **What travels is runs, not parts** — the same rule the move arrows go by,
+  because a bonded part cannot go anywhere on its own. Each picked part slides
+  the whole run it stands in, holding its shape, and two picked parts of the one
+  run cannot send it two ways: the first picked is the one that lands on the
+  datum. Where the lead is the datum its own run is pinned before any of that,
+  so the part you aligned onto is never dragged out from under the alignment.
+- **Faces are measured to the outside of the tube**, the same box Measure reads
+  and the camera frames, so parts of different bores line up on the pipe you can
+  see rather than on the axis you cannot. A base only ever travels on the plan:
+  it is held on the workplane, so a set with a slab in it lines up on Y around
+  the slab rather than lifting it off the ground.
+
+- **Measure, in the Tools band of the toolbar: how much room the parts you have
+  picked actually take up.** The run has always known its own centreline length,
+  and that is the wrong figure for nearly every question anybody asks about a
+  finished model — whether it clears a shelf, whether it goes in the box, whether
+  the coil is really as tall as it looks. Those are questions about a cube, so
+  the tool draws one: a wireframe box round what is picked, squared to the world,
+  with its width, its length and its height read off it.
+- **Measured to the outside of the tube, not to its centreline**, so the box is
+  the room the run needs rather than the room its axis needs — and each part
+  padded out to its own wall, which is not the run's if it has been sized on its
+  own. A base is boxed on its slab and a rod on the bar itself, neither having a
+  wall to be padded out to.
+- **The three figures hang on the box, in the drafting way**: a dimension line
+  struck between two extension lines, with the figure set into it. Width along
+  the foot of the near face, height up its far side, length going back along the
+  side nearest you — spread along the box rather than piled on one corner of it,
+  so they stay apart on a part small enough that they would otherwise collide.
+  They swap sides as the camera crosses the box, which is the one moment a figure
+  that stayed put would be the wrong one to read. All three are written out again
+  on a strip under the toolbar, where they can be read as text.
+- **It takes no click of its own.** The left button goes on picking parts while
+  it is in hand, and the box follows the pick from part to part — changing the
+  pick is the whole gesture. `Cmd`-click takes several parts and the box takes
+  them all in. Pick nothing and it boxes the whole stage, the same answer the 2D
+  draft gives when it is asked to isolate a selection there is none of.
+- Width is X, length is Z, height is Y, and each figure carries its axis letter
+  beside its name — nothing else tells width and length apart.
+
 ### Changed
+
+- **Reset to Standard Marble is gone from Marble Size & Color, and the new ball
+  list is the way back.** The button set the marble to 16mm and the bore to
+  20mm, which is precisely what picking Glass Marbles now does — and does for
+  parts sized on their own as well, which the button never reached. Two controls
+  setting the same pair of numbers in one panel reads as a bug rather than as a
+  choice, so the one that also says which ball you are cutting for is the one
+  left standing.
 
 - **Drop to Workplane is now Place on Workplane.** "Drop" reads as letting go of
   something, and the button does the opposite — it sets the run down deliberately,

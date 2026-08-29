@@ -4,6 +4,7 @@ import NumberField from './NumberField'
 import ColorField from './ColorField'
 import CollapsiblePanel from './CollapsiblePanel'
 import HoverHint from './HoverHint'
+import Note from './Note'
 import { pieceAxisLength } from '../lib/centerline'
 import { buildAssembly, placedBox } from '../lib/layout'
 import { FUNNEL_LEAST_CONE, funnelFeedRadius } from '../lib/funnel'
@@ -423,13 +424,13 @@ export default function Sidebar() {
         <button onClick={() => s.applyTubeToAll(bore, wall)} disabled={!mixedTube}>
           Apply to All Parts
         </button>
-        <p className="note">
+        <Note>
           {mixedTube
             ? `Cuts all ${s.pieces.length} parts — and every part added next — from Ø${lengthText(bore, s.units)} bore with a ${formatLength(wall, s.units)} wall.`
             : s.pieces.length
               ? `Every part is already Ø${lengthText(bore, s.units)} bore, ${formatLength(wall, s.units)} wall.`
               : 'No parts yet — this is the tube the first one is cut from.'}
-        </p>
+        </Note>
         {/* A part is only ever printed against the parts it mates with, so a bore
             of its own is worth saying out loud rather than leaving to be noticed
             at the joint. */}
@@ -469,17 +470,17 @@ export default function Sidebar() {
             </button>
           ))}
         </div>
-        <p className="note">{VARIANT_NOTE[style]}</p>
+        <Note>{VARIANT_NOTE[style]}</Note>
         <button onClick={() => s.applyVariantToAll(style)} disabled={!mixed}>
           Apply to All Parts
         </button>
-        <p className="note">
+        <Note>
           {mixed
             ? `Puts ${VARIANT_LABEL[style]} on all ${s.pieces.length} parts, and on every part added next.`
             : s.pieces.length
               ? `Every part is already ${VARIANT_LABEL[style]}.`
               : 'No parts yet — this is the style the first one arrives in.'}
-        </p>
+        </Note>
 
         {/* Which side that opening faces. Every part is a closed pipe until it
             is cut open, so this only has anything to say once one has been —
@@ -502,21 +503,21 @@ export default function Sidebar() {
             </button>
           ))}
         </div>
-        <p className="note">
+        <Note>
           {noOpening
             ? 'A closed tube has no opening. Cut it Half or 3/4 to choose a side.'
             : OPEN_SIDE_NOTE[side]}
-        </p>
+        </Note>
         <button onClick={() => s.applyOpenSideToAll(side)} disabled={!mixedSide}>
           Apply to All Parts
         </button>
-        <p className="note">
+        <Note>
           {mixedSide
             ? `Opens all ${s.pieces.length} parts on the ${OPEN_SIDE_LABEL[side].toLowerCase()}, and every part added next.`
             : s.pieces.length
               ? `Every part already opens on the ${OPEN_SIDE_LABEL[side].toLowerCase()}.`
               : 'No parts yet — this is the side the first one opens on.'}
-        </p>
+        </Note>
       </CollapsiblePanel>
       )}
 
@@ -535,14 +536,14 @@ export default function Sidebar() {
         <button onClick={() => s.applyColorToAll(color)} disabled={!mixedColor}>
           Apply to All Parts
         </button>
-        <p className="note">
+        <Note>
           {mixedColor
             ? `Puts ${color} on all ${s.pieces.length} parts, and on every part added next.`
             : s.pieces.length
               ? 'Every part is already this color.'
               : 'No parts yet — this is the color the first one arrives in.'}{' '}
           3D view only — colors are never exported.
-        </p>
+        </Note>
       </CollapsiblePanel>
 
       <CollapsiblePanel title="Measurement">
@@ -617,11 +618,11 @@ export default function Sidebar() {
                       onChange={(v) => s.updatePiece(selected.id, { fillet: v })}
                       {...PIECE_LIMITS.fillet}
                     />
-                    <p className="note">
+                    <Note>
                       Enters at {degLabel(selected.slope)}° and leaves at{' '}
                       {degLabel(exitSlope(selected))}°. A big radius on short legs is trimmed back
                       to what the legs can give it.
-                    </p>
+                    </Note>
                   </>
                 ) : corner ? (
                   <>
@@ -676,13 +677,13 @@ export default function Sidebar() {
                       onChange={(v) => s.updatePiece(selected.id, { fillet: v })}
                       {...PIECE_LIMITS.fillet}
                     />
-                    <p className="note">
+                    <Note>
                       Swings the run {degLabel(Math.abs(exitTurn(selected)))}° to the{' '}
                       {corner.sweep < 0 ? 'left' : 'right'} and, turning across the fall, leaves at{' '}
                       {degLabel(exitSlope(selected))}° where it entered at{' '}
                       {degLabel(selected.slope)}°. A big radius on short legs is trimmed back to
                       what the legs can give it.
-                    </p>
+                    </Note>
                   </>
                 ) : hook ? (
                   <>
@@ -772,7 +773,7 @@ export default function Sidebar() {
                         </span>
                       </div>
                     </div>
-                    <p className="note">
+                    <Note>
                       Turns {degLabel(Math.abs(hook.sweep))}° to the{' '}
                       {hook.sweep < 0 ? 'left' : 'right'} on a plane {hookPlane}, and comes out{' '}
                       {Math.abs(exitTurn(selected)) < 0.05
@@ -786,7 +787,7 @@ export default function Sidebar() {
                       {hookLevel
                         ? 'Falling as it turns is what lets it come out on the slope it went in on.'
                         : 'Turning end over end mirrors the fall, so a run that comes in falling leaves climbing — a level run into it, or an angle connector after it, is what settles that.'}
-                    </p>
+                    </Note>
                     {/* Bending a channel out of the flat rolls it over as it
                         goes, which is a thing about bent channels rather than
                         about this part — but it is the marble that pays for it,
@@ -1017,13 +1018,13 @@ export default function Sidebar() {
                         worth saying: the trough facing the cage is the trough
                         whose wall was cut away where the post wants to weld. */}
                     {cage && (cage.inner || cage.outer) && cageFaces && (
-                      <p className="note">
+                      <Note>
                         This trough opens{' '}
                         {cageFaces === 'inner' ? 'into the middle' : 'away from the middle'}, so the{' '}
                         {cageFaces} cage has no wall to weld to — the posts stand clear of the
                         channel and each turn is tied to them underneath instead, below the bore
                         where nothing is in the marble's way.
-                      </p>
+                      </Note>
                     )}
                     {/* Rings are counted rather than set, so they are read off
                         here alongside the two figures that count them: how much
@@ -1058,7 +1059,7 @@ export default function Sidebar() {
                         </span>
                       </div>
                     </div>
-                    <p className="note">
+                    <Note>
                       {coilCounted ? (
                         <>
                           <b>The rings are counted.</b> One needs{' '}
@@ -1082,8 +1083,8 @@ export default function Sidebar() {
                           under Fall and this count follows it.
                         </>
                       )}
-                    </p>
-                    <p className="note">
+                    </Note>
+                    <Note>
                       Those {degLabel(Math.abs(coil.turns))} rings wind to the{' '}
                       {coil.turns < 0 ? 'left' : 'right'} over{' '}
                       {formatCoarse(corkscrewPlan(selected), s.units)} of coil measured in plan,
@@ -1093,7 +1094,7 @@ export default function Sidebar() {
                       coil holds it the whole way {coilClimbs ? 'up' : 'down'}, so a corkscrew hands
                       on exactly what it runs at, and the run either side has to meet it rather
                       than set it.
-                    </p>
+                    </Note>
                     {/* A coil only ever climbs because the run it sits in was
                         turned end for end at a joint. Worth saying plainly:
                         otherwise it reads as a part that has gone wrong. */}
@@ -1304,7 +1305,7 @@ export default function Sidebar() {
                         <span>Run length {UNIT_WORD[s.units]}</span>
                       </div>
                     </div>
-                    <p className="note">
+                    <Note>
                       {hasLead ? (
                         <>
                           <b>The marble is whirled.</b> The feed is a plain Ø
@@ -1329,8 +1330,8 @@ export default function Sidebar() {
                       )}{' '}
                       Either way it leaves down the lead-out, dead vertical: that is the only way
                       out of a funnel, so whatever is bonded under this one starts at 90°.
-                    </p>
-                    <p className="note">
+                    </Note>
+                    <Note>
                       <b>The bowl is level, and so is the feed.</b> A bowl only holds what is level,
                       and a pipe let in through the bowl's own side wall runs its bore out through
                       the rim the moment it is tipped. So the one fall this part runs at is none,
@@ -1341,7 +1342,7 @@ export default function Sidebar() {
                         : funnel.entry <= funnelLeast
                           ? `The feed is at its shortest here: ${formatLength(funnelLeast, s.units)} is what it takes for the pipe's end to stand clear of a Ø${lengthText(bowl.mouthR * 2, s.units)} bowl, and a shorter one would have its socket half swallowed by it.`
                           : `Anything past ${formatLength(funnelLeast, s.units)} of feed is track into the mouth, and yours.`}
-                    </p>
+                    </Note>
                     {whirls && funnelFeedRadius(funnel) < s.marbleDiameter && (
                       <p className="warn">
                         The marble runs Ø{formatLength(funnelFeedRadius(funnel) * 2, s.units)} round
@@ -1357,13 +1358,13 @@ export default function Sidebar() {
                         some of the depth out.
                       </p>
                     )}
-                    <p className="note">
+                    <Note>
                       The bowl itself is a bowl whatever the run is cut as — closed all the way
                       round, because an open one would let the marble out sideways at the first
                       turn. The feed tube is closed for the same reason and has no style to choose:
                       it is a hole through that wall, and a hole has no open side. Only the drain
                       carries one.
-                    </p>
+                    </Note>
                   </>
                 ) : slab ? (
                   <>
@@ -1402,7 +1403,7 @@ export default function Sidebar() {
                         </option>
                       ))}
                     </select>
-                    <p className="note">
+                    <Note>
                       {bed ? (
                         <>
                           <b>The plate is a {bed.name} bed, corner to corner.</b>{' '}
@@ -1424,7 +1425,7 @@ export default function Sidebar() {
                       )}{' '}
                       Whichever is picked is remembered: the next base out of the library arrives
                       on that bed.
-                    </p>
+                    </Note>
                     <NumberField
                       label="Width"
                       hint="side to side"
@@ -1482,7 +1483,7 @@ export default function Sidebar() {
                     >
                       Fit Under the Run
                     </button>
-                    <p className="note">
+                    <Note>
                       {footprint ? (
                         <>
                           Sizes the plate to everything on the stage that is not a base and slides
@@ -1498,21 +1499,21 @@ export default function Sidebar() {
                           part and the plate can be sized to what it covers.
                         </>
                       )}
-                    </p>
-                    <p className="note">
+                    </Note>
+                    <Note>
                       <b>A base is not part of the run.</b> Nothing plugs into it, the marble never
                       travels it, and it takes no part in any joint — it is the ground the run
                       stands on, which is why it has no bore, no style and no angles. Its underside
                       sits on the workplane and stays there: the move arrows slide it about and the
                       green ring turns it, and neither lifts it off the plane.
-                    </p>
+                    </Note>
                     {slab.radius >= Math.min(slab.width, slab.depth) / 2 - 1e-6 && (
-                      <p className="note">
+                      <Note>
                         Rounded as far as this plate will take —{' '}
                         {slab.width === slab.depth
                           ? 'a square rounded this far is a disc.'
                           : 'the two ends are half-round, which is as far as the short side goes.'}
-                      </p>
+                      </Note>
                     )}
                   </>
                 ) : post ? (
@@ -1570,24 +1571,24 @@ export default function Sidebar() {
                       {...SUPPORT_LIMITS.radius}
                       max={Math.min(SUPPORT_LIMITS.radius.max, post.width / 2)}
                     />
-                    <p className="note">
+                    <Note>
                       <b>A rod is not part of the run.</b> Nothing plugs into it and the marble
                       never travels it — it is a brace, and the whole of what it is is two ends and
                       a thickness. It knows nothing about what it is holding apart, which is what
                       lets one part be a post down to the plate, a tie between two turns of a coil,
                       and a spine run down the outside of one from top to bottom.
-                    </p>
-                    <p className="note">
+                    </Note>
+                    <Note>
                       <b>Where it goes is the Rod tool's business, not this panel's.</b> Take it up
                       and click the two points you want braced; the rod arrives pointing where it
                       was struck, and it is driven a whisker into both ends so it fuses with them
                       rather than merely touching. Slide it afterwards with Move and turn it with
                       the rings, like anything else.
-                    </p>
-                    <p className="note">
+                    </Note>
+                    <Note>
                       It prints lying on its side: a bar flat on the plate with no overhang
                       anywhere in it, whatever line it was struck along up in the air.
-                    </p>
+                    </Note>
                   </>
                 ) : (
                   <NumberField
@@ -1600,11 +1601,11 @@ export default function Sidebar() {
               </div>
             </div>
           ) : (
-            <p className="note">
+            <Note>
               {s.pieces.length
                 ? 'No part selected — pick one in Active Parts to edit its length.'
                 : 'No parts yet — pick one from Add Part in the top bar.'}
-            </p>
+            </Note>
           )}
         </div>
 
@@ -1622,12 +1623,12 @@ export default function Sidebar() {
             <span>Snap depth {UNIT_WORD[s.units]}</span>
           </div>
         </div>
-        <p className="note">
+        <Note>
           Every piece is generated with a female socket at its inlet and a barbed male spigot at
           its outlet, so pieces clip together and the bore stays continuous across the joint. Pick
           two ends of the same kind with the Connector and the run you picked first is turned end
           for end to meet the other — same parts, travelled the other way.
-        </p>
+        </Note>
       </CollapsiblePanel>
 
       {/* Every angle the draft sets by dragging a joint, typed in exactly —
@@ -1780,7 +1781,7 @@ export default function Sidebar() {
               Inlet joint
               <em>{upstream ? pieceLabel(upstream, selectedIndex - 1) : 'not joined'}</em>
             </span>
-            <p className="note">
+            <Note>
               {!upstream ? (
                 <>
                   Nothing is joined to this part's inlet, so it starts a run of its own — its start
@@ -1815,7 +1816,7 @@ export default function Sidebar() {
                   with no break in it at all.
                 </>
               )}
-            </p>
+            </Note>
             {/* What that break is cut as. Only a bonded part has one — a run's
                 head plugs into nothing — and it is the same setting the Rotate
                 tool carries in the toolbar, on the part rather than on the tool. */}
@@ -1848,14 +1849,14 @@ export default function Sidebar() {
                   onChange={(v) => s.setJointFillet(v, selected.id)}
                   {...PIECE_LIMITS.jointFillet}
                 />
-                <p className="note">
+                <Note>
                   {pivot > 0
                     ? `Rounded off at ${formatLength(pivot, s.units)}. The arc reaches ${formatLength(
                         mitreBite(breakAngleOf(handedOn, selected.turn, selected.slope), pivot),
                         s.units,
                       )} back down the lead, which is straight this part cannot also turn in — so a wider radius holds it to a shallower turn. Right now it may turn ±${degLabel(turnLimits.max)}°.`
                     : `Mitred, which is how a joint is cut unless it is asked not to be. Rounding it off spends lead on the arc, so this part could then turn less than the ±${degLabel(turnLimits.max)}° it can now.`}
-                </p>
+                </Note>
               </>
             )}
             <button
@@ -1877,11 +1878,11 @@ export default function Sidebar() {
             </button>
           </>
         ) : (
-          <p className="note">
+          <Note>
             {s.pieces.length
               ? 'No part selected — pick one in Active Parts to set its angles.'
               : 'No parts yet — pick one from Add Part in the top bar.'}
-          </p>
+          </Note>
         )}
       </CollapsiblePanel>
       )}

@@ -165,6 +165,16 @@ const HELP: Record<HelpTab, Group[]> = {
           note: 'a bonded part bends the run where it stands: it swings about the joint it is plugged into, everything ahead of it holds still, and everything past it comes along holding its shape. On a run’s head, which has nothing in front of it to hold, the green ring turns the whole run instead — and carries any set picked alongside it round that same point. a strip appears under the bar while it is in hand, carrying its own two settings: Step, the notch every swing is held to, and Joint pivot, whether the break it bends at is rounded off or left a mitred corner. The button asks how far the rings reach: Rotate Selected, which is all of the above, or Rotate All, which stands the rings on the head of the picked run and turns every run on the stage about it',
         },
         {
+          keys: ['Measure'],
+          action: 'Box what is picked and read its width, length and height off the box',
+          note: 'a mode, but one that takes no click of its own: the left button goes on picking parts while it is in hand, and the box follows the pick from part to part. Pick nothing and it takes the whole stage. The box is squared to the world — width is X, length Z, height Y — and measured to the outside of the tube rather than to its centreline, so it is the room the run actually needs. The three figures hang on the corner of the box turned toward you, and all three are written out together in the bar',
+        },
+        {
+          keys: ['Align'],
+          action: 'Line the picked parts up on one face — their own outermost, or the face of the part you picked last',
+          note: 'a mode that takes no click of its own, the way Measure is: the left button goes on picking parts, and the datum follows the pick. Its strip carries the nine faces — Left, Centre and Right across X, Bottom, Middle and Top up Y, Back, Centre and Front along Z — and, ahead of them, what they are measured against. Onto the set, and the picked parts close up on their own outermost face, none travelling further than it has to; onto the lead part, and it stays exactly where it is while every other picked part comes to it. Resting on any of the nine draws that face on the stage before you click it. What travels is runs, not parts, the same as the move arrows: each picked part slides the whole run it stands in, holding its shape, and two picked parts of the one run cannot send it two ways — the first picked wins. Faces are measured to the outside of the tube, so parts of different bores line up on the pipe rather than on the axis. A base only ever travels on the plan, since it is held on the workplane',
+        },
+        {
           keys: ['Place on Workplane'],
           action: 'Set the selected part’s run straight down until its lowest wall rests on the plane',
           note: 'one click rather than a mode — nothing else about the run moves, and a run left sunk below the plane is lifted onto it instead; also on a part’s right-click menu',

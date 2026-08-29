@@ -1648,6 +1648,28 @@ button.danger {
   font-size: 11px;
 }
 
+/* A segmented control whose choices are pictures rather than words. The buttons
+   are squared up and the padding is even all round, so three of them read as
+   three of a kind — a word-width button holding a glyph would sit it off-centre
+   in a box shaped for the word it replaced. */
+.segmented.icons button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3px 7px;
+  /* The glyph carries the meaning, so it is drawn at the strength the words
+     were rather than the softer grey a label sits at. */
+  color: var(--ink-dim);
+}
+
+.segmented.icons button:hover:not(:disabled) {
+  color: var(--ink);
+}
+
+.segmented.icons button:disabled {
+  opacity: 0.4;
+}
+
 /* Auto margin on both sides of the toggle and on .spec-strip splits the free
    space evenly, centring the toggle between the brand and the measurements. */
 .segmented.mode {
@@ -1749,6 +1771,72 @@ button.danger {
   margin: 0;
   font-size: 11px;
   color: var(--danger);
+}
+
+/* A note clipped to its first line, with the rest of it a hover away. The text
+   is all still in the page — the clipping is done in the paint, so a screen
+   reader is given the sentence entire. */
+.note-clip {
+  display: flex;
+  /* One line tall by construction, so the mark centres on it rather than
+     hunting for a baseline an icon does not have. */
+  align-items: center;
+  gap: 5px;
+}
+
+.note-line {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* Only ever drawn on a note that is actually longer than its line. */
+.note-more {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  padding: 0;
+  background: none;
+  border: 0;
+  border-radius: 50%;
+  color: var(--ink-faint);
+  opacity: 0.75;
+  cursor: help;
+  transition: color 0.12s, opacity 0.12s;
+}
+
+.note-more:hover:not(:disabled),
+.note-more.on,
+.note-clip:hover .note-more {
+  background: none;
+  color: var(--accent-text);
+  opacity: 1;
+}
+
+.note-more svg {
+  display: block;
+}
+
+/* The rest of the note, beside the column rather than in it: the card covers
+   the stage, so the controls the note is about stay in sight while it is read.
+   Placed in window pixels, because the column clips and scrolls its own
+   overflow and a card inside it would be cut off at the edge. */
+.note-pop {
+  position: fixed;
+  z-index: 60;
+  width: 268px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  box-shadow: 0 6px 18px rgba(15, 30, 45, 0.18);
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--ink-faint);
+  /* It sits where the pointer is heading, so it must never be under it. */
+  pointer-events: none;
 }
 
 /* ---------------- fold-open explanations ---------------- */
@@ -1915,9 +2003,11 @@ button.danger {
   gap: 6px;
 }
 
-/* The printer bed on a base. Full width of the panel: the entries are a name
-   and two figures, and truncating them leaves a list of half-printers. */
-.bed-select {
+/* The printer bed on a base, and the ball a run is cut for. Full width of the
+   panel: each entry is a name and its figures, and truncating them leaves a
+   list of half-printers. */
+.bed-select,
+.ball-select {
   width: 100%;
   min-width: 0;
   padding: 5px 6px;
@@ -2541,6 +2631,40 @@ button.danger {
   font-size: 11px;
   color: var(--ink-mute);
   white-space: nowrap;
+}
+
+/* A figure on the strip, where a setting would have its control: not something
+   to be set but something read back. Cut from the same cloth as the figures the
+   stage hangs on the box it measures — the same mono face, the same faint axis
+   letter ahead of the number — so the strip and the box read as one drawing. */
+.tool-figure {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.tool-figure i {
+  font-style: normal;
+  font-size: 10px;
+  color: var(--ink-faint);
+}
+
+/* The world axis a row of the Align strip works on, set after its three faces.
+   The same faint letter the measuring box carries ahead of its figures, and for
+   the same reason: Left and Back are both "sideways" until something says which
+   way, and nothing but the axis tells the two centres apart. */
+.tool-axis {
+  font-style: normal;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--ink-faint);
 }
 
 /* An aside on a setting — what it is about to act on. Last to be read and first
@@ -3458,11 +3582,14 @@ button.danger {
   --legend-w: 84px;
 }
 
-/* ---------------- move figures ----------------
-   The height over the workplane, and the travel of the drag in hand. Drawn in
-   the DOM over the canvas rather than in the scene, so the text stays crisp and
-   the right way round however the camera is swung. Annotation throughout: not
-   one part of it ever takes a press. */
+/* ---------------- dimension figures ----------------
+   The height over the workplane and the travel of the drag in hand, and the
+   three spans of the measuring box — one set of styles, because they are all one
+   kind of thing: a figure set into a dimension line, struck between two
+   extension lines squared off what is being measured. Drawn in the DOM over the
+   canvas rather than in the scene, so the text stays crisp and the right way
+   round however the camera is swung. Annotation throughout: not one part of it
+   ever takes a press. */
 .move-figures {
   position: absolute;
   inset: 0;

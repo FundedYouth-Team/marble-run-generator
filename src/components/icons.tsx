@@ -193,6 +193,118 @@ export function DropToPlaneIcon({ size = 17 }: { size?: number }) {
 }
 
 /**
+ * A box drawn in isometric with a dimension line struck under it — "how big is
+ * this?". The box is the cube the spans are read off, and the rule beneath it,
+ * squared off at both ends, is the drafting way of asking a length: the same
+ * figure the tool then draws on the stage, shrunk to a button.
+ */
+export function MeasureIcon({ size = 17 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+      {/* The six edges of the box that make its silhouette. */}
+      <path d="M12 2.2 20.4 6.6v7.2L12 18.2 3.6 13.8V6.6z" />
+      {/* The three that meet at the near corner, which is what makes it a solid. */}
+      <path d="M12 9.8 20.4 6.6M12 9.8 3.6 6.6M12 9.8v8.4" />
+      {/* The dimension line under it, squared off at both ends. */}
+      <path d="M3.6 21.4h16.8M3.6 19.8v3.2M20.4 19.8v3.2" />
+    </svg>
+  )
+}
+
+/**
+ * Three parts of different lengths brought flush against one line — "line these
+ * up on that".
+ *
+ * The datum is the upright, drawn full height so it reads as a line the parts
+ * have come onto rather than as the edge of the leftmost of them. The three bars
+ * are deliberately unequal: three of a length would be a stack of shelves, and
+ * it is the ragged far ends that say the alignment is on one face only.
+ */
+export function AlignIcon({ size = 17 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+      {/* The datum. */}
+      <path d="M3.6 2.4v19.2" />
+      {/* The three, flush on it and ragged off the other end. */}
+      <rect x="3.6" y="4.6" width="16.8" height="4" rx="1.2" fill="currentColor" fillOpacity="0.16" />
+      <rect x="3.6" y="10.6" width="9.2" height="4" rx="1.2" fill="currentColor" fillOpacity="0.16" />
+      <rect x="3.6" y="16.6" width="13.4" height="4" rx="1.2" fill="currentColor" fillOpacity="0.16" />
+    </svg>
+  )
+}
+
+/**
+ * One of the nine faces the Align tool offers, drawn rather than named: three
+ * parts of different sizes brought flush against a datum, with the datum where
+ * that face actually is.
+ *
+ * A picture says which face far faster than a word does — the whole point of the
+ * word "Left" is the picture of it — and nine words across three rows is a wall
+ * of text in a strip one line high. So the strip carries these instead, and the
+ * words survive on hover and for anything reading the page aloud.
+ *
+ * The three bars are deliberately unequal, in the same three lengths every time:
+ * three of a length would be a stack of shelves, and it is the ragged far ends
+ * that say the alignment is on one face only. `mid` has no datum edge to sit
+ * against, so its line runs through the middle of the bars instead — which is
+ * exactly what centring on a middle does.
+ *
+ * X and Z share the one form — bars lying across an upright datum — because they
+ * are the same operation on two axes, and a plan has no up in it to tell them
+ * apart by. What tells them apart is the axis letter beside the row, which is
+ * the same thing that tells the two centres apart. Y is the one axis nobody
+ * needs telling about, so it gets the form everyone already reads: bars standing
+ * on the ground.
+ */
+export function AlignFaceIcon({
+  axis,
+  edge,
+  size = 15,
+}: {
+  axis: 'x' | 'y' | 'z'
+  edge: 'min' | 'mid' | 'max'
+  size?: number
+}) {
+  // The three parts, and the room the glyph is drawn in.
+  const spans = [16.8, 9.2, 13.4]
+  const thick = 4
+  const lanes = [4.6, 10.6, 16.6]
+  const lo = 3.6
+  const hi = 20.4
+  const mid = 12
+  const upright = axis !== 'y'
+
+  const bars = spans.map((span, i) => {
+    // Where the bar starts on the axis being aligned: hard against the near
+    // datum, hard against the far one, or straddling the middle.
+    const at = edge === 'min' ? lo : edge === 'max' ? hi - span : mid - span / 2
+    return upright
+      ? { x: at, y: lanes[i], width: span, height: thick }
+      : // Up the page, where the world's Y runs the other way from the screen's:
+        // the bottom face is the far edge of the box, not the near one.
+        { x: lanes[i], y: edge === 'min' ? hi - span : edge === 'max' ? lo : mid - span / 2, width: thick, height: span }
+  })
+  // The datum itself, run the full width of the glyph so it reads as a line the
+  // parts have come onto rather than as the edge of the nearest of them. On a
+  // middle it runs through them, which is what centring on one looks like.
+  const near = edge === 'min' ? lo : edge === 'max' ? hi : mid
+  const datum = upright ? near : edge === 'min' ? hi : edge === 'max' ? lo : mid
+
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      {bars.map((b, i) => (
+        <rect key={i} x={b.x} y={b.y} width={b.width} height={b.height} rx="1.2" fill="currentColor" fillOpacity="0.16" />
+      ))}
+      {/* Last, so it is drawn over the parts rather than under them: on a middle
+          it is a centreline through them, and on the other six it is the face
+          they have been brought flush against. Either way it is the thing the
+          glyph is about, and must not be the thing half hidden behind a fill. */}
+      <path d={upright ? `M${datum} 2.4v19.2` : `M2.4 ${datum}h19.2`} />
+    </svg>
+  )
+}
+
+/**
  * A length of run with two posts standing under it — "prop this up".
  *
  * The tube is the line across the top and the posts are the two uprights, each

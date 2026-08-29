@@ -1,11 +1,14 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import HoverHint from './HoverHint'
 import UndoRedo from './UndoRedo'
 import {
+  AlignFaceIcon,
+  AlignIcon,
   ConnectIcon,
   DisconnectIcon,
   DropToPlaneIcon,
+  MeasureIcon,
   SupportIcon,
   DuplicateIcon,
   DuplicateJoinIcon,
@@ -15,11 +18,12 @@ import {
   TrashIcon,
 } from './icons'
 import { telemetry } from '../lib/telemetry'
-import { UNIT_LABEL, UNIT_WORD, coarseText, fromMm, stepFor, toMm } from '../lib/units'
+import { UNIT_LABEL, UNIT_WORD, coarseText, formatLength, fromMm, stepFor, toMm } from '../lib/units'
 import { MOD_LABEL, formatShortcut } from '../lib/shortcuts'
 import { exportPrintPlate } from '../lib/exporters'
-import type { Assembly } from '../lib/layout'
+import { partsBox, type Assembly } from '../lib/layout'
 import {
+  ALIGN_AXES,
   JOINT_FILLET_DEFAULT,
   PIECE_LIMITS,
   ROTATE_STEPS,
@@ -28,6 +32,7 @@ import {
   exportBasename,
   isChainRoot,
   pieceLabel,
+  pieceSpec,
   rotateStepLabel,
   useRun,
   type Tool,
@@ -79,13 +84,16 @@ export const TOOL_OPTIONS_HEIGHT = 38
  * Whether a tool brings a strip of its own settings with it — which is what says
  * how far down the stage starts.
  *
- * Only Rotate has any so far. A tool's settings go under the bar rather than in
- * it: the bar is already as wide as it can be, and a tool that pushed the
- * simulator or the export button off the end to make room for itself would be
- * taking away more than it added.
+ * Rotate has settings; Measure has a readout, which wants the same strip for the
+ * same reason — the hint line in the bar is two short lines wide and cuts off
+ * the third figure of three. Align has both at once: its nine faces are its only
+ * controls, and there is no room in the bar for nine of anything. A tool's own
+ * row goes under the bar rather than in it: the bar is already as wide as it can
+ * be, and a tool that pushed the simulator or the export button off the end to
+ * make room for itself would be taking away more than it added.
  */
 export function hasToolOptions(tool: Tool): boolean {
-  return tool === 'rotate'
+  return tool === 'rotate' || tool === 'measure' || tool === 'align'
 }
 
 /**
@@ -302,6 +310,10 @@ export default function Toolbar({ spec, asm }: { spec: TubeSpec; asm: Assembly }
     setRotateStep,
     jointFillet,
     setJointFillet,
+    alignTo,
+    setAlignTo,
+    setAlignHover,
+    alignParts,
   } = useRun()
   // Same name the Export panel would give it — the toolbar is just a shortcut.
   const basename = useRun(exportBasename)
@@ -333,6 +345,15 @@ export default function Toolbar({ spec, asm }: { spec: TubeSpec; asm: Assembly }
   // How many runs the handles have in hand: the runs the picked parts stand in,
   // counted once each however many of their parts were picked.
   const runsPicked = chains.filter((c) => c.some((i) => selectedIds.includes(pieces[i].id))).length
+  // What the Align tool has to work with. A face is only a datum once there is
+  // something else to bring onto it: one part is already lined up with itself,
+  // and one part aligned onto the part leading the set is that same part twice.
+  const alignable = selectedIds.length > 1
+  // The part the rest come to, where the datum is a part rather than the set —
+  // which is the one picked last, since that is the one that leads.
+  const anchor = alignTo === 'lead' ? lead : null
+  // How many actually travel: the set, less the one they are all coming to.
+  const alignMovers = selectedIds.length - (alignTo === 'lead' ? 1 : 0)
 
   // The part the Rotate tool's pivot setting is about: only a bonded one has an
   // inlet joint to round off, so a run's head is left out and the setting is
@@ -348,6 +369,26 @@ export default function Toolbar({ spec, asm }: { spec: TubeSpec; asm: Assembly }
   // is what its first swing will give it — see `aimPart`.
   const pivot = bonded?.jointFillet ?? jointFillet
   const setPivot = (mm: number) => setJointFillet(mm, bonded?.id)
+
+  /**
+   * The box the Measure tool is reading, so the bar can put its three spans in
+   * words beside the figures the stage draws on it — a number you can read off
+   * without hunting for which corner it is hanging on, and the one place the
+   * three are written out together.
+   *
+   * The same box the stage draws, worked out the same way: what is picked, or
+   * everything when nothing is. Only while the tool is in hand — there is
+   * nothing to say about a box nobody has asked for.
+   */
+  const measured = useMemo(
+    () =>
+      tool === 'measure'
+        ? partsBox(asm, selectedIds.length ? selectedIds : null, (piece) =>
+            pieceSpec(spec, piece).outerR,
+          )
+        : null,
+    [tool, asm, selectedIds, spec],
+  )
 
   /**
    * What the tool in hand is waiting for, said in the bar rather than in a
@@ -386,6 +427,26 @@ export default function Toolbar({ spec, asm }: { spec: TubeSpec; asm: Assembly }
       return runsPicked > 1
         ? `Drag the green ring to turn ${runsPicked} runs about ${lead}`
         : `Drag a ring to aim ${lead}, and its run with it`
+    }
+    // The figures themselves are on the strip under the bar, which has room for
+    // all three; the hint says what to do to change what they are about.
+    if (tool === 'measure') {
+      if (!measured) return 'Nothing on the stage to measure yet — add a part'
+      return lead
+        ? `${MOD_LABEL}-click to take another part in`
+        : 'Pick a part to box it instead of the stage'
+    }
+    // The nine faces are on the strip; the hint says what they will be measured
+    // against, which is the half of the tool the buttons cannot show.
+    if (tool === 'align') {
+      if (!alignable) {
+        return selectedIds.length
+          ? `${MOD_LABEL}-click a second part to line ${lead} up with`
+          : `Pick the parts to line up — ${MOD_LABEL}-click to take more in`
+      }
+      return anchor
+        ? `${alignMovers} ${alignMovers === 1 ? 'part comes' : 'parts come'} to ${anchor} — pick the reference part last`
+        : `${alignMovers} parts close up on their own outermost face`
     }
     if (tool === 'connect') {
       if (runs < 2) return 'A joint needs two separate runs'
@@ -485,6 +546,42 @@ export default function Toolbar({ spec, asm }: { spec: TubeSpec; asm: Assembly }
               onClick: () => pick('rotate', 'all'),
             },
           ]}
+        />
+        {/* A mode rather than a click, because what it measures is whatever you
+            pick next: the left button goes on picking parts while it is in hand,
+            and the box follows the pick from part to part. No reach menu, for
+            the same reason — it is the parts themselves it takes, not the runs
+            they stand in, so there is no second set for it to ask about. */}
+        <ToolButton
+          on={tool === 'measure'}
+          label="Measure"
+          icon={<MeasureIcon />}
+          disabled={!pieces.length}
+          title={
+            pieces.length
+              ? 'Box what you have picked and read its width, length and height off it — squared to the world, and measured to the outside of the tube. Pick nothing and it takes the whole stage; keep picking with it in hand and the box follows'
+              : 'Nothing to measure yet — add a part first'
+          }
+          onClick={() => pick('measure')}
+        />
+        {/* A mode for the same reason Measure is one, and it sits beside it
+            because it is the same box asked a second question: Measure reads the
+            box off what is picked, and this brings what is picked onto one face
+            of it. So the left button goes on picking here too — changing the
+            pick is how you say what is being lined up, and the nine faces are on
+            the strip rather than in the bar because nine of anything would fill
+            the bar on its own. */}
+        <ToolButton
+          on={tool === 'align'}
+          label="Align"
+          icon={<AlignIcon />}
+          disabled={pieces.length < 2}
+          title={
+            pieces.length < 2
+              ? 'Nothing to line up yet — alignment needs two parts'
+              : 'Line the picked parts up on one face — their own outermost, or the face of the part you picked last. Keep picking with it in hand and the datum follows'
+          }
+          onClick={() => pick('align')}
         />
         <ToolButton
           label="Place on Workplane"
@@ -689,6 +786,121 @@ export default function Toolbar({ spec, asm }: { spec: TubeSpec; asm: Assembly }
           the whole point: a tool that squeezed the simulator or the export
           button off the end to show its own controls would be taking away more
           than it gave. */}
+      {tool === 'measure' && (
+        <div className="toolbar-row options">
+          <span className="tool-options-tool">Measure</span>
+          {measured ? (
+            <>
+              {/* Named and lettered both, because nothing but the axis tells
+                  width and length apart — the same pair the figures on the
+                  stage carry, so the strip and the box read as one drawing. */}
+              {(
+                [
+                  ['Width', 'X', measured.max.x - measured.min.x],
+                  ['Length', 'Z', measured.max.z - measured.min.z],
+                  ['Height', 'Y', measured.max.y - measured.min.y],
+                ] as const
+              ).map(([name, axis, mm]) => (
+                <ToolOption key={name} name={name}>
+                  <b className="tool-figure">
+                    <i>{axis}</i>
+                    {formatLength(mm, units)}
+                  </b>
+                </ToolOption>
+              ))}
+              {/* What the box was drawn round, so a figure is never read as
+                  being about something it is not. */}
+              <span className="tool-option-note">
+                {!lead
+                  ? 'the whole stage — nothing picked'
+                  : selectedIds.length > 1
+                    ? `${selectedIds.length} parts picked`
+                    : `on ${lead}`}
+              </span>
+            </>
+          ) : (
+            <span className="tool-option-note">nothing on the stage to measure yet</span>
+          )}
+        </div>
+      )}
+
+      {tool === 'align' && (
+        <div className="toolbar-row options">
+          <span className="tool-options-tool">Align</span>
+
+          {/* Asked first, because it is what the nine faces are measured
+              against: the same button means two different places depending on
+              the answer, so the answer comes before the buttons rather than
+              after them. */}
+          <ToolOption name="Onto">
+            <div className="segmented small">
+              <button
+                className={alignTo === 'selection' ? 'on' : ''}
+                onClick={() => setAlignTo('selection')}
+                title="Line the picked parts up on their own outermost face — they close up on each other, and none travels further than it has to"
+              >
+                The set
+              </button>
+              <button
+                className={alignTo === 'lead' ? 'on' : ''}
+                onClick={() => setAlignTo('lead')}
+                title={`Bring every other picked part onto the face of the part leading the set — ${MOD_LABEL}-click the reference part last and it stays exactly where it is`}
+              >
+                {/* Named whichever datum is in force, so the button says what
+                    switching to it would do rather than only what it has
+                    already done. */}
+                {lead ?? 'Lead part'}
+              </button>
+            </div>
+          </ToolOption>
+
+          {/* Three rows of three, laid out the way the axes are: across, up,
+              along. Each is a click that does its thing — there is no state to
+              be left in, so nothing here is ever drawn as pressed.
+
+              Drawn rather than named. "Left" is a word for a picture, and nine
+              of those words across three rows is a wall of text on a strip one
+              line high — so each button is that picture instead, and the word
+              lives on in the hover and in the label anything reading the page
+              aloud will use. Resting on one also draws the face it means on the
+              stage, which is the whole answer rather than a glyph of it. */}
+          {ALIGN_AXES.map((row) => (
+            <ToolOption key={row.axis} name={row.name}>
+              <div className="segmented small icons">
+                {row.edges.map((e) => (
+                  <button
+                    key={e.edge}
+                    disabled={!alignable}
+                    aria-label={`${e.label} — ${row.name} ${row.letter}`}
+                    title={`${e.label} — ${e.hint} ${anchor ? `of ${anchor}` : 'of the picked set'}`}
+                    onMouseEnter={() => setAlignHover({ axis: row.axis, edge: e.edge })}
+                    onMouseLeave={() => setAlignHover(null)}
+                    onFocus={() => setAlignHover({ axis: row.axis, edge: e.edge })}
+                    onBlur={() => setAlignHover(null)}
+                    onClick={() => alignParts(row.axis, e.edge)}
+                  >
+                    <AlignFaceIcon axis={row.axis} edge={e.edge} />
+                  </button>
+                ))}
+              </div>
+              <i className="tool-axis">{row.letter}</i>
+            </ToolOption>
+          ))}
+
+          {/* What is about to move, so a click is never aimed at a set that is
+              not the one you think you have. */}
+          <span className="tool-option-note">
+            {!alignable
+              ? selectedIds.length
+                ? 'one part picked — pick another to line it up with'
+                : 'nothing picked yet'
+              : anchor
+                ? `${alignMovers} ${alignMovers === 1 ? 'part' : 'parts'} → ${anchor}`
+                : `${alignMovers} parts picked`}
+          </span>
+        </div>
+      )}
+
       {tool === 'rotate' && (
         <div className="toolbar-row options">
           <span className="tool-options-tool">

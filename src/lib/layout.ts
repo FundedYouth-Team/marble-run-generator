@@ -396,6 +396,31 @@ export function placedBox(p: PlacedPiece, outerR: number): THREE.Box3 {
 }
 
 /**
+ * The box a set of parts fills between them, mm — every one of them padded out
+ * to its own wall, and squared to the world.
+ *
+ * `ids` names the parts to take in; null means everything on the stage. An empty
+ * list, or a list naming nothing that is there, hands back null rather than the
+ * empty box at the origin, so "nothing to measure" and "a box of nothing" are
+ * never confused for one another.
+ *
+ * `radiusOf` hands back the outer radius each part is cut to, which is not the
+ * run's if that part has been sized on its own — see {@link placedBox}.
+ */
+export function partsBox(
+  asm: Assembly,
+  ids: string[] | null,
+  radiusOf: (piece: Piece) => number,
+): THREE.Box3 | null {
+  const box = new THREE.Box3()
+  for (const p of asm.placed) {
+    if (ids && !ids.includes(p.piece.id)) continue
+    box.union(placedBox(p, radiusOf(p.piece)))
+  }
+  return box.isEmpty() ? null : box
+}
+
+/**
  * A turn sharper than this is a corner rather than a curve, and the marble is
  * taken to hit it rather than be swung round it. Two chords meeting at more than
  * this are the mitre at a joint or the break in a connector — places the run
