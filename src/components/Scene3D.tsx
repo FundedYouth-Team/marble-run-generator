@@ -1965,7 +1965,7 @@ function Land({ color, y }: { color: string; y: number }) {
 }
 
 export default function Scene3D() {
-  const { pieces, innerDiameter, wallThickness, variant, openSide, selectedId, selectedIds, select, pickPart, theme, pieceColor, shading, rightPanel, simStarted, tool, overlays, workplane, pendingSpot, strikeRod, dropSpot, alignTo, alignHover } =
+  const { pieces, innerDiameter, wallThickness, variant, openSide, selectedId, selectedIds, select, pickPart, theme, pieceColor, shading, rightPanel, simStarted, tool, overlays, workplane, pendingSpot, strikeRod, dropSpot, alignTo, alignHover, homeToken } =
     useRun()
   // Either slide-out takes the same gutter, so the corner controls step aside for both.
   const docked = rightPanel !== null
@@ -2131,6 +2131,17 @@ export default function Scene3D() {
     // Always the whole stage — adding a piece must not crop the view to the selection.
     setGoal((g) => ({ token: g.token + 1, dir: null, frame: true, box: null, pad: FIT_PAD }))
   }, [pieces.length, joints])
+
+  // A different run asks for a different look at it: starting a new project
+  // presses Home for you. This sits after the framing above deliberately — a
+  // new project changes the piece count too, and of the two goals queued in
+  // that one commit the last one written is the one the rig flies to.
+  const homed = useRef(homeToken)
+  useEffect(() => {
+    if (homed.current === homeToken) return
+    homed.current = homeToken
+    home()
+  }, [homeToken])
 
   // The workplane is a datum, not a floor: it stays on the world's y = 0 plane
   // whatever the parts do. Hung off the model's own bounds it travelled with a

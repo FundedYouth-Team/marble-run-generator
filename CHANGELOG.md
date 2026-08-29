@@ -21,6 +21,29 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- **Rods are called Supports, and the button is drawn as one.** The name said
+  what the part is — a rod — rather than what pressing it does, which is hold the
+  run up; the tool's own menu and every line of help about it already talked
+  about bracing and propping. The toolbar button now reads "Supports", and the
+  places that named it by button — the shortcuts table, the two how-do-I answers
+  in help, and the rod part's write-up in the library — say Supports too. The
+  glyph was a length of tube on two cradled posts standing on a rule, which at
+  toolbar size was four thin verticals and a lot of small detail. It is now the
+  three things the button is about, stacked in the order they bear on each other:
+  a marble resting on the run, the run straight across the full width, and one
+  upright carrying it down. The marble sits left of the post rather than
+  directly over it, so it reads as a ball somewhere on its way down rather than
+  as a weight balanced on a column. Nothing about what the tool builds or how it
+  is struck has changed.
+
+- **A new project is looked at from the front.** Confirming New cleared the
+  stage but left the camera wherever the last run had been swung to, so a fresh
+  single part arrived seen from underneath, or edge-on, or from behind. Starting
+  a new project now presses Home for you: back to the standing angle with the
+  whole workplane in frame. Nothing else about the view is touched — the panels,
+  the theme and the screen calibration stay as they were — and Open is
+  deliberately left alone, since a saved run is framed from where you are.
+
 - **The rail says what it is.** The column of switches started straight in on
   its icons, so what the five of them have in common was something to work out
   from the menus they open. "Params" now stands at the top of the column, in the

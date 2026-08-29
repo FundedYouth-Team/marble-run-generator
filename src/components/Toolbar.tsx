@@ -574,7 +574,7 @@ export default function Toolbar({ spec, asm }: { spec: TubeSpec; asm: Assembly }
             finds that line. */}
         <ToolMenuButton
           on={tool === 'support'}
-          label="Rods"
+          label="Supports"
           icon={<SupportIcon />}
           disabled={!anyRun}
           title={

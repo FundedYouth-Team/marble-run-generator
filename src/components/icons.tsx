@@ -305,25 +305,29 @@ export function AlignFaceIcon({
 }
 
 /**
- * A length of run with two posts standing under it — "prop this up".
+ * A marble riding a length of run, with one upright holding the run up — the
+ * three things this button is about, stacked in the order they bear on each
+ * other: the ball is what the run carries, the run is what the support carries,
+ * and the support is the only one of them that touches the ground.
  *
- * The tube is the line across the top and the posts are the two uprights, each
- * meeting it in a little cradle. The plate they land on is the rule underneath,
- * which is what makes it read as standing on something rather than as a bracket
- * floating in space.
+ * The ball is drawn resting on the line rather than crossing it, so it reads as
+ * weight the run is carrying. It sits left of the post rather than over it: the
+ * two apart put the marble somewhere on its way down the run, and keep the ball
+ * and the upright from reading as one vertical column at toolbar size.
  */
 export function SupportIcon({ size = 17 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
-      {/* The run, falling gently the way a run does. */}
-      <path d="M2.6 6.4h18.8" />
-      {/* Two posts, each cupping the tube where it meets it. */}
-      <path d="M6 19.4v-9a2.4 2.4 0 0 1 2.4-2.4" />
-      <path d="M6 8h2.4" />
-      <path d="M16.6 19.4v-9a2.4 2.4 0 0 0-2.4-2.4" />
-      <path d="M16.6 8h-2.4" />
-      {/* The ground they stand on. */}
-      <path d="M3 19.4h17" />
+      {/* The marble, sitting on the run — outer edge tangent to the line's, so
+          it rests on it instead of sinking through it. Faintly filled, because
+          it is the one solid thing in the glyph. Set left of the post rather
+          than on top of it: a ball stacked dead centre reads as a diagram of a
+          load, and one off to the side reads as a marble that is rolling. */}
+      <circle cx="8.3" cy="6.6" r="3.1" fill="currentColor" fillOpacity="0.16" />
+      {/* The run it rides on, straight across the full width. */}
+      <path d="M3 11.6h18" />
+      {/* The support, standing under the load and carrying it down. */}
+      <path d="M12 11.6v9.6" />
     </svg>
   )
 }

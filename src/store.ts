@@ -4100,6 +4100,14 @@ interface RunState {
    */
   bounce: number
   resetToken: number
+  /**
+   * Bumped when the stage should be looked at afresh — starting a new project,
+   * for one. The camera lives inside the scene and is nobody else's to move, so
+   * what the rest of the app can say is only "this is a different run now"; the
+   * stage answers it by standing back at the home angle, exactly as the Home
+   * button does.
+   */
+  homeToken: number
   exportFormat: ExportFormat
 
   /** CSS px per real millimetre on this display — powers the 1:1 draft zoom. */
@@ -4617,6 +4625,7 @@ export const useRun = create<RunState>((set, get) => {
     friction: 0.06,
     bounce: 0.25,
     resetToken: 0,
+    homeToken: 0,
     exportFormat: '3mf',
 
     ...(() => {
@@ -4662,6 +4671,9 @@ export const useRun = create<RunState>((set, get) => {
           running: false,
           simStarted: false,
           resetToken: s.resetToken + 1,
+          // A fresh sheet is looked at from the front, whatever angle the last
+          // run was left standing at.
+          homeToken: s.homeToken + 1,
           history: [{ id: ++entrySeq, label: 'New project', at: Date.now(), snap }],
           historyIndex: 0,
         }

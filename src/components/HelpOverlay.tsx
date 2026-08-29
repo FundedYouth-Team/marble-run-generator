@@ -196,7 +196,7 @@ function helpFor(keys: ShortcutMap): Record<HelpTab, Group[]> {
             note: 'one click rather than a mode — nothing else about the run moves, and a run left sunk below the plane is lifted onto it instead; also on a part’s right-click menu',
           },
           {
-            keys: ['⌶ Rods'],
+            keys: ['⌶ Supports'],
             action: 'Click two points and strike a rod between them',
             note: 'a mode, like the two joint tools: while it is in hand the left button marks a point in space rather than picking a part. The first click is only remembered — nothing is built and nothing reaches the timeline until the second says what the rod is between — and the stage draws it from one to the other as you move. Escape lets go of a half-struck rod; the button’s menu holds Brace Every Run, which paces out the whole stage in one step',
           },
@@ -417,7 +417,7 @@ const HOWTO: Partial<Record<HelpTab, HowTo[]>> = {
       question: 'My tubes are floating in mid-air — how do I hold them up?',
       lead: 'With rods. A rod is a plain bar struck between two points you click — that is the whole of it, two ends and a thickness. Every run on this stage hangs in the air, and a printed tube hanging in the air falls on the floor, so this is what turns a run on screen into a run that can be built.',
       steps: [
-        'Take up ⌶ Rods on the toolbar, click a spot on the run, then click what you want it braced against — the plate, a plinth, another turn of the run, or a rod already struck.',
+        'Take up ⌶ Supports on the toolbar, click a spot on the run, then click what you want it braced against — the plate, a plinth, another turn of the run, or a rod already struck.',
         'The pointer glows green while the tool is in hand. The first click drops a green mark where it landed and nothing else; the rod itself appears when the second click lands. Escape lets go of a half-struck one.',
         'Or open the same button’s menu and pick one of the four braces, which do the whole stage in one step — Under the Run, Over it, or Outside or Inside the bend.',
       ],
@@ -430,7 +430,7 @@ const HOWTO: Partial<Record<HelpTab, HowTo[]>> = {
         'Pick the coil and set Support: Inside, Outside, Both or None. Braced up its hollow middle, the outside stays clear to watch the marble go down; braced outside, the middle stays clear to look down through. Both is what a tall coil in thin tube wants.',
         'Set the Bar to say how thick the hoops and posts are. Every bar stands flush with the channel — its face sits on the bore rather than in it — so a fatter one is stiffer without ever being in the marble’s way.',
         'A coil too tight to hold a cage inside it says so, and wants either a wider coil, a thinner bar, or the outside instead.',
-        'Anything the cage does not cover is a job for ⌶ Rods, which go wherever you click: a leg out to a plinth, a tie to the run alongside, a spine down the outside of a coil already caged inside.',
+        'Anything the cage does not cover is a job for ⌶ Supports, which go wherever you click: a leg out to a plinth, a tie to the run alongside, a spine down the outside of a coil already caged inside.',
       ],
       note: 'The hoops sit flush with the top and the bottom of the part, so the bottom one lands on whatever the coil is standing on — and on a bar thicker than the tube’s wall it stands a whisker proud of the tube, because a hoop hung any lower would reach down into the stub’s bore.',
     },
