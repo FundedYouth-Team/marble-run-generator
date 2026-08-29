@@ -7,6 +7,7 @@ import {
   MOD_LABEL,
   SHORTCUT_ACTIONS,
   SHORTCUT_HINT,
+  SHORTCUT_GROUPS,
   SHORTCUT_LABEL,
   captureShortcut,
   formatShortcut,
@@ -80,44 +81,50 @@ export default function ShortcutsPanel() {
           : "Click a row's keys, then press the combination you want it to answer to."}
       </p>
 
-      <div className="shortcut-list">
-        {SHORTCUT_ACTIONS.map((action) => {
-          const live = recording === action
-          return (
-            <div key={action} className="shortcut-row">
-              <span className="shortcut-name">
-                {SHORTCUT_LABEL[action]}
-                <em>{SHORTCUT_HINT[action]}</em>
-              </span>
-              <button
-                className={live ? 'shortcut-keys recording' : 'shortcut-keys'}
-                aria-label={`${SHORTCUT_LABEL[action]} shortcut: ${formatShortcut(shortcuts[action])}. Click to change`}
-                title={
-                  live
-                    ? 'Press the keys you want — Esc to leave it as it was'
-                    : `Change the ${SHORTCUT_LABEL[action].toLowerCase()} shortcut`
-                }
-                onClick={() => {
-                  setNote(null)
-                  setProblem(null)
-                  setRecording(live ? null : action)
-                }}
-              >
-                {live ? (
-                  <span className="shortcut-waiting">Press keys…</span>
-                ) : (
-                  shortcutParts(shortcuts[action]).map((part, i) => (
-                    <span key={`${part}-${i}`}>
-                      {i > 0 && <span className="shortcut-plus">+</span>}
-                      <kbd>{part}</kbd>
-                    </span>
-                  ))
-                )}
-              </button>
-            </div>
-          )
-        })}
-      </div>
+      {/* Grouped, because thirteen rows in one column is a wall: the heading
+          says which kind of command the rows under it are, which is also what
+          says why some of them carry a modifier and some do not. */}
+      {SHORTCUT_GROUPS.map((group) => (
+        <div key={group.title} className="shortcut-list">
+          <h4 className="shortcut-group-name">{group.title}</h4>
+          {group.actions.map((action) => {
+            const live = recording === action
+            return (
+              <div key={action} className="shortcut-row">
+                <span className="shortcut-name">
+                  {SHORTCUT_LABEL[action]}
+                  <em>{SHORTCUT_HINT[action]}</em>
+                </span>
+                <button
+                  className={live ? 'shortcut-keys recording' : 'shortcut-keys'}
+                  aria-label={`${SHORTCUT_LABEL[action]} shortcut: ${formatShortcut(shortcuts[action])}. Click to change`}
+                  title={
+                    live
+                      ? 'Press the keys you want — Esc to leave it as it was'
+                      : `Change the ${SHORTCUT_LABEL[action].toLowerCase()} shortcut`
+                  }
+                  onClick={() => {
+                    setNote(null)
+                    setProblem(null)
+                    setRecording(live ? null : action)
+                  }}
+                >
+                  {live ? (
+                    <span className="shortcut-waiting">Press keys…</span>
+                  ) : (
+                    shortcutParts(shortcuts[action]).map((part, i) => (
+                      <span key={`${part}-${i}`}>
+                        {i > 0 && <span className="shortcut-plus">+</span>}
+                        <kbd>{part}</kbd>
+                      </span>
+                    ))
+                  )}
+                </button>
+              </div>
+            )
+          })}
+        </div>
+      ))}
 
       {problem && <p className="warn">{problem}</p>}
       {note && !recording && <p className="note">{note}</p>}
@@ -131,6 +138,21 @@ export default function ShortcutsPanel() {
         they are written into the project file when you press Save — so opening
         that file on another machine brings the keys with it. Opening an older
         file, saved before shortcuts could be changed, leaves yours alone.
+      </InfoNote>
+      <InfoNote label="Why do the tools get a key on its own?">
+        Because taking up a tool changes nothing, and the wrong one is put down
+        by taking up another — where the commands above it change the run, and a
+        key knocked by accident there can cost an hour's work. So
+        the tools start on bare letters and everything else starts behind{' '}
+        {MOD_LABEL}. That is where they start, not a rule: any row here takes any
+        key you press, with or without {MOD_LABEL}, {IS_MAC ? '⌥' : 'Alt'} or
+        Shift. Esc, Tab and Enter are the app's own and cannot be taken.
+      </InfoNote>
+      <InfoNote label="Where do the tool keys work?">
+        The five tools answer on the 3D stage, which is where the tools are —
+        pressed in the 2D draft they do nothing, and a key does nothing while its
+        tool is greyed out. The part library opens from either workspace, and its
+        key closes it again. None of them fire while you are typing in a field.
       </InfoNote>
       <InfoNote label={`Why does it say ${MOD_LABEL}?`}>
         {IS_MAC

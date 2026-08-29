@@ -19,7 +19,7 @@ import {
 } from './icons'
 import { telemetry } from '../lib/telemetry'
 import { UNIT_LABEL, UNIT_WORD, coarseText, formatLength, fromMm, stepFor, toMm } from '../lib/units'
-import { MOD_LABEL, formatShortcut } from '../lib/shortcuts'
+import { MOD_LABEL, TOOL_ACTION, formatShortcut } from '../lib/shortcuts'
 import { exportPrintPlate } from '../lib/exporters'
 import { partsBox, type Assembly } from '../lib/layout'
 import {
@@ -111,6 +111,7 @@ function ToolButton({
   label,
   icon,
   title,
+  keyCap,
   disabled,
   onClick,
 }: {
@@ -122,13 +123,30 @@ function ToolButton({
   icon: ReactNode
   /** The longer line under the name, saying what the tool does. */
   title: string
+  /** The bare key that takes this tool up, for a tool that has one. */
+  keyCap?: string
   disabled?: boolean
   onClick: () => void
 }) {
   return (
     // The picture the click was aimed at is gone the moment it lands; a hint
     // still hanging under it would be about a tool that is no longer in hand.
-    <HoverHint label={label} hint={title} hideOnClick>
+    <HoverHint
+      label={label}
+      hint={
+        // Said on the hint rather than on the button, which has room for the
+        // picture and nothing else — and left unsaid while the tool is greyed
+        // out, when the key does nothing either.
+        keyCap && !disabled ? (
+          <>
+            {title} — or press <kbd>{keyCap}</kbd>
+          </>
+        ) : (
+          title
+        )
+      }
+      hideOnClick
+    >
       <button
         className={['tool-btn', on ? 'on' : '', danger ? 'danger' : ''].filter(Boolean).join(' ')}
         aria-pressed={on}
@@ -290,6 +308,7 @@ export default function Toolbar({ spec, asm }: { spec: TubeSpec; asm: Assembly }
     tool,
     setTool,
     pendingPort,
+    pendingSpot,
     pieces,
     selectedId,
     selectedIds,
@@ -438,12 +457,13 @@ export default function Toolbar({ spec, asm }: { spec: TubeSpec; asm: Assembly }
       return joined ? 'Click a joint to break it open' : 'Nothing is joined yet'
     }
     if (tool === 'support') {
-      // The ghost is the whole feedback loop, so the bar says to read it: a spot
-      // that will not take a post shows nothing and takes no click either, and
-      // without being told that, a click that does nothing reads as a fault.
-      return anyRun
-        ? 'Click a spot on the run to stand a post under it — no ghost, no room'
-        : 'Nothing to prop yet — add a part first'
+      // Two clicks, and the bar counts them off: nothing is drawn between them,
+      // so which half of the gesture you are in is a thing the bar has to say
+      // rather than something the stage shows.
+      if (!anyRun) return 'Nothing to prop yet — add a part first'
+      return pendingSpot
+        ? 'Now click the other end and the rod is struck — Escape lets go of it'
+        : 'Click one end of the rod'
     }
     // Once a set is in hand the bar says so, since the two buttons that take the
     // whole set are the only place that shows.
@@ -470,6 +490,7 @@ export default function Toolbar({ spec, asm }: { spec: TubeSpec; asm: Assembly }
           label="Select"
           icon={<SelectIcon />}
           title="Pick parts with the left button — the resting state"
+          keyCap={formatShortcut(shortcuts[TOOL_ACTION.select])}
           onClick={() => setTool('select')}
         />
         {/* Both handles take hold of what is picked and of nothing else, so each
@@ -488,6 +509,7 @@ export default function Toolbar({ spec, asm }: { spec: TubeSpec; asm: Assembly }
               ? 'Nothing to move yet — add a part first'
               : "Move the picked part's run about the workplane on the three axis arrows, which stand in the middle of what is picked — pick parts in several runs and they all travel together, by the one distance, so the model keeps its shape"
           }
+          keyCap={formatShortcut(shortcuts[TOOL_ACTION.move])}
           onClick={() => pick('move')}
         />
         <ToolButton
@@ -500,6 +522,7 @@ export default function Toolbar({ spec, asm }: { spec: TubeSpec; asm: Assembly }
               ? 'Nothing to aim yet — add a part first'
               : "Aim the picked part on three rings, standing in the middle of what is picked, on the same axes the move arrows travel on. A bonded part bends the run where it stands: everything ahead of it holds still and everything past it swings with it. A run's head has nothing in front of it, so its green ring turns the whole run — about that middle, carrying any other run picked alongside it round the same point. Its own settings appear on a strip under the bar while it is in hand"
           }
+          keyCap={formatShortcut(shortcuts[TOOL_ACTION.rotate])}
           onClick={() => pick('rotate')}
         />
         {/* A mode rather than a click, because what it measures is whatever you
@@ -538,6 +561,7 @@ export default function Toolbar({ spec, asm }: { spec: TubeSpec; asm: Assembly }
               ? 'Nothing to line up yet — alignment needs two parts'
               : 'Line the picked parts up on one face — their own outermost, or the face of the part you picked last. Keep picking with it in hand and the datum follows'
           }
+          keyCap={formatShortcut(shortcuts[TOOL_ACTION.align])}
           onClick={() => pick('align')}
         />
         <ToolButton
@@ -573,7 +597,7 @@ export default function Toolbar({ spec, asm }: { spec: TubeSpec; asm: Assembly }
               label: 'Strike a Rod',
               icon: <SupportIcon size={14} />,
               title:
-                'Click the two points you want braced and a rod is struck between them. The stage draws it from the first click to wherever the pointer is, so you see it before you commit; Escape lets go of a half-struck one',
+                'Click the two points you want braced and a rod is struck between them. The first click drops a green mark and nothing more; the rod appears when the second one lands. Escape lets go of a half-struck one',
               on: tool === 'support',
               onClick: () => pick('support'),
             },
@@ -670,6 +694,7 @@ export default function Toolbar({ spec, asm }: { spec: TubeSpec; asm: Assembly }
               ? 'Nothing to join yet — a joint needs two parts that are not already in the same run'
               : 'Join two parts: click the end you want to move, then the end it travels to'
           }
+          keyCap={formatShortcut(shortcuts[TOOL_ACTION.connect])}
           onClick={() => pick('connect')}
         />
         <ToolButton

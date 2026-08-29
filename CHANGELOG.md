@@ -11,8 +11,64 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **Every key the app answers to is now in Settings → Shortcut Keys, and every
+  one of them can be re-bound.** The list held four commands; it holds ten, under
+  two headings — The run, and Tools and windows — so the panel is a full account
+  of the keyboard rather than a corner of it.
+- **Five tools answer to a bare key: S Select, M Move, R Rotate, J the
+  Connector and L Align.** Every tool had to be reached for with the pointer,
+  which meant leaving the run you were working on to travel to the bar and back
+  for a switch you make dozens of times an hour. They are pressed on the 3D
+  stage, where the tools are, and are ignored while you are typing in a field. J
+  is for the join the Connector makes rather than for its name in the bar, which
+  leaves C free.
+- **P opens the part library, and closes it again.** The window every run is
+  built out of was reachable only by travelling to the ＋ Add Part button in the
+  top bar. P now opens it on the full shelf from either workspace — the 2D draft
+  as well as the 3D stage, since the button sits in the top bar in both — and a
+  second press puts it away, as Esc already did. It is ignored while you are
+  typing, so the search field inside can still have a P in it.
+- **Save, Open and New stay buttons, with no key of their own.** They were
+  briefly bound to ⌘S, ⌘O and ⌘N — the keys every other app uses them on — and
+  those are exactly the keys the browser has already spoken for: saving the
+  page, opening a file into the tab, and opening a new window, which the page is
+  not always even offered. Taking them leaves the app fighting the thing it runs
+  inside, so the three sit in the top bar and nowhere else, and the list in
+  Settings does not carry a row it cannot honour.
+- **A key does nothing while its tool is greyed out** — the same test the
+  buttons use, so M and R wait for a part to exist, L for two parts to line up
+  and J for two runs to join. Select always answers, and is the way back out of
+  any of the others. The press is swallowed either way, so half of it never
+  reaches the page.
+- **The key caps printed around the app are read off the bindings**, so
+  re-binding one changes what every hint says: each tool's hover hint ends with
+  the key that takes it up, ＋ Add Part carries P in its own tooltip, and the
+  help sheet lists them beside the names.
+
 ### Changed
 
+- **A binding no longer has to carry a modifier.** The panel used to refuse a
+  bare letter — "Add ⌘, ⌥ or Shift" — on the grounds that a key on its own
+  would fire as you work. Nothing fires while you are typing, so what that rule
+  actually guarded was the commands that change the run, and those still ship
+  behind a modifier for exactly that reason. It is where they start rather than
+  a rule now: any row takes any key you press. Esc, Tab and Enter stay the
+  app's own.
+- **Strike a Rod draws nothing between the two clicks, and the pointer glows
+  green while it is in hand.** The stage used to draw a live rod from the first
+  click to wherever the pointer was, which on a curved run read as a bar
+  wandering about the stage on its own rather than as a preview of anything, and
+  left you unsure whether a rod had already been struck. The gesture is bare
+  now: the first click drops its green mark and stops there, and the rod that
+  appears on the second click is the real part rather than a drawing of one. The
+  pointer carries a green ring with a glow around it in the mark's own green, so
+  the tool is legible from the cursor rather than from the toolbar, and the
+  status bar counts the two clicks off — "Click one end of the rod", then "Now
+  click the other end" — since with nothing drawn between them the bar is the
+  only thing that says which half you are in. Escape still lets go of a
+  half-struck rod, and the four whole-stage braces are untouched.
 - **The Move arrows and the Rotate rings stand in the middle of what you have
   picked, across it and up it both.** Both handles sat on the inlet of the part
   leading the selection — a part's own zero, which on a long bend or a tall coil

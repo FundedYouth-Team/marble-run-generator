@@ -49,9 +49,7 @@ import {
   colorOf,
   pieceSpec,
   isStructure,
-  isSupport,
   placementOf,
-  rodBetween,
   samePort,
   type Piece,
   type Placement,
@@ -1313,51 +1311,33 @@ function SpotMark({ at }: { at: { x: number; y: number; z: number } }) {
   )
 }
 
-/** How solid the ghost post under the pointer is drawn, 0–1. */
-const GHOST_OPACITY = 0.55
-
 /**
- * The post that would be stood where the pointer is, drawn where it would
- * stand — the whole of what the Support tool shows before you commit to it.
+ * The pointer while the Rod tool is in hand: a green ring with a soft glow
+ * around it, in the green of the marks it drops.
  *
- * It is the real solid, built from the real numbers, and not a marker standing
- * in for one: the thing worth seeing before you click is whether the cradle
- * actually reaches the pipe, whether the post is a post or a wafer, and — on a
- * stacked run — which level it has decided to stand on. A box or a crosshair
- * would answer none of those.
+ * The tool aims at a point in space rather than at a part, and a bare crosshair
+ * said only "aiming", not "aiming with this". Carrying the mark's own colour on
+ * the pointer says which gesture is in hand without a glance back at the
+ * toolbar, and the glow is what makes that colour readable over a pale
+ * workplane and a dark tube alike.
  *
- * Unpickable, so it never eats the click it is previewing, and drawn without
- * writing depth so the run stays visible through it.
+ * Built once as a data URI — a cursor image cannot be animated or restyled, so
+ * there is nothing here that wants to be recomputed.
  */
-function SupportGhost({ spec, piece, color }: { spec: TubeSpec; piece: Piece; color: string }) {
-  const shape = shapeKey(piece, spec)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const geom = useMemo(() => buildPartGeometry(spec, piece), [spec, shape])
-  useEffect(() => () => geom.dispose(), [geom])
-  const at = placementOf(piece)
-  const quaternion = useMemo(
-    () => frameFor(THREE.MathUtils.degToRad(at.yaw + piece.turn), 0),
-    [at.yaw, piece.turn],
-  )
-
-  return (
-    <mesh
-      geometry={geom}
-      position={[at.x, at.y, at.z]}
-      quaternion={quaternion}
-      raycast={() => null}
-    >
-      <meshStandardMaterial
-        color={color}
-        transparent
-        opacity={GHOST_OPACITY}
-        depthWrite={false}
-        roughness={0.4}
-        side={THREE.DoubleSide}
-      />
-    </mesh>
-  )
-}
+const ROD_CURSOR = (() => {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32">
+<defs><radialGradient id="glow">
+<stop offset="30%" stop-color="#3fbf9f" stop-opacity=".55"/>
+<stop offset="70%" stop-color="#3fbf9f" stop-opacity=".18"/>
+<stop offset="100%" stop-color="#3fbf9f" stop-opacity="0"/>
+</radialGradient></defs>
+<circle cx="16" cy="16" r="15" fill="url(#glow)"/>
+<circle cx="16" cy="16" r="6.5" fill="none" stroke="#0b3a30" stroke-opacity=".5" stroke-width="3"/>
+<circle cx="16" cy="16" r="6.5" fill="none" stroke="#3fbf9f" stroke-width="1.6"/>
+<circle cx="16" cy="16" r="1.8" fill="#3fbf9f"/>
+</svg>`
+  return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`
+})()
 
 /**
  * Which way is X, Y and Z. It sits in a corner rather than out in the run, and
@@ -1958,36 +1938,21 @@ export default function Scene3D() {
 
   /**
    * Where the pointer last was on the run, world — only tracked while the
-   * Support tool is in hand, and dropped the moment it is put down so the ghost
-   * cannot be left hanging about the stage.
+   * Support tool is in hand, since that is the only thing a click of it can be
+   * about, and dropped the moment it is put down.
    */
   const [propAt, setPropAt] = useState<THREE.Vector3 | null>(null)
   useEffect(() => {
     if (!propping) setPropAt(null)
   }, [propping])
-  // A crosshair while the tool is in hand, because the left button is aiming at
-  // a spot rather than at a thing — and put back the moment it is put down, or
-  // the stage is left wearing it.
+  // The glowing green ring while the tool is in hand, because the left button is
+  // aiming at a spot rather than at a thing — and put back the moment it is put
+  // down, or the stage is left wearing it.
   useEffect(() => {
     if (!propping) return
-    document.body.style.cursor = 'crosshair'
+    document.body.style.cursor = `url("${ROD_CURSOR}") 16 16, crosshair`
     return () => void (document.body.style.cursor = '')
   }, [propping])
-  /**
-   * The rod the pointer is asking for, once the first of the two clicks has
-   * landed — from where that one struck to wherever the pointer is now.
-   *
-   * Null before the first click and null where the two are all but on top of
-   * each other, which is exactly what the stage should be showing: nothing drawn
-   * means nothing would be built.
-   */
-  const ghost = useMemo(
-    () =>
-      pendingSpot && propAt
-        ? rodBetween(pendingSpot, propAt, [...pieces].reverse().find(isSupport) ?? null)
-        : null,
-    [pendingSpot, propAt, pieces],
-  )
   const [goal, setGoal] = useState<ViewGoal>({
     token: 0,
     dir: HOME_DIR,
@@ -2237,14 +2202,9 @@ export default function Scene3D() {
             <meshBasicMaterial visible={false} side={THREE.DoubleSide} />
           </mesh>
         )}
+        {/* The first click's mark, and nothing else until the second lands: the
+            rod that appears then is the real part, not a drawing of one. */}
         {propping && pendingSpot && <SpotMark at={pendingSpot} />}
-        {propping && ghost && (
-          <SupportGhost
-            spec={specOf(ghost)}
-            piece={ghost}
-            color={colorOf(ghost, pieceColor)}
-          />
-        )}
 
         <OrbitControls
           makeDefault

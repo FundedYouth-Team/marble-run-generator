@@ -637,6 +637,22 @@ body {
   gap: 6px;
 }
 
+/* One list per kind of command. The heading is what tells the reader why the
+   rows under it are bound the way they are, so it sits tight to them and the
+   space goes above it instead. */
+.shortcut-list + .shortcut-list {
+  margin-top: 12px;
+}
+
+.shortcut-group-name {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-mute);
+}
+
 .shortcut-row {
   display: flex;
   align-items: center;
@@ -815,6 +831,7 @@ body {
 }
 
 .help-row kbd,
+.tool-tip kbd,
 .shortcut-keys kbd {
   font-family: var(--mono);
   font-size: 11px;

@@ -9,6 +9,7 @@ import {
 } from '../lib/templates'
 import { PROJECT_EXT } from '../lib/project'
 import { formatCoarse } from '../lib/units'
+import { actionFor, formatShortcut, isTyping } from '../lib/shortcuts'
 
 /**
  * A plain length of pipe seen side-on, with a dimension bar under it for the
@@ -373,6 +374,7 @@ export default function PartLibrary() {
     projectName,
     loadProject,
     units,
+    shortcuts,
   } = useRun()
 
   /**
@@ -419,10 +421,22 @@ export default function PartLibrary() {
     return `the ${target.end === 'out' ? 'outlet' : 'inlet'} of ${pieceLabel(pieces[i], i)}`
   }, [target, pieces])
 
+  // P opens the library and closes it again — the same kind of bare key the
+  // tools answer to, since every run is built out of this window. It listens
+  // whether or not the window is open, so the key is the way in as well as the
+  // way out, and it is ignored while you are typing: the search field inside is
+  // full of parts with a P in them. The binding is read at press time, so
+  // re-binding it in Settings takes effect on the next press.
   useEffect(() => {
-    if (!open) return
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return
+      if (!isTyping(e.target) && actionFor(e, useRun.getState().shortcuts) === 'openLibrary') {
+        e.preventDefault()
+        if (open) return setOpen(false)
+        setSection('all')
+        setOpen(true)
+        return
+      }
+      if (!open || e.key !== 'Escape') return
       // The question on top is what Escape answers; the window under it stays.
       if (pending) setPending(null)
       else setOpen(false)
@@ -486,8 +500,8 @@ export default function PartLibrary() {
         onClick={() => openOn('all')}
         title={
           targetName
-            ? `Browse the part library — the next part joins onto ${targetName}`
-            : 'Browse the part library'
+            ? `Browse the part library (${formatShortcut(shortcuts.openLibrary)}) — the next part joins onto ${targetName}`
+            : `Browse the part library (${formatShortcut(shortcuts.openLibrary)})`
         }
       >
         <span aria-hidden="true">＋</span> Add Part

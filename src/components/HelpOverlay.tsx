@@ -36,276 +36,283 @@ interface HowTo {
  */
 type HelpTab = 'project' | Mode
 
-const HELP: Record<HelpTab, Group[]> = {
-  project: [
-    {
-      title: 'The project',
-      rows: [
-        {
-          keys: ['Project'],
-          action: 'Name the run, in the top bar',
-          note: 'every file it saves or exports is named after it; left blank it falls back to Untitled',
-        },
-        {
-          keys: ['Save'],
-          action: 'Write the run to a .mrun.json file on your machine',
-          note: 'parts, tube size, style, marble fit and your shortcut keys — ready to open again',
-        },
-        {
-          keys: ['Open'],
-          action: 'Put a saved .mrun.json back on the stage',
-          note: 'it asks first — opening replaces the run you have now',
-        },
-        {
-          keys: ['New'],
-          action: 'Clear the stage back to a single default part',
-          note: 'it asks first; your theme, colours and screen calibration are left alone',
-        },
-        {
-          keys: ['⤓ Print plate'],
-          action: 'Export meshes for printing, from the sidebar',
-          note: '3MF, STL or OBJ — printable files, not a project you can reopen',
-        },
-      ],
-    },
-    {
-      title: 'History',
-      rows: [
-        {
-          keys: ['History tab'],
-          action: 'The last 10 changes to the run, newest first',
-          note: 'the vertical tab on the right edge; Esc closes it',
-        },
-        {
-          keys: ['Click a step'],
-          action: 'Jump straight back — or forward — to it',
-          note: 'the steps ahead stay listed, greyed, until the next edit drops them',
-        },
-        {
-          keys: ['Undo', 'Redo'],
-          action: 'Step one change at a time',
-          note: 'at the top of the History panel, and on the 3D HUD',
-        },
-        {
-          keys: ['Recorded'],
-          action: 'Parts, tube size, style and marble fit — nothing else',
-          note: 'camera, theme and playback stay put, so stepping back never moves your view',
-        },
-        {
-          keys: ['Not recorded'],
-          action: 'Saving, opening and starting a new project',
-          note: 'each of those begins the timeline again rather than adding a step',
-        },
-      ],
-    },
-  ],
-  '3d': [
-    {
-      title: 'Camera',
-      rows: [
-        { keys: ['Right-drag'], action: 'Rotate around the run' },
-        { keys: ['Scroll'], action: 'Zoom in and out', note: 'pinch on a trackpad' },
-        {
-          keys: ['Middle-drag'],
-          action: 'Pan the view',
-          note: 'press the scroll wheel in and drag; shift + right-drag does it too',
-        },
-        {
-          keys: ['View cube'],
-          action: 'Click a face, edge or corner to swing round to it',
-          note: 'top-right; left-drag the cube itself to spin the view',
-        },
-        { keys: ['Home button'], action: 'Reset to the home angle, whole run in frame', note: 'under the cube' },
-        { keys: ['Fit button'], action: 'Re-frame the whole run from the current angle' },
-      ],
-    },
-    {
-      title: 'Parts',
-      rows: [
-        { keys: ['Left-click a part'], action: 'Select it and open its settings in the sidebar' },
-        {
-          keys: [`${MOD_LABEL}-click a part`],
-          action: 'Add it to the selection, or take it back out',
-          note: 'Shift does the same on the stage — in Active Parts it takes a range instead; Duplicate and Delete then take the whole set, while the settings stay on the last part picked and the arrows and rings stand in the middle of the whole set',
-        },
-        { keys: ['Left-click empty space'], action: 'Deselect' },
-        {
-          keys: ['Right-click a part'],
-          action: 'Part menu — select, hide, rename, duplicate or delete it on the spot',
-          note: 'a right-drag still rotates the camera; only a press that stays put opens the menu',
-        },
-        {
-          keys: ['Active Parts'],
-          action: 'Switch a part off to take it out of both views',
-          note: 'it still holds its place in the run',
-        },
-        {
-          keys: ['Tick a part', 'Shift-click a part'],
-          action: 'Build a set in the list — one row at a time, or a whole run of rows at once',
-          note: 'Shift takes everything between the row last picked and the row clicked',
-        },
-      ],
-    },
-    {
-      title: 'Tools',
-      rows: [
-        {
-          keys: ['Select'],
-          action: 'Pick parts with the left button',
-          note: 'the resting state — the other tools take the left button over until switched off',
-        },
-        {
-          keys: ['Move'],
-          action: 'Drag the three axis arrows to move the selected part about the workplane',
-          note: `red is X, green Y, blue Z; anything joined to that part travels with it, and with a set picked (${MOD_LABEL}-click) every run in the set travels the same distance. The arrows stand in the middle of what is picked — across it and up it both — so a set picked across the stage is taken hold of in its own middle. They reach exactly as far as the selection does — to move more, pick more`,
-        },
-        {
-          keys: ['Rotate'],
-          action: 'Drag any of the three rings to aim the selected part — red X, green Y, blue Z, the same axes the arrows travel on',
-          note: 'a bonded part bends the run where it stands: it swings about the joint it is plugged into, everything ahead of it holds still, and everything past it comes along holding its shape. On a run’s head, which has nothing in front of it to hold, the green ring turns the whole run instead — about the middle of what is picked, carrying any set picked alongside it round that same point. The rings stand on that middle too, across the picked parts and up them both. a strip appears under the bar while it is in hand, carrying its own two settings: Step, the notch every swing is held to, and Joint pivot, whether the break it bends at is rounded off or left a mitred corner. The rings reach exactly as far as the selection does — to turn more, pick more',
-        },
-        {
-          keys: ['Measure'],
-          action: 'Box what is picked and read its width, length and height off the box',
-          note: 'a mode, but one that takes no click of its own: the left button goes on picking parts while it is in hand, and the box follows the pick from part to part. Pick nothing and it takes the whole stage. The box is squared to the world — width is X, length Z, height Y — and measured to the outside of the tube rather than to its centreline, so it is the room the run actually needs. The three figures hang on the corner of the box turned toward you, and all three are written out together in the bar',
-        },
-        {
-          keys: ['Align'],
-          action: 'Line the picked parts up on one face — their own outermost, or the face of the part you picked last',
-          note: 'a mode that takes no click of its own, the way Measure is: the left button goes on picking parts, and the datum follows the pick. Its strip carries the nine faces — Left, Centre and Right across X, Bottom, Middle and Top up Y, Back, Centre and Front along Z — and, ahead of them, what they are measured against. Onto the set, and the picked parts close up on their own outermost face, none travelling further than it has to; onto the lead part, and it stays exactly where it is while every other picked part comes to it. Resting on any of the nine draws that face on the stage before you click it. What travels is runs, not parts, the same as the move arrows: each picked part slides the whole run it stands in, holding its shape, and two picked parts of the one run cannot send it two ways — the first picked wins. Faces are measured to the outside of the tube, so parts of different bores line up on the pipe rather than on the axis. A base only ever travels on the plan, since it is held on the workplane',
-        },
-        {
-          keys: ['Place on Workplane'],
-          action: 'Set the selected part’s run straight down until its lowest wall rests on the plane',
-          note: 'one click rather than a mode — nothing else about the run moves, and a run left sunk below the plane is lifted onto it instead; also on a part’s right-click menu',
-        },
-        {
-          keys: ['⌶ Rods'],
-          action: 'Click two points and strike a rod between them',
-          note: 'a mode, like the two joint tools: while it is in hand the left button marks a point in space rather than picking a part. The first click is only remembered — nothing is built and nothing reaches the timeline until the second says what the rod is between — and the stage draws it from one to the other as you move. Escape lets go of a half-struck rod; the button’s menu holds Brace Every Run, which paces out the whole stage in one step',
-        },
-        {
-          keys: ['Connector'],
-          action: 'Join two parts: click the end you want to move, then the end it travels to',
-          note: 'the first end picked is the one that moves; an inlet mates with an outlet, and the ends that cannot take the one in hand go grey',
-        },
-        {
-          keys: ['Disconnector'],
-          action: 'Click a joint to break it open',
-          note: 'both sides stay exactly where they were — nothing springs back',
-        },
-      ],
-    },
-    {
-      title: 'Toolbar',
-      rows: [
-        { keys: ['↶', '↷'], action: 'Step back and forward through the last 10 changes', note: 'listed in the History tab' },
-        {
-          keys: ['▶ Simulator'],
-          action: 'Put the marble on the run and start it rolling',
-          note: 'there is no marble on the stage until you press it; the same button pauses it',
-        },
-        { keys: ['↺ Reset'], action: 'Send the marble back to the start' },
-        { keys: ['◉ Solid', '◍ Transparent'], action: 'See through the tube walls' },
-        { keys: ['⤓ 3MF', '⤓ STL'], action: 'Export the print plate', note: 'format is set in the sidebar' },
-      ],
-    },
-  ],
-  '2d': [
-    {
-      title: 'Draft view',
-      rows: [
-        {
-          keys: ['Developed'],
-          action: 'Side-on, with every turn flattened out — edit slope',
-          note: 'each part shows its true slope whichever way it heads; the view the draft opens on',
-        },
-        {
-          keys: ['Front', 'Back', 'Left', 'Right'],
-          action: 'True side views — edit slope',
-          note: 'named for the side they are taken from, as on the 3D view cube; Left stands at -X, so the run reads left to right',
-        },
-        {
-          keys: ['Top', 'Bottom'],
-          action: 'From above and below — edit turn and corner sweep',
-          note: 'a handle on a leg the view takes end-on is faded: there is no angle in the drawing to drag, so switch views',
-        },
-        { keys: ['Scroll'], action: 'Zoom about the pointer' },
-        {
-          keys: ['Right-drag', 'Middle-drag'],
-          action: 'Pan the drawing',
-          note: 'the wheel click pans too — press it in and drag',
-        },
-        { keys: ['Fit'], action: 'Re-frame whatever is on the paper' },
-        {
-          keys: ['Selected only'],
-          action: 'Draw the parts you have picked and nothing else',
-          note: 'on out of the box, so a plain pick puts one part on the sheet at a scale worth reading; with nothing picked the whole run is drawn',
-        },
-        {
-          keys: ['Active Parts'],
-          action: 'Draw only the parts you are working on',
-          note: 'the same list, and the same switches, as the 3D view',
-        },
-        {
-          keys: ['1:1'],
-          action: 'Zoom to true physical size',
-          note: 'calibrate your screen in Settings first, or it is only a guess',
-        },
-      ],
-    },
-    {
-      title: 'Editing',
-      rows: [
-        { keys: ['Click a piece'], action: 'Select it and open its settings in the sidebar' },
-        {
-          keys: [`${MOD_LABEL}-click a piece`],
-          action: 'Add it to the selection, or take it back out',
-          note: 'the same set the 3D stage picks — what is picked here is picked there',
-        },
-        { keys: ['Click empty space'], action: 'Clear the selection' },
-        {
-          keys: ['Angles and Joints'],
-          action: 'Type any angle in exactly, instead of dragging for it',
-          note: 'in the sidebar: start, middle and end angle for the selected part, and whether the joint behind it is closed',
-        },
-        {
-          keys: ['Drag a joint'],
-          action: 'Resize and swing the leg at once — the point follows the pointer',
-          note: 'a side view sets slope, a top or bottom view sets turn; the part swings about the joint behind it and stretches to reach where you let go',
-        },
-        {
-          keys: ['Drag a ring'],
-          action: "Swing a part from its head, about its own far end",
-          note: 'the run ahead of it comes round with it; nothing past the pivot moves, and the part resizes the same way',
-        },
-        {
-          keys: ['Drag a square'],
-          action: 'Stretch that leg and nothing else',
-          note: 'this view holds no angle for that leg — a corner’s outgoing leg seen side-on, an angle connector’s entry leg seen from above — so its end only slides along itself',
-        },
-        {
-          keys: ['Drag the break'],
-          action: 'On a connector, swing one leg at a time',
-          note: 'an angle in a side view: the break sets the entry slope, the outlet sets the bend — a corner in Top or Bottom: the break sets the turn, the outlet sets the sweep',
-        },
-        { keys: ['Shift', 'Drag'], action: 'Snap to 5° and 5mm' },
-        { keys: ['Alt', 'Drag'], action: 'Hold the length — swing the angle only' },
-        { keys: ['Esc'], action: 'Cancel the drag and restore the piece' },
-      ],
-    },
-    {
-      title: 'Reading the drawing',
-      rows: [
-        {
-          keys: ['Tube Size'],
-          action: 'Live cross-section of the tube the selected part is cut from',
-          note: 'the second tab at the top of the drawing — scroll to zoom, right-drag or wheel-drag to pan, double-click or Fit to go back to the whole section',
-        },
-        { keys: ['Ghost circle'], action: 'The marble, shown resting in the bore' },
-      ],
-    },
-  ],
+/**
+ * Every tab's rows, written as a function of the bindings: a row that names a
+ * key has to say whatever that key is set to now, which is the user's to change
+ * in Settings.
+ */
+function helpFor(keys: ShortcutMap): Record<HelpTab, Group[]> {
+  return {
+    project: [
+      {
+        title: 'The project',
+        rows: [
+          {
+            keys: ['Project'],
+            action: 'Name the run, in the top bar',
+            note: 'every file it saves or exports is named after it; left blank it falls back to Untitled',
+          },
+          {
+            keys: ['Save'],
+            action: 'Write the run to a .mrun.json file on your machine',
+            note: 'parts, tube size, style, marble fit and your shortcut keys — ready to open again',
+          },
+          {
+            keys: ['Open'],
+            action: 'Put a saved .mrun.json back on the stage',
+            note: 'it asks first — opening replaces the run you have now',
+          },
+          {
+            keys: ['New'],
+            action: 'Clear the stage back to a single default part',
+            note: 'it asks first; your theme, colours and screen calibration are left alone',
+          },
+          {
+            keys: ['⤓ Print plate'],
+            action: 'Export meshes for printing, from the sidebar',
+            note: '3MF, STL or OBJ — printable files, not a project you can reopen',
+          },
+        ],
+      },
+      {
+        title: 'History',
+        rows: [
+          {
+            keys: ['History tab'],
+            action: 'The last 10 changes to the run, newest first',
+            note: 'the vertical tab on the right edge; Esc closes it',
+          },
+          {
+            keys: ['Click a step'],
+            action: 'Jump straight back — or forward — to it',
+            note: 'the steps ahead stay listed, greyed, until the next edit drops them',
+          },
+          {
+            keys: ['Undo', 'Redo'],
+            action: 'Step one change at a time',
+            note: 'at the top of the History panel, and on the 3D HUD',
+          },
+          {
+            keys: ['Recorded'],
+            action: 'Parts, tube size, style and marble fit — nothing else',
+            note: 'camera, theme and playback stay put, so stepping back never moves your view',
+          },
+          {
+            keys: ['Not recorded'],
+            action: 'Saving, opening and starting a new project',
+            note: 'each of those begins the timeline again rather than adding a step',
+          },
+        ],
+      },
+    ],
+    '3d': [
+      {
+        title: 'Camera',
+        rows: [
+          { keys: ['Right-drag'], action: 'Rotate around the run' },
+          { keys: ['Scroll'], action: 'Zoom in and out', note: 'pinch on a trackpad' },
+          {
+            keys: ['Middle-drag'],
+            action: 'Pan the view',
+            note: 'press the scroll wheel in and drag; shift + right-drag does it too',
+          },
+          {
+            keys: ['View cube'],
+            action: 'Click a face, edge or corner to swing round to it',
+            note: 'top-right; left-drag the cube itself to spin the view',
+          },
+          { keys: ['Home button'], action: 'Reset to the home angle, whole run in frame', note: 'under the cube' },
+          { keys: ['Fit button'], action: 'Re-frame the whole run from the current angle' },
+        ],
+      },
+      {
+        title: 'Parts',
+        rows: [
+          { keys: ['Left-click a part'], action: 'Select it and open its settings in the sidebar' },
+          {
+            keys: [`${MOD_LABEL}-click a part`],
+            action: 'Add it to the selection, or take it back out',
+            note: 'Shift does the same on the stage — in Active Parts it takes a range instead; Duplicate and Delete then take the whole set, while the settings stay on the last part picked and the arrows and rings stand in the middle of the whole set',
+          },
+          { keys: ['Left-click empty space'], action: 'Deselect' },
+          {
+            keys: ['Right-click a part'],
+            action: 'Part menu — select, hide, rename, duplicate or delete it on the spot',
+            note: 'a right-drag still rotates the camera; only a press that stays put opens the menu',
+          },
+          {
+            keys: ['Active Parts'],
+            action: 'Switch a part off to take it out of both views',
+            note: 'it still holds its place in the run',
+          },
+          {
+            keys: ['Tick a part', 'Shift-click a part'],
+            action: 'Build a set in the list — one row at a time, or a whole run of rows at once',
+            note: 'Shift takes everything between the row last picked and the row clicked',
+          },
+        ],
+      },
+      {
+        title: 'Tools',
+        rows: [
+          {
+            keys: ['Select', formatShortcut(keys.toolSelect)],
+            action: 'Pick parts with the left button',
+            note: `the resting state — the other tools take the left button over until switched off, and ${formatShortcut(keys.toolSelect)} is the way back to it. Five tools answer to a key as well as to their button: ${formatShortcut(keys.toolSelect)} Select, ${formatShortcut(keys.toolMove)} Move, ${formatShortcut(keys.toolRotate)} Rotate, ${formatShortcut(keys.toolConnect)} Connector — J for the join it makes — and ${formatShortcut(keys.toolAlign)} Align. Pressed on the 3D stage, and not while you are typing in a field; a key does nothing while its tool is greyed out. All five are listed in Settings → Shortcut Keys, and can be bound to anything you would rather press`,
+          },
+          {
+            keys: ['Move', formatShortcut(keys.toolMove)],
+            action: 'Drag the three axis arrows to move the selected part about the workplane',
+            note: `red is X, green Y, blue Z; anything joined to that part travels with it, and with a set picked (${MOD_LABEL}-click) every run in the set travels the same distance. The arrows stand in the middle of what is picked — across it and up it both — so a set picked across the stage is taken hold of in its own middle. They reach exactly as far as the selection does — to move more, pick more`,
+          },
+          {
+            keys: ['Rotate', formatShortcut(keys.toolRotate)],
+            action: 'Drag any of the three rings to aim the selected part — red X, green Y, blue Z, the same axes the arrows travel on',
+            note: 'a bonded part bends the run where it stands: it swings about the joint it is plugged into, everything ahead of it holds still, and everything past it comes along holding its shape. On a run’s head, which has nothing in front of it to hold, the green ring turns the whole run instead — about the middle of what is picked, carrying any set picked alongside it round that same point. The rings stand on that middle too, across the picked parts and up them both. a strip appears under the bar while it is in hand, carrying its own two settings: Step, the notch every swing is held to, and Joint pivot, whether the break it bends at is rounded off or left a mitred corner. The rings reach exactly as far as the selection does — to turn more, pick more',
+          },
+          {
+            keys: ['Measure'],
+            action: 'Box what is picked and read its width, length and height off the box',
+            note: 'a mode, but one that takes no click of its own: the left button goes on picking parts while it is in hand, and the box follows the pick from part to part. Pick nothing and it takes the whole stage. The box is squared to the world — width is X, length Z, height Y — and measured to the outside of the tube rather than to its centreline, so it is the room the run actually needs. The three figures hang on the corner of the box turned toward you, and all three are written out together in the bar',
+          },
+          {
+            keys: ['Align', formatShortcut(keys.toolAlign)],
+            action: 'Line the picked parts up on one face — their own outermost, or the face of the part you picked last',
+            note: 'a mode that takes no click of its own, the way Measure is: the left button goes on picking parts, and the datum follows the pick. Its strip carries the nine faces — Left, Centre and Right across X, Bottom, Middle and Top up Y, Back, Centre and Front along Z — and, ahead of them, what they are measured against. Onto the set, and the picked parts close up on their own outermost face, none travelling further than it has to; onto the lead part, and it stays exactly where it is while every other picked part comes to it. Resting on any of the nine draws that face on the stage before you click it. What travels is runs, not parts, the same as the move arrows: each picked part slides the whole run it stands in, holding its shape, and two picked parts of the one run cannot send it two ways — the first picked wins. Faces are measured to the outside of the tube, so parts of different bores line up on the pipe rather than on the axis. A base only ever travels on the plan, since it is held on the workplane',
+          },
+          {
+            keys: ['Place on Workplane'],
+            action: 'Set the selected part’s run straight down until its lowest wall rests on the plane',
+            note: 'one click rather than a mode — nothing else about the run moves, and a run left sunk below the plane is lifted onto it instead; also on a part’s right-click menu',
+          },
+          {
+            keys: ['⌶ Rods'],
+            action: 'Click two points and strike a rod between them',
+            note: 'a mode, like the two joint tools: while it is in hand the left button marks a point in space rather than picking a part. The first click is only remembered — nothing is built and nothing reaches the timeline until the second says what the rod is between — and the stage draws it from one to the other as you move. Escape lets go of a half-struck rod; the button’s menu holds Brace Every Run, which paces out the whole stage in one step',
+          },
+          {
+            keys: ['Connector', formatShortcut(keys.toolConnect)],
+            action: 'Join two parts: click the end you want to move, then the end it travels to',
+            note: 'the first end picked is the one that moves; an inlet mates with an outlet, and the ends that cannot take the one in hand go grey',
+          },
+          {
+            keys: ['Disconnector'],
+            action: 'Click a joint to break it open',
+            note: 'both sides stay exactly where they were — nothing springs back',
+          },
+        ],
+      },
+      {
+        title: 'Toolbar',
+        rows: [
+          { keys: ['↶', '↷'], action: 'Step back and forward through the last 10 changes', note: 'listed in the History tab' },
+          {
+            keys: ['▶ Simulator'],
+            action: 'Put the marble on the run and start it rolling',
+            note: 'there is no marble on the stage until you press it; the same button pauses it',
+          },
+          { keys: ['↺ Reset'], action: 'Send the marble back to the start' },
+          { keys: ['◉ Solid', '◍ Transparent'], action: 'See through the tube walls' },
+          { keys: ['⤓ 3MF', '⤓ STL'], action: 'Export the print plate', note: 'format is set in the sidebar' },
+        ],
+      },
+    ],
+    '2d': [
+      {
+        title: 'Draft view',
+        rows: [
+          {
+            keys: ['Developed'],
+            action: 'Side-on, with every turn flattened out — edit slope',
+            note: 'each part shows its true slope whichever way it heads; the view the draft opens on',
+          },
+          {
+            keys: ['Front', 'Back', 'Left', 'Right'],
+            action: 'True side views — edit slope',
+            note: 'named for the side they are taken from, as on the 3D view cube; Left stands at -X, so the run reads left to right',
+          },
+          {
+            keys: ['Top', 'Bottom'],
+            action: 'From above and below — edit turn and corner sweep',
+            note: 'a handle on a leg the view takes end-on is faded: there is no angle in the drawing to drag, so switch views',
+          },
+          { keys: ['Scroll'], action: 'Zoom about the pointer' },
+          {
+            keys: ['Right-drag', 'Middle-drag'],
+            action: 'Pan the drawing',
+            note: 'the wheel click pans too — press it in and drag',
+          },
+          { keys: ['Fit'], action: 'Re-frame whatever is on the paper' },
+          {
+            keys: ['Selected only'],
+            action: 'Draw the parts you have picked and nothing else',
+            note: 'on out of the box, so a plain pick puts one part on the sheet at a scale worth reading; with nothing picked the whole run is drawn',
+          },
+          {
+            keys: ['Active Parts'],
+            action: 'Draw only the parts you are working on',
+            note: 'the same list, and the same switches, as the 3D view',
+          },
+          {
+            keys: ['1:1'],
+            action: 'Zoom to true physical size',
+            note: 'calibrate your screen in Settings first, or it is only a guess',
+          },
+        ],
+      },
+      {
+        title: 'Editing',
+        rows: [
+          { keys: ['Click a piece'], action: 'Select it and open its settings in the sidebar' },
+          {
+            keys: [`${MOD_LABEL}-click a piece`],
+            action: 'Add it to the selection, or take it back out',
+            note: 'the same set the 3D stage picks — what is picked here is picked there',
+          },
+          { keys: ['Click empty space'], action: 'Clear the selection' },
+          {
+            keys: ['Angles and Joints'],
+            action: 'Type any angle in exactly, instead of dragging for it',
+            note: 'in the sidebar: start, middle and end angle for the selected part, and whether the joint behind it is closed',
+          },
+          {
+            keys: ['Drag a joint'],
+            action: 'Resize and swing the leg at once — the point follows the pointer',
+            note: 'a side view sets slope, a top or bottom view sets turn; the part swings about the joint behind it and stretches to reach where you let go',
+          },
+          {
+            keys: ['Drag a ring'],
+            action: "Swing a part from its head, about its own far end",
+            note: 'the run ahead of it comes round with it; nothing past the pivot moves, and the part resizes the same way',
+          },
+          {
+            keys: ['Drag a square'],
+            action: 'Stretch that leg and nothing else',
+            note: 'this view holds no angle for that leg — a corner’s outgoing leg seen side-on, an angle connector’s entry leg seen from above — so its end only slides along itself',
+          },
+          {
+            keys: ['Drag the break'],
+            action: 'On a connector, swing one leg at a time',
+            note: 'an angle in a side view: the break sets the entry slope, the outlet sets the bend — a corner in Top or Bottom: the break sets the turn, the outlet sets the sweep',
+          },
+          { keys: ['Shift', 'Drag'], action: 'Snap to 5° and 5mm' },
+          { keys: ['Alt', 'Drag'], action: 'Hold the length — swing the angle only' },
+          { keys: ['Esc'], action: 'Cancel the drag and restore the piece' },
+        ],
+      },
+      {
+        title: 'Reading the drawing',
+        rows: [
+          {
+            keys: ['Tube Size'],
+            action: 'Live cross-section of the tube the selected part is cut from',
+            note: 'the second tab at the top of the drawing — scroll to zoom, right-drag or wheel-drag to pan, double-click or Fit to go back to the whole section',
+          },
+          { keys: ['Ghost circle'], action: 'The marble, shown resting in the bore' },
+        ],
+      },
+    ],
+  }
 }
 
 /**
@@ -398,7 +405,7 @@ const HOWTO: Partial<Record<HelpTab, HowTo[]>> = {
       lead: 'With rods. A rod is a plain bar struck between two points you click — that is the whole of it, two ends and a thickness. Every run on this stage hangs in the air, and a printed tube hanging in the air falls on the floor, so this is what turns a run on screen into a run that can be built.',
       steps: [
         'Take up ⌶ Rods on the toolbar, click a spot on the run, then click what you want it braced against — the plate, a plinth, another turn of the run, or a rod already struck.',
-        'The stage draws the rod from the first click to wherever the pointer is, so you see it before you commit. Escape lets go of a half-struck one.',
+        'The pointer glows green while the tool is in hand. The first click drops a green mark where it landed and nothing else; the rod itself appears when the second click lands. Escape lets go of a half-struck one.',
         'Or open the same button’s menu and pick one of the four braces, which do the whole stage in one step — Under the Run, Over it, or Outside or Inside the bend.',
       ],
       note: 'A rod is driven a whisker into both ends rather than merely touching them, so the two fuse when the plate is sliced. It knows nothing about what it braces, which is exactly what lets one part be a post down to the plate, a tie between two turns of a coil, and a spine down the outside of one from top to bottom.',
@@ -469,9 +476,9 @@ function alwaysGroup(keys: ShortcutMap): Group {
     title: 'Anywhere',
     rows: [
       {
-        keys: ['＋ Add Part'],
+        keys: ['＋ Add Part', formatShortcut(keys.openLibrary)],
         action: 'Browse the part library and drop a part on the stage',
-        note: 'top of the window; it lands bonded onto the end of the run — Join onto the run, at the foot of the library, moves that to the start of the run or has parts land on their own instead',
+        note: `top of the window, or ${formatShortcut(keys.openLibrary)} from the keyboard — which closes it again, as Esc does. It lands bonded onto the end of the run — Join onto the run, at the foot of the library, moves that to the start of the run or has parts land on their own instead`,
       },
       { keys: ['2D Draft Mode', '3D Mode'], action: 'Switch workspace', note: 'top of the window' },
       {
@@ -681,7 +688,7 @@ export default function HelpOverlay() {
                 </dl>
               </section>
 
-              {HELP[tab].map((g) => (
+              {helpFor(shortcuts)[tab].map((g) => (
                 <Rows key={g.title} group={g} />
               ))}
               {/* Worked examples sit under the controls they string together. */}

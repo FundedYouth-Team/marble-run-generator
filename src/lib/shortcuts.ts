@@ -6,8 +6,37 @@
  */
 
 /** Every command that can be re-bound, in the order the settings list them. */
-export const SHORTCUT_ACTIONS = ['undo', 'redo', 'duplicate', 'duplicateJoined'] as const
+export const SHORTCUT_ACTIONS = [
+  'undo',
+  'redo',
+  'duplicate',
+  'duplicateJoined',
+  'toolSelect',
+  'toolMove',
+  'toolRotate',
+  'toolConnect',
+  'toolAlign',
+  'openLibrary',
+] as const
 export type ShortcutAction = (typeof SHORTCUT_ACTIONS)[number]
+
+/**
+ * The list broken into kinds, for the settings panel: what changes the run, and
+ * what changes only the tool in your hand. They are read and stored as one map —
+ * this is the running order and the headings over it.
+ *
+ * Save, Open and New are not in here. The keys they would want — the command
+ * modifier with S, O and N — are the browser's own for saving, opening and
+ * newing its window, and a page that took them would be fighting the thing it
+ * runs inside. They stay buttons in the top bar.
+ */
+export const SHORTCUT_GROUPS: { title: string; actions: ShortcutAction[] }[] = [
+  { title: 'The run', actions: ['undo', 'redo', 'duplicate', 'duplicateJoined'] },
+  {
+    title: 'Tools and windows',
+    actions: ['toolSelect', 'toolMove', 'toolRotate', 'toolConnect', 'toolAlign', 'openLibrary'],
+  },
+]
 
 /**
  * One binding. `mod` is the platform's command modifier — Ctrl on Windows and
@@ -30,6 +59,12 @@ export const SHORTCUT_LABEL: Record<ShortcutAction, string> = {
   redo: 'Redo',
   duplicate: 'Duplicate',
   duplicateJoined: 'Duplicate joined',
+  toolSelect: 'Select tool',
+  toolMove: 'Move tool',
+  toolRotate: 'Rotate tool',
+  toolConnect: 'Connector tool',
+  toolAlign: 'Align tool',
+  openLibrary: 'Part library',
 }
 
 /** A word on what the command does, for the row under its name. */
@@ -38,14 +73,36 @@ export const SHORTCUT_HINT: Record<ShortcutAction, string> = {
   redo: 'step forward again',
   duplicate: 'copy the selected parts, beside the run',
   duplicateJoined: 'copy them onto the end of the run',
+  toolSelect: 'pick parts — the resting state',
+  toolMove: 'take hold of the axis arrows',
+  toolRotate: 'take hold of the aiming rings',
+  toolConnect: 'join two ends by hand',
+  toolAlign: 'line the picked parts up on a face',
+  openLibrary: 'open Add Part, and close it again',
 }
 
-/** The stock bindings — what a fresh install answers to, and what Reset restores. */
+/**
+ * The stock bindings — what a fresh install answers to, and what Reset restores.
+ *
+ * The two kinds are bound to match: a command that changes the run carries the
+ * platform's modifier, where a key knocked by accident cannot cost an hour's
+ * work, and a tool answers to a bare letter, since taking one up changes nothing
+ * and is undone by taking up another. Either rule can be broken from the panel —
+ * these are only where everyone starts.
+ */
 export const DEFAULT_SHORTCUTS: ShortcutMap = {
   undo: { mod: true, shift: false, alt: false, key: 'z' },
   redo: { mod: true, shift: false, alt: false, key: 'y' },
   duplicate: { mod: true, shift: false, alt: false, key: 'd' },
   duplicateJoined: { mod: true, shift: true, alt: false, key: 'd' },
+  toolSelect: { mod: false, shift: false, alt: false, key: 's' },
+  toolMove: { mod: false, shift: false, alt: false, key: 'm' },
+  toolRotate: { mod: false, shift: false, alt: false, key: 'r' },
+  // J for the join the Connector makes rather than for its name in the bar,
+  // which leaves C free.
+  toolConnect: { mod: false, shift: false, alt: false, key: 'j' },
+  toolAlign: { mod: false, shift: false, alt: false, key: 'l' },
+  openLibrary: { mod: false, shift: false, alt: false, key: 'p' },
 }
 
 /**
@@ -129,6 +186,35 @@ export function actionFor(e: KeyboardEvent, map: ShortcutMap): ShortcutAction | 
   return SHORTCUT_ACTIONS.find((action) => matchesShortcut(e, map[action])) ?? null
 }
 
+/** The tools that can be taken up from the keyboard. */
+export type KeyedTool = 'select' | 'move' | 'rotate' | 'connect' | 'align'
+
+/** Which command in the list takes each tool up, so one binding serves both. */
+export const TOOL_ACTION: Record<KeyedTool, ShortcutAction> = {
+  select: 'toolSelect',
+  move: 'toolMove',
+  rotate: 'toolRotate',
+  connect: 'toolConnect',
+  align: 'toolAlign',
+}
+
+const KEYED_TOOLS = Object.keys(TOOL_ACTION) as KeyedTool[]
+
+/** Which tool a command takes up, if it takes up one at all. */
+export function toolForAction(action: ShortcutAction): KeyedTool | null {
+  return KEYED_TOOLS.find((tool) => TOOL_ACTION[tool] === action) ?? null
+}
+
+/**
+ * Whether a key press landed in something being typed into, where every key
+ * belongs to the field rather than to the app. Fields own their own undo stack
+ * for the same reason.
+ */
+export function isTyping(el: EventTarget | null): boolean {
+  const t = el as HTMLElement | null
+  return !!t && (t.isContentEditable || /^(input|textarea|select)$/i.test(t.tagName))
+}
+
 /**
  * Whether a click on a part adds it to the selection rather than replacing it.
  *
@@ -154,14 +240,20 @@ const MODIFIER_KEYS = new Set(['control', 'meta', 'shift', 'alt', 'altgraph', 'c
  */
 const RESERVED_KEYS = new Set(['escape', 'tab', 'enter'])
 
-/** F1–F12 stand alone; every other key needs a modifier in front of it. */
-const FUNCTION_KEY = /^f([1-9]|1[0-2])$/
-
+/**
+ * Whether a binding can be used.
+ *
+ * A bare key is allowed: the tools are bound to bare letters out of the box, and
+ * a rule that forbade them would have to forbid the app's own stock bindings.
+ * Nothing fires while you are typing — every handler steps aside for a field
+ * first — so the risk a modifier used to guard against is that a letter knocked
+ * on the stage runs a command. That is a real risk for the commands that change
+ * the run, which is why those ship with a modifier; it is left as a choice
+ * rather than a rule, because the panel is where someone says what they want
+ * their own keyboard to do.
+ */
 export function isBindable(sc: Shortcut): boolean {
-  if (!sc.key || sc.key.length > 12 || RESERVED_KEYS.has(sc.key)) return false
-  // A bare letter would fire the moment the stage has focus, so a modifier is
-  // asked for — except on the function keys, which are nothing else's.
-  return sc.mod || sc.alt || sc.shift || FUNCTION_KEY.test(sc.key)
+  return !!sc.key && sc.key.length <= 12 && !RESERVED_KEYS.has(sc.key)
 }
 
 /**
@@ -179,14 +271,8 @@ export function captureShortcut(e: KeyboardEvent): Capture | null {
     alt: e.altKey,
     key,
   }
-  if (RESERVED_KEYS.has(key)) {
-    return { ok: false, why: `${keyLabel(key)} is the app's own — it cannot be bound.` }
-  }
   if (!isBindable(shortcut)) {
-    return {
-      ok: false,
-      why: `Add ${MOD_LABEL}, ${ALT_LABEL} or Shift — a key on its own would fire as you work.`,
-    }
+    return { ok: false, why: `${keyLabel(key)} is the app's own — it cannot be bound.` }
   }
   return { ok: true, shortcut }
 }

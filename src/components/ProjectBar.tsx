@@ -16,6 +16,11 @@ interface Incoming {
  * The run's name, editable in place, and everything that acts on the run as a
  * whole — save it, open one, or start again. The name is what every file is
  * called, so this sits in the top bar next to the brand rather than in a panel.
+ *
+ * All three are buttons and nothing else. The keys they would want — the command
+ * modifier with S, O and N — belong to the browser for saving, opening and
+ * newing its own window, and a page that took them would be fighting the thing
+ * it runs inside.
  */
 export default function ProjectBar() {
   const s = useRun()

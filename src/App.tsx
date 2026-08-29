@@ -9,20 +9,31 @@ import ProjectBar from './components/ProjectBar'
 import { pieceAxisLength } from './lib/centerline'
 import {
   useRun,
+  chainsOf,
   tubeSpec,
   variantOf,
   openSideOf,
   sizedLikeRun,
   OPEN_SIDE_LABEL,
   VARIANT_LABEL,
+  type Piece,
 } from './store'
 import { formatCoarse, lengthText } from './lib/units'
-import { actionFor } from './lib/shortcuts'
+import { actionFor, isTyping, toolForAction, type KeyedTool } from './lib/shortcuts'
 
-/** Fields own their own undo stack — the run's only takes over outside them. */
-function isTyping(el: EventTarget | null) {
-  const t = el as HTMLElement | null
-  return !!t && (t.isContentEditable || /^(input|textarea|select)$/i.test(t.tagName))
+/**
+ * Whether a tool has anything to work on — the same test that greys its button
+ * out in the bar, so a key never takes up a tool a click could not. Select is
+ * the resting state and always answers, which is what makes it the way back out
+ * of any of the others.
+ */
+function toolReady(tool: KeyedTool, pieces: Piece[]): boolean {
+  if (tool === 'select') return true
+  // Two parts to line up, and two runs to join: one of anything has nothing to
+  // be brought to.
+  if (tool === 'align') return pieces.length >= 2
+  if (tool === 'connect') return chainsOf(pieces).length >= 2
+  return pieces.length > 0
 }
 
 export default function App() {
@@ -55,6 +66,22 @@ export default function App() {
         if (s.selectedIds.length) s.removeParts(s.selectedIds)
         return
       }
+      // The five tool commands — S, M, R, J and L out of the box, whatever they
+      // are bound to now. Only on the 3D stage, which is where the tools are:
+      // in the draft the press is nobody's, so it is left alone rather than
+      // swallowed.
+      const wanted = action ? toolForAction(action) : null
+      if (wanted) {
+        if (s.mode !== '3d') return
+        // Swallowed even when the tool cannot be taken up, so the press is the
+        // app's either way rather than half of it reaching the page.
+        e.preventDefault()
+        if (toolReady(wanted, s.pieces)) s.setTool(wanted)
+        return
+      }
+      // The library owns its own window, so it owns the key that opens it — and
+      // that key closes it again, which only the window itself can do.
+      if (action === 'openLibrary') return
       // Ctrl+Shift+Z is the redo every other app also takes, so it stands
       // alongside whatever Redo is bound to — unless something is bound over it.
       const altRedo =
