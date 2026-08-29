@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactElement } from 'react'
-import { attachPort, pieceLabel, useRun, UNTITLED_PROJECT } from '../store'
+import { attachPort, pieceLabel, useRun, UNTITLED_PROJECT, type JoinEnd } from '../store'
 import {
   TEMPLATES,
   TEMPLATE_DIR,
@@ -256,7 +256,7 @@ const PARTS: Part[] = [
     axis: 'Ground',
     blurb: 'Flat plate that fills the space under the run and stands on the workplane.',
     detail:
-      'Not a length of run: nothing plugs into it, the marble never travels it, and it takes no part in any joint — it is the ground the rest of it stands on. Set how wide, how deep and how thick it is, and how far the four upright corners are rounded off; rounded as far as it will go, a square plate is a disc. It sits on the workplane and stays there — the move arrows slide it about and the green ring turns it, but nothing lifts it off the plane or buries it under one. The marble bounces off it like any other wall, so a run that spills lands on the plinth rather than falling through the floor.',
+      'Not a length of run: nothing plugs into it, the marble never travels it, and it takes no part in any joint — it is the ground the rest of it stands on. Set how wide, how deep and how thick it is, and how far the four upright corners are rounded off; rounded as far as it will go, a square plate is a disc. It is the one part whose size is a question about your printer rather than about the run, so the sidebar offers the beds by name — an A1, an A1 mini, an SV06 Plus — and sizes the plate to whichever you pick. That choice is remembered, so every base after it arrives on the same bed. It sits on the workplane and stays there — the move arrows slide it about and the green ring turns it, but nothing lifts it off the plane or buries it under one. The marble bounces off it like any other wall, so a run that spills lands on the plinth rather than falling through the floor.',
     preview: BasePreview,
     add: () => useRun.getState().addPiece('base'),
   },
@@ -322,6 +322,28 @@ const RAIL: { heading: string; sections: Section[] }[] = [
 const isTemplateSection = (s: Section): s is 'templates' => s === 'templates'
 
 /**
+ * The three places a part out of the library can land, in the order the buttons
+ * offer them: in front of the run, behind it, or nowhere near it.
+ *
+ * A switch and a side would be the same three answers, but read as two
+ * questions when they are really one — a part lands *somewhere*, and where is
+ * the choice. Start comes first because it is the end of a run that reads as its
+ * beginning, however few runs are built from it.
+ */
+const JOIN_CHOICES: [JoinEnd, string, string][] = [
+  ['start', 'Start', 'The part lands in front of the run, feeding into what is already there'],
+  ['end', 'End', 'The part lands on the end of the run, carrying on from what is already there'],
+  ['off', 'Not at all', 'The part lands on its own in clear space, bonded to nothing'],
+]
+
+/** What each of them does, under the heading — the sentence the buttons answer. */
+const JOIN_NOTE: Record<JoinEnd, string> = {
+  start: 'grown by the head, which is how a run is built backwards from the funnel it arrives at',
+  end: 'grown by the tail, part after part, which is how most of them are built',
+  off: 'parts land on their own and the Connector joins them by hand',
+}
+
+/**
  * Browse the catalogue and drop a part on the stage — or take a whole run off
  * the shelf. Opened from the top bar, by either of the two buttons: they open
  * the same window on different shelves of it.
@@ -344,8 +366,8 @@ export default function PartLibrary() {
   const {
     pieces,
     setTool,
-    autoAttach,
-    setAutoAttach,
+    joinOnAdd,
+    setJoinOnAdd,
     pendingPort,
     selectedId,
     projectName,
@@ -384,8 +406,9 @@ export default function PartLibrary() {
    * cannot come apart.
    */
   const target = useMemo(
-    () => (autoAttach ? attachPort({ pieces, pendingPort, selectedId }) : null),
-    [autoAttach, pieces, pendingPort, selectedId],
+    () =>
+      joinOnAdd === 'off' ? null : attachPort({ pieces, pendingPort, selectedId }, joinOnAdd),
+    [joinOnAdd, pieces, pendingPort, selectedId],
   )
 
   /** That end in words — "the outlet of Tube 3" — for the footer and the button. */
@@ -645,39 +668,51 @@ export default function PartLibrary() {
                 </p>
               ) : (
                 <>
-                  {/* The switch sits over the sentence that describes what it does,
+                  {/* The choice sits over the sentence that describes what it does,
                       rather than off in Settings: this is the one place a part is
                       ever added, so it is the one place the question comes up. */}
-                  <label className="check lib-attach">
-                    <input
-                      type="checkbox"
-                      checked={autoAttach}
-                      onChange={(e) => setAutoAttach(e.target.checked)}
-                    />
-                    <span>
+                  <div className="lib-attach">
+                    <span className="field-label">
                       Join onto the run
-                      <em>off, parts land on their own and the Connector joins them by hand</em>
+                      <em>{JOIN_NOTE[joinOnAdd]}</em>
                     </span>
-                  </label>
-                  {autoAttach ? (
+                    <div className="segmented small">
+                      {JOIN_CHOICES.map(([value, label, why]) => (
+                        <button
+                          key={value}
+                          className={joinOnAdd === value ? 'on' : ''}
+                          onClick={() => setJoinOnAdd(value)}
+                          title={why}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  {joinOnAdd !== 'off' ? (
                     <p className="note">
                       {targetName ? (
                         <>
-                          <b>The part lands bonded onto {targetName}</b>, welded flush and pointing
-                          where that end pointed — the run grows by one and nothing else on the
-                          stage moves. To grow a different end instead, take the{' '}
+                          <b>The part lands bonded onto {targetName}</b>, welded flush and{' '}
+                          {joinOnAdd === 'start'
+                            ? 'feeding into it along the line that end came in on — the run grows by one in front of everything already on it'
+                            : 'pointing where that end pointed — the run grows by one behind everything already on it'}
+                          , and nothing else on the stage moves. To grow some other end instead,
+                          take the{' '}
                           <button className="link-btn" onClick={() => setTool('connect')}>
                             Connector
                           </button>{' '}
-                          and click that end before opening this window; the part follows it, and
-                          an inlet takes one in front of the run rather than behind it. Otherwise
-                          it is the far end of whatever part is selected.
+                          and click that end before opening this window; a held end outranks this
+                          setting, and the part follows it. Otherwise it is the{' '}
+                          {joinOnAdd === 'start' ? 'head' : 'far end'} of whatever run the selected
+                          part stands in.
                         </>
                       ) : (
                         <>
                           <b>The first part lands on its own, at the middle of the workplane.</b>{' '}
                           There is nothing out there yet for it to be bonded to — everything after
-                          it joins onto the end of the run as it arrives.
+                          it joins onto the {joinOnAdd === 'start' ? 'start' : 'end'} of the run as
+                          it arrives.
                         </>
                       )}{' '}
                       The part is selected once it lands, so its measurements are ready to edit in

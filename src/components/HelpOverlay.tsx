@@ -165,7 +165,7 @@ const HELP: Record<HelpTab, Group[]> = {
           note: 'a bonded part bends the run where it stands: it swings about the joint it is plugged into, everything ahead of it holds still, and everything past it comes along holding its shape. On a run’s head, which has nothing in front of it to hold, the green ring turns the whole run instead — and carries any set picked alongside it round that same point. a strip appears under the bar while it is in hand, carrying its own two settings: Step, the notch every swing is held to, and Joint pivot, whether the break it bends at is rounded off or left a mitred corner. The button asks how far the rings reach: Rotate Selected, which is all of the above, or Rotate All, which stands the rings on the head of the picked run and turns every run on the stage about it',
         },
         {
-          keys: ['Drop to Workplane'],
+          keys: ['Place on Workplane'],
           action: 'Set the selected part’s run straight down until its lowest wall rests on the plane',
           note: 'one click rather than a mode — nothing else about the run moves, and a run left sunk below the plane is lifted onto it instead; also on a part’s right-click menu',
         },
@@ -226,7 +226,12 @@ const HELP: Record<HelpTab, Group[]> = {
           action: 'Pan the drawing',
           note: 'the wheel click pans too — press it in and drag',
         },
-        { keys: ['Fit'], action: 'Re-frame the whole run' },
+        { keys: ['Fit'], action: 'Re-frame whatever is on the paper' },
+        {
+          keys: ['Selected only'],
+          action: 'Draw the parts you have picked and nothing else',
+          note: 'on out of the box, so a plain pick puts one part on the sheet at a scale worth reading; with nothing picked the whole run is drawn',
+        },
         {
           keys: ['Active Parts'],
           action: 'Draw only the parts you are working on',
@@ -311,12 +316,12 @@ const HOWTO: Partial<Record<HelpTab, HowTo[]>> = {
     },
     {
       question: 'How do I add a part somewhere other than the end of the run?',
-      lead: 'Pick the end you want it on first. Add Part goes to the end the Connector is holding, and failing that to the far end of whatever part is selected — so with several runs on the stage, or when you are building backwards from a funnel, say where it goes before you open the library.',
+      lead: 'Either say which end of a run every part goes on, or pick one end by hand. Join onto the run, at the foot of the library, has three answers: End grows the tail part after part, Start grows the head instead — the way a run is built backwards from the funnel it has to arrive at — and Not at all drops each part on its own for the Connector to join. For one part somewhere else, hold its end first.',
       steps: [
         'Click Connector and click the end you want to grow. It turns orange and stays held.',
         'Click ＋ Add Part and pick the part. It lands bonded on that end.',
       ],
-      note: 'An inlet works as well as an outlet: pick the head of a run and the new part lands in front of it, feeding in. To have parts land on their own again, untick Join onto the run at the foot of the library.',
+      note: 'A held end outranks the setting, so it takes the one part and the setting has the rest. Without one, the reach is the Start or End of whatever run the selected part stands in.',
     },
     {
       question: 'How do I move a part around the stage?',
@@ -371,8 +376,9 @@ const HOWTO: Partial<Record<HelpTab, HowTo[]>> = {
       question: 'How do I put a floor under the run?',
       lead: 'With a Base, in the Structure shelf of the part library. It is a flat plate that stands on the workplane and fills the space under everything — not a length of run: nothing plugs into it, the marble never travels it, and it takes no part in any joint.',
       steps: [
-        'Click ＋ Add Part, open Structure and pick Base. It lands on the workplane on its own, whether or not Join onto the run is ticked.',
+        'Click ＋ Add Part, open Structure and pick Base. It lands on the workplane on its own, whatever Join onto the run is set to.',
         'With it selected, press Fit Under the Run in Part Parameters. It sizes itself to everything on the stage that is not a base and slides under the middle of it.',
+        'Or pick your machine from Printer bed above it — a Bambu A1, an A1 mini, a Sovol SV06 Plus — and the plate is sized to that bed instead. It is remembered, so the next base arrives on it.',
         'Set the thickness and the corner radius to taste, and use Move to slide it about — it stays on the plane however far it goes.',
       ],
       note: 'The marble bounces off a base the way it bounces off anything else solid, so a run that spills lands on the plinth rather than falling past it. Add as many as you like: each one is its own plate, and none of them are part of any run.',
@@ -444,7 +450,7 @@ function alwaysGroup(keys: ShortcutMap): Group {
       {
         keys: ['＋ Add Part'],
         action: 'Browse the part library and drop a part on the stage',
-        note: 'top of the window; it lands bonded onto the end of the run — untick Join onto the run at the foot of the library to have parts land on their own instead',
+        note: 'top of the window; it lands bonded onto the end of the run — Join onto the run, at the foot of the library, moves that to the start of the run or has parts land on their own instead',
       },
       { keys: ['2D Draft Mode', '3D Mode'], action: 'Switch workspace', note: 'top of the window' },
       {

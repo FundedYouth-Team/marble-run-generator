@@ -138,12 +138,15 @@ const WORKPLANE_KEY = 'mrg.workplane'
 const SHADING_KEY = 'mrg.shading'
 const SCREEN_KEY = 'mrg.screenPxPerMm'
 const KEEP_CONNECTED_KEY = 'mrg.keepConnected'
+const DRAFT_ISOLATE_KEY = 'mrg.draftIsolate'
+// Named for the switch it started life as; it holds the end a part joins on now.
 const AUTO_ATTACH_KEY = 'mrg.autoAttach'
 const UNITS_KEY = 'mrg.units'
 const SHORTCUTS_KEY = 'mrg.shortcuts'
 const OVERLAYS_KEY = 'mrg.overlays'
 const ROTATE_STEP_KEY = 'mrg.rotateStep'
 const JOINT_FILLET_KEY = 'mrg.jointFillet'
+const BASE_BED_KEY = 'mrg.baseBed'
 
 /**
  * CSS pins an inch to 96px no matter what the panel actually is, so this is
@@ -261,14 +264,36 @@ function initialKeepConnected(): boolean {
   return saved !== 'off'
 }
 
+/** The draft opens on the part you have picked; only a past `off` widens it. */
+function initialDraftIsolate(): boolean {
+  const saved = typeof localStorage !== 'undefined' ? localStorage.getItem(DRAFT_ISOLATE_KEY) : null
+  return saved !== 'off'
+}
+
 /**
- * Attached is the default: a part out of the library lands on the end of the
+ * The end of the run a part out of the library lands on, or `off` for a part
+ * that lands on its own in clear space.
+ *
+ * A run is built from one end or the other: down from the top, which is how
+ * most of them go, or backwards from the funnel it has to arrive at. `end`
+ * grows the tail, `start` grows the head — the same two ends the Connector
+ * offers, said once rather than picked again for every part.
+ */
+export type JoinEnd = 'off' | 'start' | 'end'
+
+/** The two of those that name an end; `off` names none. See {@link attachPort}. */
+export type RunEnd = Exclude<JoinEnd, 'off'>
+
+/**
+ * The tail is the default: a part out of the library lands on the end of the
  * run rather than out in a field of its own, because that is where it was
  * almost always going to be dragged to anyway.
+ *
+ * The switch this replaced wrote `on`, which is the tail said the old way.
  */
-function initialAutoAttach(): boolean {
+function initialJoinOnAdd(): JoinEnd {
   const saved = typeof localStorage !== 'undefined' ? localStorage.getItem(AUTO_ATTACH_KEY) : null
-  return saved !== 'off'
+  return saved === 'off' || saved === 'start' ? saved : 'end'
 }
 
 /**
@@ -1348,6 +1373,98 @@ export const BASE_DEFAULTS = {
 } as const
 
 /**
+ * A printer's bed, by the size of it.
+ *
+ * A base is the one part in the library whose size is not a question about the
+ * run at all: it is a plate, and a plate is printed flat in one piece, so what
+ * it may be is whatever the bed will take. Typing 256 into two boxes is the
+ * whole of that answer — this is only that answer under the name of the machine
+ * it came from, so it can be picked rather than looked up.
+ *
+ * One entry per bed rather than per printer: a bed is two numbers, and two
+ * machines that share them share an entry, since a plate sized to one is sized
+ * to the other. {@link PrinterBed.also} names the rest of them.
+ */
+export interface PrinterBed {
+  /** Steady across releases — it is what the last choice is remembered under. */
+  id: string
+  /** The printer it is named for, written as the machine is. */
+  name: string
+  /** The other machines with the same bed, for the label to say so. */
+  also: string[]
+  /** Side to side, mm. */
+  width: number
+  /** Front to back, mm. */
+  depth: number
+}
+
+/**
+ * The beds on offer, smallest first — the printers a run like this is most
+ * likely to be printed on, and nothing like all of them.
+ *
+ * A list of machines goes out of date the day it is written, which is why the
+ * two boxes underneath are still the real control: this is a shortcut to the
+ * common sizes, not the set of sizes allowed. Anything not here is typed in,
+ * and reads back as Custom.
+ */
+export const PRINTER_BEDS: PrinterBed[] = [
+  { id: 'a1mini', name: 'Bambu Lab A1 mini', also: ['Prusa MINI+'], width: 180, depth: 180 },
+  {
+    id: 'ender3',
+    name: 'Creality Ender 3',
+    also: ['Creality K1', 'Sovol SV06'],
+    width: 220,
+    depth: 220,
+  },
+  { id: 'mk4', name: 'Prusa MK4S', also: ['Prusa MK3S+'], width: 250, depth: 210 },
+  {
+    id: 'a1',
+    name: 'Bambu Lab A1',
+    also: ['Bambu Lab P1S', 'Bambu Lab X1 Carbon'],
+    width: 256,
+    depth: 256,
+  },
+  {
+    id: 'sv06plus',
+    name: 'Sovol SV06 Plus',
+    also: ['Creality K1 Max'],
+    width: 300,
+    depth: 300,
+  },
+  { id: 'ender5plus', name: 'Creality Ender 5 Plus', also: [], width: 350, depth: 350 },
+  { id: 'xl', name: 'Prusa XL', also: [], width: 360, depth: 360 },
+]
+
+/** One bed by the name it is remembered under, or null if nothing answers to it. */
+export function bedById(id: string): PrinterBed | null {
+  return PRINTER_BEDS.find((b) => b.id === id) ?? null
+}
+
+/**
+ * The bed a plate of this size is exactly, or null if it is nobody's.
+ *
+ * Turned across the bed counts as the same bed: a 250 × 210 plate and a 210 ×
+ * 250 one both print on a MK4S, and which way round it lies on the stage is a
+ * question about the run rather than about the printer.
+ */
+export function bedFor(width: number, depth: number): PrinterBed | null {
+  return (
+    PRINTER_BEDS.find(
+      (b) => (b.width === width && b.depth === depth) || (b.width === depth && b.depth === width),
+    ) ?? null
+  )
+}
+
+/**
+ * The bed a base arrives on. Nothing saved is the app's own {@link BASE_DEFAULTS}
+ * size, which is a plate worth resizing rather than any real machine's bed.
+ */
+function initialBaseBed(): string {
+  const saved = typeof localStorage !== 'undefined' ? localStorage.getItem(BASE_BED_KEY) : null
+  return saved && bedById(saved) ? saved : ''
+}
+
+/**
  * A slab, in the part's own frame: it sits on the workplane with its bottom face
  * at y = 0, centred on the origin in x and z, and stands `height` mm up.
  *
@@ -2016,33 +2133,39 @@ const otherEnd = (port: Port): Port => ({
  * is empty and there is nothing to bond it to.
  *
  * The end held by the Connector comes first: picking one is the user saying, in
- * so many words, where the next part goes. Failing that it is the far end of
- * whichever run the part leading the selection belongs to, and failing that the
- * far end of the last run on the stage — which on a run built part by part is
- * the same end either way, and is the one the hand was reaching for.
+ * so many words, where the next part goes, and it names one end of one part
+ * rather than a side of the run. Failing that it is `where` of whichever run the
+ * part leading the selection belongs to, and failing that of the last run on the
+ * stage — which on a run built part by part is the same run either way, and is
+ * the one the hand was reaching for.
  *
  * The lead rather than the whole set, even where a whole set is being copied
  * onto the run: a set can span several runs, and the end a copy lands on has to
  * be one end.
  *
- * A head can be picked as well as a tail. Pick one and the new part lands in
- * front of the run rather than behind it, which is the only way to build a run
- * backwards from the funnel it has to arrive at.
+ * `where` is the tail unless it is asked for the head. Asked for the head, the
+ * new part lands in front of the run rather than behind it, which is how a run
+ * is built backwards from the funnel it has to arrive at.
  *
  * A base is passed over wherever it would otherwise be the answer. It has no
  * ends to bond to, so the reach falls back past it to the last run on the stage
  * that has — and a stage holding nothing but bases has nowhere to attach at all.
  */
-export function attachPort(s: {
-  pieces: Piece[]
-  pendingPort: Port | null
-  selectedId: string | null
-}): Port | null {
+export function attachPort(
+  s: {
+    pieces: Piece[]
+    pendingPort: Port | null
+    selectedId: string | null
+  },
+  where: RunEnd = 'end',
+): Port | null {
   if (s.pendingPort && isOpenPort(s.pieces, s.pendingPort)) return s.pendingPort
   const lead = s.selectedId ? s.pieces.findIndex((p) => p.id === s.selectedId) : -1
   const from = lead >= 0 && !isStructure(s.pieces[lead]) ? lead : lastRunEnd(s.pieces)
   if (from < 0) return null
-  return { pieceId: s.pieces[chainTailOf(s.pieces, from)].id, end: 'out' }
+  return where === 'start'
+    ? { pieceId: s.pieces[chainRootOf(s.pieces, from)].id, end: 'in' }
+    : { pieceId: s.pieces[chainTailOf(s.pieces, from)].id, end: 'out' }
 }
 
 /** The last part on the stage that is actually a length of run; -1 if there is none. */
@@ -3642,6 +3765,17 @@ interface RunState {
 
   mode: Mode
   draftView: DraftView
+  /**
+   * Whether the assembly draft is a drawing of the parts you have picked rather
+   * than of the whole run. On — which is how it ships — the sheet holds the
+   * selection and nothing else, which for a plain pick is one part: a drawing
+   * you can read, dimensioned and at a scale worth reading, instead of a run of
+   * forty tubes shrunk to fit the paper. Off, the whole run is drawn.
+   *
+   * With nothing picked there is nothing to isolate, so the sheet falls back to
+   * the whole run either way.
+   */
+  draftIsolate: boolean
   theme: Theme
   /**
    * The unit every length on screen is written and typed in. The model stays
@@ -3708,12 +3842,13 @@ interface RunState {
    */
   keepConnected: boolean
   /**
-   * Whether a part out of the library lands bonded onto the run. On — which is
-   * how it ships — it arrives on the end named by {@link attachPort} and the
-   * run grows by one part. Off, it lands on its own in clear space and joining
-   * it is the Connector's job.
+   * Which end of the run a part out of the library lands bonded onto. `end` —
+   * which is how it ships — grows the tail, `start` grows the head, and either
+   * way the part arrives on the end named by {@link attachPort} and the run
+   * grows by one part. `off`, it lands on its own in clear space and joining it
+   * is the Connector's job.
    */
-  autoAttach: boolean
+  joinOnAdd: JoinEnd
   /**
    * How far the Rotate tool's rings move per notch, degrees — the "how much"
    * half of the tool's settings. Nought is a free swing; anything else holds
@@ -3805,6 +3940,8 @@ interface RunState {
 
   setMode: (m: Mode) => void
   setDraftView: (v: DraftView) => void
+  /** Draws the picked parts alone, or the whole run. Remembered per machine. */
+  setDraftIsolate: (v: boolean) => void
   toggleTheme: () => void
   /**
    * Switches what unit lengths are shown in, everywhere at once. Nothing about
@@ -3874,10 +4011,11 @@ interface RunState {
   /** Turning it on pulls whatever joints have come open back together. */
   setKeepConnected: (v: boolean) => void
   /**
-   * Switches whether a new part lands bonded onto the run or on its own. It
-   * says where the *next* part goes; nothing already on the stage moves.
+   * Sets which end of the run a new part lands bonded onto, or `off` for one
+   * that lands on its own. It says where the *next* part goes; nothing already
+   * on the stage moves.
    */
-  setAutoAttach: (v: boolean) => void
+  setJoinOnAdd: (v: JoinEnd) => void
   /** Sets the notch the Rotate tool's rings move in, degrees; nought is free. */
   setRotateStep: (deg: number) => void
   /**
@@ -3975,6 +4113,27 @@ interface RunState {
    * stage holds nothing but ground.
    */
   fitBaseToRun: (pieceId: string) => void
+  /**
+   * The bed a base out of the library arrives on — one of {@link PRINTER_BEDS}
+   * by id, or the empty string for the app's own {@link BASE_DEFAULTS} plate.
+   *
+   * Remembered past the project, like the rest of the workshop's settings: the
+   * printer on the bench does not change between runs, so the size a plate has
+   * to come in under is asked once and then holds. It is only what a *new* base
+   * lands at — a plate already on the stage is whatever size it was last set to,
+   * and {@link bedFor} is what reads that back as a bed.
+   */
+  baseBed: string
+  /**
+   * Sizes a base to a printer's bed, and remembers that bed for the next one.
+   *
+   * The two spans only. Its thickness and its corners are left exactly as they
+   * were, for the reason {@link RunState.fitBaseToRun} leaves them: a bed says
+   * how much floor there is, and nothing whatever about how thick a plate lying
+   * on it should be. Does nothing if the part named is not a base, or if the bed
+   * named is not one we know.
+   */
+  setBaseBed: (pieceId: string, bedId: string) => void
   /**
    * Where the first of a rod's two clicks landed, or null between gestures.
    *
@@ -4196,6 +4355,7 @@ export const useRun = create<RunState>((set, get) => {
     // 3D is where a run is built; the 2D draft is for working a single part.
     mode: '3d',
     draftView: 'developed',
+    draftIsolate: initialDraftIsolate(),
     theme: initialTheme(),
     units: labelUnits,
     shortcuts: initialShortcuts(),
@@ -4220,7 +4380,8 @@ export const useRun = create<RunState>((set, get) => {
     workplane: initialWorkplane(),
     shading: initialShading(),
     keepConnected: initialKeepConnected(),
-    autoAttach: initialAutoAttach(),
+    joinOnAdd: initialJoinOnAdd(),
+    baseBed: initialBaseBed(),
     rotateStep: initialRotateStep(),
     jointFillet: initialJointFillet(),
 
@@ -4340,6 +4501,13 @@ export const useRun = create<RunState>((set, get) => {
 
     setMode: (mode) => set({ mode }),
     setDraftView: (draftView) => set({ draftView }),
+    // What the sheet shows, not what is on it: no step on the timeline, and
+    // remembered past the project the way the rest of the view settings are.
+    setDraftIsolate: (draftIsolate) => {
+      if (get().draftIsolate === draftIsolate) return
+      remember(DRAFT_ISOLATE_KEY, draftIsolate ? 'on' : 'off')
+      set({ draftIsolate })
+    },
     toggleTheme: () =>
       set((s) => {
         const theme: Theme = s.theme === 'light' ? 'dark' : 'light'
@@ -4561,10 +4729,13 @@ export const useRun = create<RunState>((set, get) => {
     },
     // A preference about the next part, not a change to this one: nothing on the
     // stage moves, so there is nothing to file in the timeline.
-    setAutoAttach: (autoAttach) => {
-      if (get().autoAttach === autoAttach) return
-      remember(AUTO_ATTACH_KEY, autoAttach ? 'on' : 'off')
-      set({ autoAttach })
+    setJoinOnAdd: (joinOnAdd) => {
+      if (get().joinOnAdd === joinOnAdd) return
+      remember(AUTO_ATTACH_KEY, joinOnAdd)
+      // The end held by the Connector outranks the setting, so a stale one would
+      // send the very next part to the end the user has just said they are done
+      // with. Turning the setting is the newer answer; the pick is dropped.
+      set({ joinOnAdd, pendingPort: null })
     },
     // How the rings behave, not what they have done: no step, and remembered
     // past the project the way the rest of the handle settings are.
@@ -4739,7 +4910,7 @@ export const useRun = create<RunState>((set, get) => {
     },
 
     dropToWorkplane: (pieceId) =>
-      commit(`Drop ${nameOf(get(), pieceId)} to the workplane`, (s) => {
+      commit(`Place ${nameOf(get(), pieceId)} on the workplane`, (s) => {
         const i = s.pieces.findIndex((p) => p.id === pieceId)
         if (i < 0) return null
         const root = chainRootOf(s.pieces, i)
@@ -4826,6 +4997,29 @@ export const useRun = create<RunState>((set, get) => {
         }
       }),
 
+    setBaseBed: (pieceId, bedId) => {
+      const bed = bedById(bedId)
+      if (!bed) return
+      // Remembered whatever comes of the resize below — even a plate already at
+      // that size still says which machine it was sized for, and that is the
+      // answer the next base out of the library wants.
+      if (get().baseBed !== bed.id) {
+        remember(BASE_BED_KEY, bed.id)
+        set({ baseBed: bed.id })
+      }
+      commit(`Size ${nameOf(get(), pieceId)} to the ${bed.name} bed`, (s) => {
+        const i = s.pieces.findIndex((p) => p.id === pieceId)
+        if (i < 0 || !isBase(s.pieces[i])) return null
+        const now = baseSpec(s.pieces[i])
+        if (now.width === bed.width && now.depth === bed.depth) return null
+        return {
+          pieces: s.pieces.map((p, j) =>
+            j === i ? { ...p, width: bed.width, length: bed.depth } : p,
+          ),
+        }
+      })
+    },
+
     strikeRod: (spot) => {
       const s0 = get()
       // The first of the two clicks only remembers where it landed; nothing is
@@ -4871,7 +5065,13 @@ export const useRun = create<RunState>((set, get) => {
       // Settled before it is stood down, not after: how far a coil falls is
       // what says how high off the workplane it has to start.
       const outerR = s0.innerDiameter / 2 + s0.wallThickness
-      const shape = settle(makePiece({ type }), s0.innerDiameter / 2, s0.wallThickness)
+      // A plate comes in on whichever printer's bed was last picked for one, so
+      // the size it has to be built inside is answered once rather than at every
+      // base. Nothing else in the library has a size that is anybody's but the
+      // run's. See {@link RunState.baseBed}.
+      const bed = type === 'base' ? bedById(s0.baseBed) : null
+      const born = bed ? { type, width: bed.width, length: bed.depth } : { type }
+      const shape = settle(makePiece(born), s0.innerDiameter / 2, s0.wallThickness)
       const piece = {
         ...shape,
         at: spawnPlacement(s0.pieces, shape, outerR),
@@ -4880,7 +5080,8 @@ export const useRun = create<RunState>((set, get) => {
       // in the timeline can say so — and so that a part landing on its own says
       // that instead. A base is never bonded: it has no ends, so it always lands
       // on its own and the label says only that.
-      const target = s0.autoAttach && !isStructure(piece) ? attachPort(s0) : null
+      const target =
+        s0.joinOnAdd !== 'off' && !isStructure(piece) ? attachPort(s0, s0.joinOnAdd) : null
       const label = target
         ? `Add ${PART_LABEL[piece.type]} onto ${nameOf(s0, target.pieceId)}`
         : `Add ${PART_LABEL[piece.type]}`
@@ -4908,13 +5109,19 @@ export const useRun = create<RunState>((set, get) => {
           // end, say — still gets its part: it lands on its own, which is what
           // this did before there was anywhere to land on.
           if (pieces) {
-            // Growing a run's head is a direction rather than a one-off, so the
-            // new head is held ready for the next part. Left to the selection
-            // alone the next one would land at the far end of the run instead,
-            // and a run being built backwards would come apart at the second
-            // part. Growing a tail needs none of this: the far end of the part
-            // just added is the far end of the run.
-            const carry: Port | null = target.end === 'in' ? { pieceId: piece.id, end: 'in' } : null
+            // Growing a run's head off a single Connector pick is a direction
+            // rather than a one-off, so the new head is held ready for the next
+            // part. Left to the selection alone the next one would land at the
+            // far end of the run instead, and a run being built backwards would
+            // come apart at the second part. Growing a tail needs none of this:
+            // the far end of the part just added is the far end of the run — and
+            // neither does a run being grown by the head because the setting
+            // says so, which finds the new head on its own and would be held to
+            // this stale end by it if the setting were then turned round.
+            const carry: Port | null =
+              target.end === 'in' && s.joinOnAdd !== 'start'
+                ? { pieceId: piece.id, end: 'in' }
+                : null
             return { pieces, ...picked([piece.id]), pendingPort: carry }
           }
         }
@@ -4930,7 +5137,10 @@ export const useRun = create<RunState>((set, get) => {
       // Where the copies are going to be bonded, settled before the commit so the
       // label in the timeline can say so — the same way a part out of the library
       // works out its landing before it lands. See {@link RunState.addPiece}.
-      const target = opts?.join ? attachPort(s0) : null
+      // The copy is being asked for joined outright, so it joins whatever the
+      // library's setting says — but which end of the run it lands on is the
+      // same question that setting answers, so it is read for that much.
+      const target = opts?.join ? attachPort(s0, s0.joinOnAdd === 'start' ? 'start' : 'end') : null
       const what = list.length > 1 ? `${list.length} parts` : nameOf(s0, list[0])
       const label = target
         ? `Duplicate ${what} onto ${nameOf(s0, target.pieceId)}`

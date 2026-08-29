@@ -352,6 +352,7 @@ function FlowCap({
   ux,
   uy,
   kind,
+  label,
   markerId,
 }: {
   x: number
@@ -359,6 +360,12 @@ function FlowCap({
   ux: number
   uy: number
   kind: 'in' | 'out'
+  /**
+   * What the cap is called. START and END are the run's own two ends; a sheet
+   * showing a slice out of the middle of a run has neither, so it says IN and
+   * OUT instead rather than promising an end it is not drawing.
+   */
+  label: string
   markerId: string
 }) {
   const gap = 9
@@ -381,7 +388,7 @@ function FlowCap({
     <g className={`flow-cap ${kind}`}>
       <line x1={x1} y1={y1} x2={x2} y2={y2} markerEnd={`url(#${markerId}-arrow)`} />
       <text x={lx} y={ly} textAnchor={anchor} dominantBaseline="middle">
-        {kind === 'in' ? 'START' : 'END'}
+        {label}
       </text>
     </g>
   )
@@ -981,6 +988,8 @@ function AssemblyDraft({ shifted }: { shifted: boolean }) {
     openSide,
     draftView,
     setDraftView,
+    draftIsolate,
+    setDraftIsolate,
     selectedId,
     selectedIds,
     select,
@@ -1460,10 +1469,35 @@ function AssemblyDraft({ shifted }: { shifted: boolean }) {
     [pieces, spec],
   )
 
-  /** Only the parts whose eye is on — what the drawing is actually about. */
-  const visible = useMemo(() => parts.filter((p) => p.shown), [parts])
+  /**
+   * What the sheet is a drawing of.
+   *
+   * The eye in the parts list decides what exists here at all. On top of that,
+   * isolate narrows the sheet to the parts you have picked — one part, for a
+   * plain pick — so the drawing is of a part rather than of a run, and the
+   * dimensions on it are big enough to read.
+   *
+   * A pick that leaves nothing to draw is not a drawing: with nothing selected,
+   * or with the selection switched off in the list, there is nothing to isolate
+   * and the whole run is what the sheet falls back to.
+   */
+  const anyPicked =
+    draftIsolate &&
+    (parts.some((p) => p.shown && selectedIds.includes(p.id)) ||
+      slabs.some((b) => b.shown && selectedIds.includes(b.id)))
+  /** Only the parts whose eye is on — and, isolating, only the picked ones. */
+  const visible = useMemo(
+    () => (anyPicked ? parts.filter((p) => p.shown && selectedIds.includes(p.id)) : parts.filter((p) => p.shown)),
+    [parts, anyPicked, selectedIds],
+  )
   /** The same, for the ground under them. */
-  const grounds = useMemo(() => slabs.filter((b) => b.shown), [slabs])
+  const grounds = useMemo(
+    () => (anyPicked ? slabs.filter((b) => b.shown && selectedIds.includes(b.id)) : slabs.filter((b) => b.shown)),
+    [slabs, anyPicked, selectedIds],
+  )
+  /** Handles belong to drawn parts; a grip on a part that is off the sheet has nothing to hold. */
+  const drawn = useMemo(() => new Set(visible.map((p) => p.id)), [visible])
+  const handles = useMemo(() => grips.filter((g) => drawn.has(g.id)), [grips, drawn])
 
   const fit = useCallback(() => {
     // The structure counts towards the framing as much as the run does: a plate
@@ -1489,9 +1523,17 @@ function AssemblyDraft({ shifted }: { shifted: boolean }) {
     })
   }, [visible, grounds, size.w, size.h, outerReach])
 
-  // Re-framed when the drawn set changes, so switching parts off zooms in on
-  // whatever is left rather than leaving it adrift in the old frame.
-  useEffect(fit, [size.w, size.h, draftView, pieces.length, visible.length, grounds.length])
+  /**
+   * Which parts are on the paper, by name rather than by count. Isolating, a
+   * pick that moves from one part to the next leaves the count where it was, so
+   * a count would not notice that the drawing had changed entirely.
+   */
+  const drawnKey = `${visible.map((p) => p.id).join()}|${grounds.map((b) => b.id).join()}`
+
+  // Re-framed when the drawn set changes, so switching parts off — or picking a
+  // different one to isolate — zooms in on whatever is on the paper now rather
+  // than leaving it adrift in the old frame.
+  useEffect(fit, [size.w, size.h, draftView, pieces.length, drawnKey])
 
   /**
    * True physical size: one model mm becomes one real mm on the glass. Zooms
@@ -1838,6 +1880,28 @@ function AssemblyDraft({ shifted }: { shifted: boolean }) {
             {VIEW_ORDER.filter((v) => !VIEWS[v].developed).map(viewButton)}
           </div>
         </div>
+        {/* What the sheet is of, beside where it is drawn from. */}
+        <HoverHint
+          label="Selected only"
+          hint={
+            <>
+              On, the sheet is a drawing of the parts you have picked — one part, for a plain
+              pick — at a scale worth reading, with its own dimensions clear of everything
+              else. The run either side of it still sets where it sits and how its walls
+              mitre; it is simply not drawn. Off, the whole run goes on the paper. Either way,
+              with nothing picked there is nothing to isolate and the whole run is drawn.
+            </>
+          }
+        >
+          <button
+            className={draftIsolate ? 'view-tool wide on' : 'view-tool wide'}
+            onClick={() => setDraftIsolate(!draftIsolate)}
+            aria-label="Draw the selected parts only"
+            aria-pressed={draftIsolate}
+          >
+            Selected only
+          </button>
+        </HoverHint>
         {/* The joints are dragged on this canvas, so the rule that holds them
             together belongs beside the views rather than buried in a panel. */}
         <HoverHint
@@ -2068,6 +2132,9 @@ function AssemblyDraft({ shifted }: { shifted: boolean }) {
                 // marble travels — the first — rather than spanning two runs
                 // that have nothing to do with each other.
                 const run = visible.filter((p) => p.chain === visible[0].chain)
+                // The run this slice was cut out of, hidden parts and all: what
+                // says whether the drawn ends really are the run's own two ends.
+                const whole = parts.filter((p) => p.chain === run[0].chain)
                 const head = run[0].points
                 const tail = run[run.length - 1].points
                 const dir = (a: Pt, b: Pt) => {
@@ -2086,6 +2153,7 @@ function AssemblyDraft({ shifted }: { shifted: boolean }) {
                       ux={a.ux}
                       uy={a.uy}
                       kind="in"
+                      label={run[0].id === whole[0].id ? 'START' : 'IN'}
                       markerId="asm"
                     />
                     <FlowCap
@@ -2094,6 +2162,7 @@ function AssemblyDraft({ shifted }: { shifted: boolean }) {
                       ux={b.ux}
                       uy={b.uy}
                       kind="out"
+                      label={run[run.length - 1].id === whole[whole.length - 1].id ? 'END' : 'OUT'}
                       markerId="asm"
                     />
                   </>
@@ -2103,8 +2172,8 @@ function AssemblyDraft({ shifted }: { shifted: boolean }) {
           )}
 
           {/* The run starts where it starts — that joint is the one fixed point.
-              With the first part switched off there is nothing to anchor. */}
-          {parts.length > 0 && parts[0].shown && (
+              With the first part off the sheet there is nothing to anchor. */}
+          {parts.length > 0 && drawn.has(parts[0].id) && (
             <circle
               className="joint anchor"
               cx={px(parts[0].points[0].x)}
@@ -2116,7 +2185,7 @@ function AssemblyDraft({ shifted }: { shifted: boolean }) {
           )}
 
           {/* Joint handles sit above the segments so they stay grabbable. */}
-          {grips.map((g) => {
+          {handles.map((g) => {
             const on = g.id === selectedId
             const live = grabbed === g.key
             const head = g.grab === 'head'

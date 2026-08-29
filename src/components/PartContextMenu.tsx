@@ -315,7 +315,7 @@ export default function PartContextMenu({
               onClick={run(() => dropToWorkplane(piece.id))}
             >
               <DropToPlaneIcon size={14} />
-              Drop to Workplane
+              Place on Workplane
             </button>
           )}
 

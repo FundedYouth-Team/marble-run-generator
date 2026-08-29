@@ -1419,10 +1419,14 @@ input[type='range'] {
   margin: 0;
 }
 
-/* The switch over the sentence it governs, set apart by a rule so the note
-   below reads as the explanation of it rather than more of the same. */
+/* The choice over the sentence it governs, set apart by a rule so the note
+   below reads as the explanation of it rather than more of the same. The
+   buttons sit beside the heading rather than under it: three short words take
+   far less room than the line naming them, and the footer is short on height. */
 .lib-attach {
-  align-items: flex-start;
+  display: flex;
+  align-items: center;
+  gap: 12px;
   margin-bottom: 8px;
   padding-bottom: 8px;
   border-bottom: 1px solid var(--line);
@@ -1430,8 +1434,25 @@ input[type='range'] {
   font-weight: 600;
 }
 
-.lib-attach input {
-  margin-top: 1px;
+/* The heading keeps the weight the switch's label had — it is the question the
+   footer is about, not a field caption in a column of them. */
+.lib-attach .field-label {
+  flex: 1 1 auto;
+  flex-wrap: wrap;
+  margin: 0;
+  font-size: 12px;
+  color: inherit;
+}
+
+.lib-attach .segmented {
+  flex: 0 0 auto;
+}
+
+/* Each choice as wide as its own word, so "Not at all" does not squash the
+   two single words beside it into a pair of stubs. */
+.lib-attach .segmented button {
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 
 .lib-attach em {
@@ -1892,6 +1913,15 @@ button.danger {
 .row-btns {
   display: flex;
   gap: 6px;
+}
+
+/* The printer bed on a base. Full width of the panel: the entries are a name
+   and two figures, and truncating them leaves a list of half-printers. */
+.bed-select {
+  width: 100%;
+  min-width: 0;
+  padding: 5px 6px;
+  font-size: 11px;
 }
 
 .row-btns button {

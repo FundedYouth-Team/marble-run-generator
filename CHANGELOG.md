@@ -11,7 +11,82 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- **Drop to Workplane is now Place on Workplane.** "Drop" reads as letting go of
+  something, and the button does the opposite — it sets the run down deliberately,
+  and lifts one that had sunk below the plane back onto it. Renamed on the
+  toolbar, on a part's right-click menu, in Help, and in the undo history, which
+  now reads *Place Tube 2 on the workplane*. Nothing about what it does changed.
+
+- **The 2D draft is now a drawing of the part you have picked, not of the whole
+  run.** A draft sheet is where a part is measured and set, and a run of forty
+  tubes shrunk to fit one sheet is a picture of a run rather than a drawing of
+  anything: the dimensions pile up, the legs are a few pixels long, and the one
+  part you came to look at is lost in it. Picked, that part now has the paper to
+  itself, framed and at a scale its figures can be read at. Pick several and the
+  sheet holds those; pick nothing and the whole run is drawn, because there is
+  nothing to isolate.
+- **The run either side of it is still there, it is simply not drawn.** The part
+  stands exactly where the run puts it, and its walls still mitre into the joints
+  at both ends the way they always did — the drawing is a window onto the run,
+  not the part lifted out of it.
+- **Selected only**, beside Keep connected, turns it off for the old whole-run
+  sheet, and is remembered past the project like the rest of the view settings.
+  It ships on. Switching the pick re-frames the sheet on whatever is now on it,
+  the same way switching a part off always has.
+- The handles come with the drawing, so only the drawn parts carry joints to
+  drag — and the flow caps say **IN** and **OUT** on a slice cut from the middle
+  of a run, keeping **START** and **END** for the sheet that really does draw the
+  run's own two ends.
+- **Join onto the run is now a choice of three: Start, End, or Not at all.**
+  The tickbox at the foot of the library said only whether a new part joins on,
+  and joining on always meant the tail. Which end is a real question — a run is
+  built down from the top, or backwards from the funnel it has to arrive at —
+  and it was only answerable one part at a time, by picking that end with the
+  Connector before every trip to the library. Now it is said once and holds.
+- **End is what the tick always did** and is still how it ships, so nothing
+  changes for anyone who was not asking for this. **Not at all** is the old
+  untick: parts land on their own for the Connector to join. **Start** puts each
+  new part in front of the run, feeding into it — the same joint the Connector
+  has always made on a head, made for you.
+- The setting is remembered past the project like the rest of the handle
+  preferences, and a browser that had the old switch on comes back on End.
+- An end held by the Connector still outranks it, so one part can still be sent
+  somewhere else without changing the setting. Turning the setting now drops a
+  held end, since it is the newer answer to the same question — otherwise the
+  next part would go to the end you had just said you were done with.
+- The footer says which end a part is about to land on and reads back the run's
+  own name for it, so the promise and what happens cannot come apart. Duplicate
+  onto the run follows the same choice.
+
 ### Added
+
+- **A base is now sized by naming your printer.** The plate is the one part on
+  the stage whose size is not a question about the run at all — it is printed
+  flat in one piece, so what it may be is whatever the bed will take. **Printer
+  bed**, at the top of a base's parameters, lists the beds by the machine they
+  belong to: an A1 mini at 180 square, an Ender 3 at 220, a MK4S at 250 × 210, a
+  Bambu A1 at 256, an SV06 Plus at 300, an Ender 5 Plus at 350, a Prusa XL at
+  360. Pick one and the plate is that bed, corner to corner.
+- **The two spans only.** The thickness and the corners are left exactly as they
+  were, for the reason **Fit Under the Run** leaves them: a bed says how much
+  floor there is and nothing whatever about how thick the plate standing on it
+  should be. Both are one step in the history — *Size Base 1 to the Bambu Lab A1
+  mini bed* — so Undo puts the old plate back.
+- **One entry per bed, not per printer.** A bed is two numbers, and two machines
+  that share them share a line: an A1 mini and a Prusa MINI+ print the same
+  plate, and the note says as much. Anything not on the list is still typed into
+  the two boxes underneath, and the drop-down reads back **Custom** with the size
+  it actually is — nudge a bed plate by a millimetre and it says Custom again.
+- **The bed is remembered, so it is asked once.** Whichever is picked is the one
+  the next base out of the library arrives on, kept past the project like the
+  rest of the workshop's settings — the printer on the bench does not change
+  between runs. Nothing picked yet is the old 240 square plate, which is a size
+  worth resizing rather than any real machine's bed.
+- Sized right to the edge, a plate leaves nothing for a brim or a skirt to stand
+  in, and the note under the drop-down says so: take a few mm off if the slicer
+  complains. The bed sizes are the beds, not the beds less a margin.
 
 - **A corkscrew's fall is now something you set.** Drag **Fall**, marked Slower
   to Faster, and the marble comes down the coil as fast as you want it to. It is

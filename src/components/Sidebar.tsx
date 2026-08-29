@@ -18,6 +18,8 @@ import {
   ANGLE_DEFAULTS,
   BASE_DEFAULTS,
   BASE_LIMITS,
+  PRINTER_BEDS,
+  bedFor,
   SUPPORT_LIMITS,
   CORNER_DEFAULTS,
   angleSpec,
@@ -120,6 +122,12 @@ const CAGE_CHOICES: [string, boolean, boolean, string][] = [
   ['Both', true, true, 'Caged inside and out — every ring held at eight points'],
 ]
 
+/** A handful of names in a sentence — "a, b and c" rather than "a, b, c". */
+function listWords(words: string[]): string {
+  if (words.length < 2) return words[0] ?? ''
+  return `${words.slice(0, -1).join(', ')} and ${words[words.length - 1]}`
+}
+
 export default function Sidebar() {
   const s = useRun()
   const selectedIndex = s.pieces.findIndex((p) => p.id === s.selectedId)
@@ -198,6 +206,13 @@ export default function Sidebar() {
    * every one of them would be a control that does nothing.
    */
   const slab = selected && selected.type === 'base' ? baseSpec(selected) : null
+  /**
+   * The printer the plate is exactly the bed of, if it is anybody's — a reading
+   * taken off its two spans rather than anything the slab remembers, so a plate
+   * typed to 256 square reads as an A1 whether it was picked from the list or
+   * not, and one nudged a millimetre off reads as Custom again.
+   */
+  const bed = slab ? bedFor(slab.width, slab.depth) : null
   /**
    * The post, when a support is what is picked — the other part on the stage
    * that is not cut from the tube. The tube panels go away for it exactly as
@@ -1352,6 +1367,64 @@ export default function Sidebar() {
                   </>
                 ) : slab ? (
                   <>
+                    {/* Above the two spans it sets, because it is those two
+                        spans said in one word — the machine the plate has to
+                        come off. Everything under it stays typeable. */}
+                    <span className="field-label">
+                      Printer bed
+                      <em>sizes the plate to the machine it prints on</em>
+                    </span>
+                    <select
+                      className="bed-select"
+                      value={bed?.id ?? ''}
+                      onChange={(e) => s.setBaseBed(selected.id, e.target.value)}
+                      title={
+                        bed
+                          ? `${coarseText(slab.width, s.units)} × ${formatCoarse(slab.depth, s.units)} — the ${bed.name} bed`
+                          : 'This plate is not the size of any bed on the list'
+                      }
+                    >
+                      {/* Only ever a read-out: Custom is what the two boxes
+                          below say when they say something no printer here
+                          has, and there is nothing for picking it to do. */}
+                      <option value="" disabled>
+                        Custom — {coarseText(slab.width, s.units)} ×{' '}
+                        {formatCoarse(slab.depth, s.units)}
+                      </option>
+                      {PRINTER_BEDS.map((b) => (
+                        <option
+                          key={b.id}
+                          value={b.id}
+                          title={b.also.length ? `Same bed: ${b.also.join(', ')}` : b.name}
+                        >
+                          {b.name} — {coarseText(b.width, s.units)} ×{' '}
+                          {formatCoarse(b.depth, s.units)}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="note">
+                      {bed ? (
+                        <>
+                          <b>The plate is a {bed.name} bed, corner to corner.</b>{' '}
+                          {bed.also.length ? (
+                            <>
+                              The same bed as {listWords(bed.also)} — one entry, because a plate
+                              sized to one is sized to the other.{' '}
+                            </>
+                          ) : null}
+                          Sized right to the edge it leaves nothing for a brim or a skirt to stand
+                          in, so take a few {UNIT_WORD[s.units]} off below if the slicer complains.
+                        </>
+                      ) : (
+                        <>
+                          <b>Not the size of any bed on the list.</b> Pick one and the plate is
+                          sized to it — the two spans only, since a bed says how much floor there
+                          is and nothing about how thick the plate on it should be.
+                        </>
+                      )}{' '}
+                      Whichever is picked is remembered: the next base out of the library arrives
+                      on that bed.
+                    </p>
                     <NumberField
                       label="Width"
                       hint="side to side"

@@ -487,7 +487,7 @@ export default function Toolbar({ spec, asm }: { spec: TubeSpec; asm: Assembly }
           ]}
         />
         <ToolButton
-          label="Drop to Workplane"
+          label="Place on Workplane"
           icon={<DropToPlaneIcon />}
           disabled={!selectedId}
           title={
