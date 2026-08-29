@@ -488,7 +488,7 @@ export default function PartLibrary() {
     setOpen(false)
   }
 
-  /** Opens the library on a shelf, whichever button was pressed. */
+  /** Opens the library on a shelf — the same shelves the window itself lists. */
   const openOn = (s: Section) => {
     setSection(s)
     setOpen(true)
@@ -510,17 +510,6 @@ export default function PartLibrary() {
           <span aria-hidden="true">＋</span> Add Part
         </button>
       </HoverHint>
-
-      {/* Its own button rather than only a shelf inside the window: a template
-          is where a run starts, and nobody looking for one would think to open
-          something called Add Part. Both open the same window. */}
-      <button
-        className="templates-btn"
-        onClick={() => openOn('templates')}
-        title="Start from one of your saved runs"
-      >
-        Templates
-      </button>
 
       {open && (
         <div className="lib-backdrop" onClick={() => setOpen(false)}>

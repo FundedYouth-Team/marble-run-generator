@@ -11,6 +11,14 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Removed
+
+- **The Templates button has left the top bar.** It sat beside Add Part and
+  opened the very same library window, only on the templates shelf — two buttons
+  an inch apart for one window. Add Part opens the library as it always did, and
+  Templates is still one of the shelves listed down its side. Its styling goes
+  with it.
+
 ### Changed
 
 - **The badge beside the name says which beta it is.** It read only "BETA",

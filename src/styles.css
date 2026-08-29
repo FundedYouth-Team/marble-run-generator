@@ -1330,17 +1330,6 @@ input[type='range'] {
   font-weight: 700;
 }
 
-/* Beside Add Part, and quieter than it: adding a part is the everyday move,
-   taking a whole run off the shelf is the one you make once. */
-.templates-btn {
-  flex: 0 0 auto;
-  padding: 7px 14px;
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-}
-
 .lib-backdrop {
   position: fixed;
   inset: 0;
