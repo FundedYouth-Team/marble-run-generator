@@ -1296,6 +1296,97 @@ function Axis({ axis, rotation }: { axis: 'x' | 'y' | 'z'; rotation: [number, nu
 }
 
 /**
+ * How far the three origin lines reach out from the middle of the workplane, mm.
+ *
+ * Long enough to run past anything anyone builds, and comfortably inside the
+ * fog, which is what puts an end to them: a line that simply stopped would read
+ * as a part of a length, where one fading into the sky reads as a direction that
+ * carries on.
+ */
+const ORIGIN_REACH = 2500
+
+/**
+ * How far above the workplane the two lines lying in it are floated, mm.
+ *
+ * They run exactly along the grid's own section lines, so at nothing they and
+ * the ruling are the same depth to within what the depth buffer can tell apart
+ * — which is what made them flash as the camera swung. The depth buffer is
+ * coarser the further away it looks: at the camera's own near plane it splits
+ * hundredths of a millimetre, and a couple of metres out it is down to about a
+ * millimetre, so this is set to clear it at the far end of the run rather than
+ * at the near one. Still nothing you can see it stand off by.
+ */
+const ORIGIN_LIFT = 1
+
+/**
+ * Drawn after the grid and after the contact shadow, both of which are
+ * see-through and lie in the same plane.
+ *
+ * Without a say in the order, three transparent things at the same depth are
+ * sorted by how far their middles are from the camera, and that order flips as
+ * the camera comes round — the second half of the flashing. An order given by
+ * hand is the same order from every angle.
+ */
+const ORIGIN_ORDER = 2
+
+/**
+ * The three axes drawn out from the middle of the workplane — where the run's
+ * zero is, which the grid alone does not say.
+ *
+ * Positive only: a line each way through the origin would put the middle of the
+ * stage at the crossing of two full lines and say nothing about which way the
+ * numbers climb, where three rays out of one corner say both at once. Red X,
+ * green Y and blue Z, the same colours as the corner triad and as the move
+ * arrows — so Y is the upright one here, this stage being built with Y up.
+ *
+ * One geometry for all three, coloured per vertex: the lines are furniture and
+ * are not worth three draws. They take no click and are hidden behind anything
+ * solid, being a datum rather than a thing on the stage.
+ */
+function OriginLines({ y }: { y: number }) {
+  const geometry = useMemo(() => {
+    const g = new THREE.BufferGeometry()
+    // prettier-ignore
+    const points = new Float32Array([
+      0, 0, 0, ORIGIN_REACH, 0, 0,
+      0, 0, 0, 0, ORIGIN_REACH, 0,
+      0, 0, 0, 0, 0, ORIGIN_REACH,
+    ])
+    const colors = new Float32Array(18)
+    const rgb = new THREE.Color()
+    for (const [i, axis] of (['x', 'y', 'z'] as const).entries()) {
+      rgb.set(AXIS_COLORS[axis])
+      // Both ends of the segment, so the line is one colour end to end.
+      for (const end of [0, 1]) rgb.toArray(colors, i * 6 + end * 3)
+    }
+    g.setAttribute('position', new THREE.BufferAttribute(points, 3))
+    g.setAttribute('color', new THREE.BufferAttribute(colors, 3))
+    return g
+  }, [])
+  useEffect(() => () => geometry.dispose(), [geometry])
+
+  return (
+    <lineSegments
+      geometry={geometry}
+      position={[0, y + ORIGIN_LIFT, 0]}
+      renderOrder={ORIGIN_ORDER}
+      raycast={() => null}
+    >
+      {/* Depth is still tested, so a part in front still hides them — but not
+          written, since a datum line is nothing for anything else to sort
+          against. */}
+      <lineBasicMaterial
+        vertexColors
+        transparent
+        opacity={0.95}
+        depthWrite={false}
+        toneMapped={false}
+      />
+    </lineSegments>
+  )
+}
+
+/**
  * Where the first of a rod's two clicks landed, marked on the stage.
  *
  * A small unlit ball, drawn in front of everything and answering no click of its
@@ -2141,6 +2232,7 @@ export default function Scene3D() {
           infiniteGrid
           followCamera={false}
         />
+        {overlays.origin && <OriginLines y={groundY} />}
         <ContactShadows
           position={[0, groundY + 0.5, 0]}
           // The blob shadow ignores per-mesh casting, so it is faded by hand in x-ray mode.

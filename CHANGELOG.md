@@ -13,6 +13,29 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **Three axis lines run out from the middle of the workplane.** The grid ruled
+  the plane but said nothing about where its zero was, so the one point every
+  part is positioned against was the one point on the stage you could not see. A
+  red line now runs out along X, a green one up Y and a blue one out along Z —
+  the same colours as the corner triad and the move arrows, so the upright one
+  is green here rather than blue, this stage being built with Y up. They are
+  drawn out of the origin one way only: a line each way through it would put the
+  middle of the stage at a crossing and say nothing about which way the numbers
+  climb, where three rays out of one corner say both at once. They reach far
+  enough to run past anything anyone builds and fade out into the sky rather
+  than stopping, take no click, and go behind anything solid. Switch them off
+  under Settings → Show / Hide, where they are listed as **Origin lines**.
+  They no longer flash as the camera comes round, and the two lying in the
+  workplane read as their own colour rather than as a tinted grid line. Both
+  faults were the same thing twice over: the pair run exactly along the grid's
+  own section lines, so they were fighting the ruling for the same pixels — too
+  close together for the depth buffer to keep them apart at any distance worth
+  looking from, and sorted against the grid and the contact shadow by how far
+  each one's middle happened to be from the camera, which is an order that flips
+  as you orbit. They are floated a millimetre over the plane, which nothing can
+  see but the depth buffer, and given a drawing order of their own, so they land
+  on top of the ruling from every angle; being no longer half-covered they are
+  drawn at nearly full strength instead of the wash they started at.
 - **Every key the app answers to is now in Settings → Shortcut Keys, and every
   one of them can be re-bound.** The list held four commands; it holds ten, under
   two headings — The run, and Tools and windows — so the panel is a full account
@@ -49,6 +72,43 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- **Solid and Transparent are a switch that slides between them, under the
+  heading View Type.** It was one button carrying whichever state the stage was
+  already in — "◉ Solid" — which is the one thing you can see by looking at the
+  stage, and said nothing about what pressing it would get you. Both ends are
+  named now, either side of a track the thumb slides along, and the word it has
+  landed on is the one drawn in full ink. The whole control takes the click, so
+  either word flips it as readily as the track between them. The band it sits in
+  was called Model, which named the thing rather than what the band does to it.
+- **The download button has moved out of the toolbar and into the top bar,
+  beside New.** It sat at the far end of the toolbar, which is furniture of the
+  3D stage — so the one button that turns a run into something you can print was
+  out of reach the whole time you were drafting in 2D. It stands with Save, Open
+  and New, which is where everything that writes a file already was, set a
+  little apart from them and in the accent: those three write a project to come
+  back to, this one writes something for the printer. It still names whichever
+  format the Export panel is set to, still greys out with nothing on the stage,
+  and says what it wrote in the same line Save and Open report into. The
+  sidebar's own ⤓ Print plate is untouched, alongside Assembly and Selected
+  piece.
+- **The three measurement chips in the top bar are one Details button, and what
+  they said is now a sheet.** The bar carried the bore and outer diameter, the
+  tube style, and the part count with the run's length — three lines of
+  measurement to read past on the way to the controls, and only three, because
+  the bar had no width for a fourth. Behind a button they can be as long as they
+  are worth being: the run's name, how many parts and how many separate runs,
+  the length down the centreline, and the width × length × height the run
+  actually needs — the same box the Measure tool draws, squared to the world and
+  measured to the outside of the tube. Then the tube itself, bore, wall and
+  outer, which on a stage of mixed parts becomes a list of every size on it with
+  how many parts are cut to each; the style and the side it opens on; the ball,
+  its diameter, and how much slack it has in the bore — said in red, with the
+  bore it wants, when the ball is too big for it. Last, a count of what is on the
+  stage by type. Click outside or press Esc to put it away.
+- **The line under the app's name in the top left reads "Builder".** It said
+  "Parametric CAD Builder", which spent three words describing the category of
+  program this is to someone already inside it. The browser tab keeps the longer
+  form, where it still does the work of saying what the page is.
 - **A binding no longer has to carry a modifier.** The panel used to refuse a
   bare letter — "Add ⌘, ⌥ or Shift" — on the grounds that a key on its own
   would fire as you work. Nothing fires while you are typing, so what that rule

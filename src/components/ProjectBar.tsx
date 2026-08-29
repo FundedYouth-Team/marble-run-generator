@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
-import { useRun, UNTITLED_PROJECT, type LoadedProject } from '../store'
+import { useRun, tubeSpec, exportBasename, UNTITLED_PROJECT, type LoadedProject } from '../store'
 import { PROJECT_EXT, readProjectFile, saveProjectFile } from '../lib/project'
+import { exportPrintPlate } from '../lib/exporters'
+import { buildAssembly } from '../lib/layout'
 import HoverHint from './HoverHint'
 
 /**
@@ -64,6 +66,31 @@ export default function ProjectBar() {
     }
   }
 
+  /**
+   * The print plate, in whatever format the Export panel is set to.
+   *
+   * The run is laid out here at click time rather than held ready: the plate is
+   * wanted a handful of times a session, and building an assembly on every
+   * keystroke in the name field to have one waiting would be work done for
+   * nothing. What it says afterwards goes in the same line Save and Open use.
+   */
+  const download = () => {
+    setError(null)
+    try {
+      const spec = tubeSpec(s.innerDiameter, s.wallThickness, s.variant, s.openSide)
+      const out = exportPrintPlate(
+        spec,
+        buildAssembly(s.pieces).placed,
+        s.exportFormat,
+        exportBasename(s),
+      )
+      setNote(`Saved ${out.filename}`)
+    } catch (e) {
+      setNote(null)
+      setError(e instanceof Error ? e.message : 'Export failed')
+    }
+  }
+
   const pick = async (file: File | undefined) => {
     if (!file) return
     setNote(null)
@@ -123,6 +150,21 @@ export default function ProjectBar() {
           hint="Clears the workspace and starts a fresh project. This cannot be undone — save first if you want to keep this run."
         >
           <button onClick={() => setConfirming(true)}>New</button>
+        </HoverHint>
+        {/* The one button here that writes something to print rather than
+            something to reopen — it used to sit at the far end of the toolbar,
+            which is on the 3D stage only, so the draft had no way to it. */}
+        <HoverHint
+          label={`Download ${s.exportFormat.toUpperCase()}`}
+          hint={
+            s.pieces.length
+              ? `Writes the print plate as a ${s.exportFormat.toUpperCase()} file — every piece laid flat and separated, ready to slice. The format and the file name are set in the Export panel.`
+              : 'Nothing to print yet — add a part to the run first.'
+          }
+        >
+          <button className="download-btn" disabled={!s.pieces.length} onClick={download}>
+            ⤓ {s.exportFormat.toUpperCase()}
+          </button>
         </HoverHint>
       </div>
 

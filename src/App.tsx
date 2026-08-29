@@ -6,19 +6,8 @@ import ThemeToggle from './components/ThemeToggle'
 import HelpOverlay from './components/HelpOverlay'
 import PartLibrary from './components/PartLibrary'
 import ProjectBar from './components/ProjectBar'
-import { pieceAxisLength } from './lib/centerline'
-import {
-  useRun,
-  chainsOf,
-  tubeSpec,
-  variantOf,
-  openSideOf,
-  sizedLikeRun,
-  OPEN_SIDE_LABEL,
-  VARIANT_LABEL,
-  type Piece,
-} from './store'
-import { formatCoarse, lengthText } from './lib/units'
+import ProjectDetails from './components/ProjectDetails'
+import { useRun, chainsOf, type Piece } from './store'
 import { actionFor, isTyping, toolForAction, type KeyedTool } from './lib/shortcuts'
 
 /**
@@ -37,7 +26,7 @@ function toolReady(tool: KeyedTool, pieces: Piece[]): boolean {
 }
 
 export default function App() {
-  const { mode, setMode, pieces, innerDiameter, wallThickness, variant, openSide, units } = useRun()
+  const { mode, setMode } = useRun()
 
   // The shortcuts, wherever you are — both stages share the one timeline. The
   // bindings are read at press time rather than watched, so re-binding one in
@@ -102,29 +91,6 @@ export default function App() {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [])
-  const spec = tubeSpec(innerDiameter, wallThickness, variant, openSide)
-  // Centreline length, so a bent part counts what it actually carries.
-  const total = pieces.reduce((a, p) => a + pieceAxisLength(p), 0)
-  // Style is a part's own, so the strip only names one when the run agrees on it.
-  const styles = new Set(pieces.map((p) => variantOf(p, variant)))
-  const oneStyle = styles.size > 1 ? null : ([...styles][0] ?? variant)
-  // The side an open tube faces, said alongside it on the same terms — and left
-  // unsaid on a closed run, which has no opening to face anywhere.
-  const sides = new Set(pieces.map((p) => openSideOf(p, openSide)))
-  const oneSide = sides.size > 1 ? null : ([...sides][0] ?? openSide)
-  const style =
-    oneStyle === null
-      ? 'Mixed styles'
-      : oneStyle === 'closed'
-        ? VARIANT_LABEL[oneStyle]
-        : `${VARIANT_LABEL[oneStyle]} · opens ${oneSide ? OPEN_SIDE_LABEL[oneSide].toLowerCase() : 'mixed sides'}`
-  // Same for the tube itself: one size is only worth quoting while every part is
-  // cut to it.
-  const mixedTube = pieces.some((p) => !sizedLikeRun(p, innerDiameter, wallThickness))
-  const size = mixedTube
-    ? 'Mixed tube sizes'
-    : `Ø${lengthText(innerDiameter, units)} bore / Ø${lengthText(spec.outerR * 2, units)} outer`
-
   return (
     <div className="app">
       <header className="topbar">
@@ -138,7 +104,7 @@ export default function App() {
                 Beta
               </span>
             </h1>
-            <p>Parametric CAD Builder</p>
+            <p>Builder</p>
           </div>
         </div>
 
@@ -157,13 +123,7 @@ export default function App() {
           </button>
         </div>
 
-        <div className="spec-strip">
-          <span>{size}</span>
-          <span>{style}</span>
-          <span>
-            {pieces.length} pcs · {formatCoarse(total, units)}
-          </span>
-        </div>
+        <ProjectDetails />
 
         <PartLibrary />
         <HelpOverlay />

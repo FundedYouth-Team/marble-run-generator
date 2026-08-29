@@ -20,7 +20,6 @@ import {
 import { telemetry } from '../lib/telemetry'
 import { UNIT_LABEL, UNIT_WORD, coarseText, formatLength, fromMm, stepFor, toMm } from '../lib/units'
 import { MOD_LABEL, TOOL_ACTION, formatShortcut } from '../lib/shortcuts'
-import { exportPrintPlate } from '../lib/exporters'
 import { partsBox, type Assembly } from '../lib/layout'
 import {
   ALIGN_AXES,
@@ -29,7 +28,6 @@ import {
   ROTATE_STEPS,
   chainsOf,
   isStructure,
-  exportBasename,
   isChainRoot,
   pieceLabel,
   pieceSpec,
@@ -88,8 +86,8 @@ export const TOOL_OPTIONS_HEIGHT = 38
  * the third figure of three. Align has both at once: its nine faces are its only
  * controls, and there is no room in the bar for nine of anything. A tool's own
  * row goes under the bar rather than in it: the bar is already as wide as it can
- * be, and a tool that pushed the simulator or the export button off the end to
- * make room for itself would be taking away more than it added.
+ * be, and a tool that pushed the simulator or the readout off the end to make
+ * room for itself would be taking away more than it added.
  */
 export function hasToolOptions(tool: Tool): boolean {
   return tool === 'rotate' || tool === 'measure' || tool === 'align'
@@ -319,7 +317,6 @@ export default function Toolbar({ spec, asm }: { spec: TubeSpec; asm: Assembly }
     running,
     toggleRunning,
     resetSim,
-    exportFormat,
     shading,
     toggleShading,
     shortcuts,
@@ -332,9 +329,9 @@ export default function Toolbar({ spec, asm }: { spec: TubeSpec; asm: Assembly }
     setAlignHover,
     alignParts,
   } = useRun()
-  // Same name the Export panel would give it — the toolbar is just a shortcut.
-  const basename = useRun(exportBasename)
   const units = useRun((s) => s.units)
+  /** Which end the view-type switch is at: solid walls, or see-through ones. */
+  const xray = shading === 'transparent'
   const [t, setT] = useState({ speed: 0, distance: 0, airborne: false, stuck: false })
 
   useEffect(() => {
@@ -719,25 +716,29 @@ export default function Toolbar({ spec, asm }: { spec: TubeSpec; asm: Assembly }
         <button onClick={resetSim}>↺ Reset</button>
       </ToolGroup>
 
-      <ToolGroup name="Model">
+      <ToolGroup name="View Type">
+        {/* Both states named either side of the switch rather than one label
+            that changes: a button reading "Solid" says nothing about what
+            pressing it gets you, where a switch between two named ends says
+            where it is and where it would go at a glance. The whole control
+            takes the click, so either word flips it as readily as the track. */}
         <button
-          className={shading === 'transparent' ? 'on' : ''}
-          aria-pressed={shading === 'transparent'}
+          className="slide-toggle"
+          role="switch"
+          aria-checked={xray}
+          aria-label="See through the tube walls"
           title={
-            shading === 'transparent'
+            xray
               ? 'Switch back to solid shading'
               : 'See through the tube walls to watch the marble inside'
           }
           onClick={toggleShading}
         >
-          {shading === 'transparent' ? '◍ Transparent' : '◉ Solid'}
-        </button>
-        <button
-          disabled={!asm.placed.length}
-          title={`Print plate as ${exportFormat.toUpperCase()} — every piece laid flat and separated, ready to slice`}
-          onClick={() => exportPrintPlate(spec, asm.placed, exportFormat, basename)}
-        >
-          ⤓ {exportFormat.toUpperCase()}
+          <span className={xray ? 'slide-word' : 'slide-word on'}>Solid</span>
+          <span className="slide-track">
+            <span className="slide-thumb" />
+          </span>
+          <span className={xray ? 'slide-word on' : 'slide-word'}>Transparent</span>
         </button>
       </ToolGroup>
 
@@ -765,9 +766,9 @@ export default function Toolbar({ spec, asm }: { spec: TubeSpec; asm: Assembly }
 
       {/* The settings belonging to the tool in hand, on a strip of their own
           under the bar. Nothing in the bar moves to make room for them, which is
-          the whole point: a tool that squeezed the simulator or the export
-          button off the end to show its own controls would be taking away more
-          than it gave. */}
+          the whole point: a tool that squeezed the simulator or the readout
+          off the end to show its own controls would be taking away more than it
+          gave. */}
       {tool === 'measure' && (
         <div className="toolbar-row options">
           <span className="tool-options-tool">Measure</span>

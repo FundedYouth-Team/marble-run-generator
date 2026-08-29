@@ -350,6 +350,13 @@ body {
   text-transform: uppercase;
 }
 
+/* Set a little apart from the three beside it, and in the accent: those write a
+   project to come back to, this one writes something for the printer. */
+.project-btns .download-btn {
+  margin-left: 6px;
+  color: var(--accent-text);
+}
+
 /* What the last save or open did, said once and then let go. */
 .project-status {
   min-width: 0;
@@ -402,20 +409,77 @@ body {
   border-color: var(--accent);
 }
 
-.spec-strip {
+/* The run's figures used to sit out on the bar as three chips; they are behind
+   this button now, and it inherits their auto margin so the mode toggle stays
+   centred between the brand and this end of the bar. Only the Details button is
+   a hint slot of the bar's own — the ones inside .project are nested deeper. */
+.topbar > .tool-slot {
   margin-left: auto;
-  display: flex;
-  gap: 8px;
+  flex: 0 0 auto;
+}
+
+.details-btn {
   font-family: var(--mono);
   font-size: 11px;
   color: var(--ink-dim);
 }
 
-.spec-strip span {
-  border: 1px solid var(--line);
-  border-radius: 4px;
-  padding: 4px 8px;
-  background: var(--chip-bg);
+.details-btn:hover:not(:disabled) {
+  color: var(--ink);
+}
+
+/* Narrower than the help sheet: two columns of short lines rather than prose. */
+.details-sheet {
+  width: min(520px, 100%);
+}
+
+.details-group h4 {
+  margin: 0 0 8px;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+}
+
+.details-group dl {
+  margin: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.details-row {
+  display: grid;
+  grid-template-columns: 130px 1fr;
+  gap: 10px;
+  align-items: baseline;
+}
+
+.details-row dt {
+  color: var(--ink-dim);
+  font-size: 12px;
+}
+
+.details-row dd {
+  margin: 0;
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.details-row dd.warn {
+  color: var(--danger);
+}
+
+/* The why under the figure — the same voice as a panel note, and never in the
+   monospace face the figure itself is set in. */
+.details-row dd em {
+  display: block;
+  margin-top: 2px;
+  font-family: inherit;
+  font-style: normal;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--ink-dim);
 }
 
 .theme-toggle {
@@ -1687,7 +1751,7 @@ button.danger {
   opacity: 0.4;
 }
 
-/* Auto margin on both sides of the toggle and on .spec-strip splits the free
+/* Auto margin on both sides of the toggle and on the Details button splits the free
    space evenly, centring the toggle between the brand and the measurements. */
 .segmented.mode {
   margin-left: auto;
@@ -2723,6 +2787,62 @@ button.danger {
   display: flex;
   align-items: center;
   gap: 6px;
+}
+
+/* A switch with both of its ends named — the whole control is one button, so
+   either word flips it as readily as the track between them. */
+.slide-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px;
+}
+
+.slide-word {
+  font-size: 11px;
+  line-height: 1;
+  color: var(--ink-mute);
+  transition: color 0.16s;
+}
+
+/* Which end the switch is at, said twice over: the thumb's position and the
+   weight of the word it has landed on. */
+.slide-word.on {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.slide-track {
+  position: relative;
+  flex: 0 0 auto;
+  width: 30px;
+  height: 16px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--input-bg);
+  transition: background 0.16s, border-color 0.16s;
+}
+
+.slide-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--ink-mute);
+  transition: transform 0.16s ease, background 0.16s;
+}
+
+.slide-toggle[aria-checked='true'] .slide-track {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.slide-toggle[aria-checked='true'] .slide-thumb {
+  /* 28px inside the border, less the thumb and its two margins. */
+  transform: translateX(14px);
+  background: var(--primary-ink);
 }
 
 /* Wraps the button so the pointer is still watched when the tool is greyed out —

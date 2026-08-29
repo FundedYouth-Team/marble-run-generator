@@ -142,7 +142,7 @@ export type LeftPanel = 'parameters' | null
  * part of the run — they are readouts and helpers around it, and someone who
  * knows their way around may want the stage clear of them.
  */
-export type Overlay = 'axes' | 'mouse' | 'parts'
+export type Overlay = 'axes' | 'origin' | 'mouse' | 'parts'
 export type OverlayMap = Record<Overlay, boolean>
 
 /** Listed in the order they are offered in Settings. */
@@ -151,6 +151,11 @@ export const OVERLAYS: { id: Overlay; label: string; hint: string }[] = [
     id: 'axes',
     label: 'Axis triad',
     hint: 'the red/green/blue X-Y-Z corner marker in 3D',
+  },
+  {
+    id: 'origin',
+    label: 'Origin lines',
+    hint: 'the three axis lines out from the middle of the workplane',
   },
   {
     id: 'mouse',
@@ -450,7 +455,7 @@ function initialUnits(): Unit {
  * reads as shown — an overlay is only hidden by an explicit past choice.
  */
 function initialOverlays(): OverlayMap {
-  const shown = { axes: true, mouse: true, parts: true }
+  const shown = { axes: true, origin: true, mouse: true, parts: true }
   const saved = typeof localStorage !== 'undefined' ? localStorage.getItem(OVERLAYS_KEY) : null
   if (!saved) return shown
   try {
