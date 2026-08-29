@@ -3,7 +3,6 @@ import NumberField from './NumberField'
 import ColorField from './ColorField'
 import InfoNote from './InfoNote'
 import CollapsiblePanel from './CollapsiblePanel'
-import ExportPanel from './ExportPanel'
 import CalibrateScreen from './CalibrateScreen'
 import ShortcutsPanel from './ShortcutsPanel'
 import {
@@ -342,8 +341,6 @@ export default function SettingsPanel({ open, onClose }: { open: boolean; onClos
             run at true physical size.
           </InfoNote>
         </CollapsiblePanel>
-
-        <ExportPanel />
       </div>
 
       <CalibrateScreen open={calibrating} onClose={() => setCalibrating(false)} />

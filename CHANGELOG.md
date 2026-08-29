@@ -21,6 +21,64 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- **Exporting has a window of its own, opened by an Export button.** The top bar
+  ended in a button named after the current format — "⤓ 3MF" — which wrote the
+  print plate the instant it was pressed, in whichever format and under whichever
+  file name had been set somewhere else entirely: an Export panel folded shut at
+  the bottom of Settings, past marble fit, playback and screen calibration. So
+  the button could not be pressed with any confidence without first going to find
+  the panel, and the panel's three exports were buried in a column that is
+  otherwise about how the run is built. The button now reads **Export** and opens
+  a window that asks in the order the answers depend on each other, one question
+  at a time, and writes nothing until the last of them is pressed.
+
+  First **Type**: *Separate Parts* — every part laid flat and spaced out on the
+  plate, each one its own object, the file you hand to the slicer — or
+  *Assembly*, the run as designed for checking fit in a viewer, or *Selected
+  Part*, just the part clicked on the stage, on its own. These were the three
+  buttons "⤓ Print plate", "⤓ Assembly" and "⤓ Selected piece", each of which
+  wrote the moment it was pressed; they are now one choice of three. Hovering any
+  of them says what it does.
+
+  Then **File format**, filtered by what each one can actually carry. STL is one
+  unnamed heap of triangles with no way of saying where one object ends and the
+  next begins, so a plate of separate parts would arrive in the slicer welded
+  into a single shell that cannot be arranged part by part. STL is therefore
+  greyed out for Separate Parts — left in place rather than taken out of the row,
+  so hovering it says why — and offered for Assembly and Selected Part, which are
+  one object anyway. 3MF and OBJ carry all three types. Picking Separate Parts
+  while STL was the standing choice moves the format to 3MF rather than writing
+  something quietly wrong.
+
+  Each of those three questions is titled in bold at 13px rather than the 11px
+  dim grey a field label wears down the sidebar — at that size they read as
+  small print on the controls rather than as the headings the controls hang off,
+  and the window is nothing but the three of them. The "from the project name"
+  aside beside File name stays a caption.
+
+  Then the **file name**, which now shows the exact file the chosen type and
+  format will write rather than an example of one, and a single **⤓ Export**
+  button named after the type it will write. It greys out with the reason on
+  hover when there is nothing on the stage, or no part selected. Esc, the ✕ and a
+  click on the backdrop all close the window. The Export panel is gone from
+  Settings, and Settings' own tab no longer claims to hold export settings.
+  Nothing about the files themselves, or what they are named, has changed.
+
+- **Tube Style is drawn as a marble sitting in an open tube.** The glyph was a
+  grey ring with one third of it filled green and three tick marks scored across
+  it — a key to a colour code rather than a picture of a part, and at rail size
+  the ticks closed up and the green third read as a stray wedge. It is now the
+  tube itself seen straight down the barrel: one unbroken band of wall, cut off
+  square at both ends, open through the quarter that faces up and to the right,
+  with a dark marble in the bore. It is drawn flat: two solid fills and one
+  ruled edge, no shading on the ball and no ghost of the band standing behind
+  it, so the shape carries the whole meaning at the size the rail draws it. The
+  marble is small enough to leave a clear ring of ground all the way round it —
+  that gap is what makes the opening read as a break in the wall rather than as
+  the ball's own outline. The missing quarter is left as plain ground instead of
+  being painted grey, so an opening reads as an absence of wall rather than as a
+  second kind of wall. Nothing about the styles the menu offers has changed.
+
 - **Rods are called Supports, and the button is drawn as one.** The name said
   what the part is — a rod — rather than what pressing it does, which is hold the
   run up; the tool's own menu and every line of help about it already talked

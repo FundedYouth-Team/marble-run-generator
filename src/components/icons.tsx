@@ -432,33 +432,36 @@ export function TubeSizeIcon({ size = 28 }: { size?: number }) {
 }
 
 /**
- * The barrel down its length with the wall divided into thirds, one of them
- * standing green — "how far round does it close".
+ * A three-quarter length of tube seen down the barrel, with a marble in the
+ * bore — "how far round does the wall close, and which way is it open".
  *
- * Painted like {@link TubeSizeIcon} beside it. The outer band is the wall,
- * scored across at each of the three places it can be cut and coloured in only
- * where there is wall: the picture is about which part of the way round is
- * there and which is missing, and that is a difference of colour, not of line
- * work. The blue body under it is the tube itself and the hole in the middle is
- * the bore, both unchanged by anything this menu does.
+ * Painted like {@link TubeSizeIcon} beside it, but as the part rather than as a
+ * diagram of it: one unbroken band of wall cut off square at both ends, with
+ * the quarter that is missing left as plain ground so the opening is read as an
+ * absence and not as another colour. Flat throughout — two solid fills and one
+ * ruled edge, no shading and no ghost behind the band, so the shape carries the
+ * whole meaning at the size the rail draws it. The marble is a plain dark disc,
+ * kept well clear of the bore all the way round: the ring of ground between the
+ * two is what makes the opening read as a gap in something rather than as the
+ * ball's own outline.
  */
 export function TubeStyleIcon({ size = 28 }: { size?: number }) {
   const BODY = '#1a5cab'
-  const CLOSED = '#38b24c'
-  const OPEN = '#a8adb1'
+  const WALL = '#63a0e8'
+  const MARBLE = '#123a52'
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" strokeLinecap="butt">
-      {/* The whole way round, in the grey of wall that is not there... */}
-      <circle cx="12" cy="12" r="10.4" fill={OPEN} />
-      {/* ...and the third of it that is, swept anticlockwise off the top so the
-          green is the first thing read. */}
-      <path d="M12 12 2.99 17.2A10.4 10.4 0 0 1 12 1.6Z" fill={CLOSED} />
-      {/* The tube's own body, and the bore through it. */}
-      <circle cx="12" cy="12" r="7.9" fill={BODY} />
-      <circle cx="12" cy="12" r="3.7" fill="#ffffff" />
-      {/* The three cut lines the wall is divided at, and the outside edge. */}
-      <path d="M12 4.4V1.6M18.58 15.8l2.43 1.4M5.42 15.8l-2.43 1.4" stroke={BODY} strokeWidth="1.2" />
-      <circle cx="12" cy="12" r="10.4" fill="none" stroke={BODY} strokeWidth="1.2" />
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      {/* The band of wall: outer edge, back along the bore, square across each
+          cut. Struck from 105° round the long way to 15°, so the quarter left
+          open faces up and to the right, clear of the icon below it. */}
+      <path
+        d="M9.44 2.44A9.9 9.9 0 1 0 21.56 9.44L17.31 10.58A5.5 5.5 0 1 1 10.58 6.69Z"
+        fill={WALL}
+        stroke={BODY}
+        strokeWidth="1.5"
+        strokeLinejoin="round"
+      />
+      <circle cx="12" cy="12" r="3.3" fill={MARBLE} />
     </svg>
   )
 }

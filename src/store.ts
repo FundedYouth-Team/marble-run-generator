@@ -3928,7 +3928,7 @@ function editLabel(name: string, patch: Partial<Piece>): string {
 interface RunState {
   /** Names the run in the top bar, and every file it exports. */
   projectName: string
-  /** Export file name typed in the Export panel; blank follows the project name. */
+  /** Export file name typed in the export window; blank follows the project name. */
   exportName: string
 
   mode: Mode

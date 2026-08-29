@@ -44,6 +44,49 @@ export const FORMATS: { id: ExportFormat; label: string; note: string }[] = [
   },
 ]
 
+/** What an export covers: every part flat, the run as built, or one part alone. */
+export type ExportType = 'parts' | 'assembly' | 'piece'
+
+export const EXPORT_TYPES: { id: ExportType; label: string; note: string }[] = [
+  {
+    id: 'parts',
+    label: 'Separate Parts',
+    note: 'Every part laid flat and spaced out on the plate, each one a separate object — the file you hand to the slicer.',
+  },
+  {
+    id: 'assembly',
+    label: 'Assembly',
+    note: 'The whole run as designed, every part where it sits on the stage. One joined shape, for checking fit in a viewer rather than for printing.',
+  },
+  {
+    id: 'piece',
+    label: 'Selected Part',
+    note: 'Just the part selected on the stage, on its own and laid flat — for reprinting one part without the rest of the plate.',
+  },
+]
+
+/**
+ * Which types each format can carry.
+ *
+ * A binary STL is one unnamed heap of triangles with no way of saying where one
+ * object ends and the next begins, so a plate of separate parts arrives in the
+ * slicer welded into a single shell that cannot be moved or arranged part by
+ * part. An assembly is meant to be one shape and a single part is one already,
+ * so STL carries both of those perfectly well. 3MF and OBJ both name their
+ * objects and keep them apart, so nothing is out of reach for either.
+ */
+export const FORMAT_TYPES: Record<ExportFormat, readonly ExportType[]> = {
+  stl: ['assembly', 'piece'],
+  '3mf': ['parts', 'assembly', 'piece'],
+  obj: ['parts', 'assembly', 'piece'],
+}
+
+/** The format to fall back to when the chosen one cannot carry the chosen type. */
+export const FALLBACK_FORMAT: ExportFormat = '3mf'
+
+export const formatCarries = (format: ExportFormat, type: ExportType) =>
+  FORMAT_TYPES[format].includes(type)
+
 const APP = 'Marble Run Generator'
 
 const MIME: Record<ExportFormat, string> = {
@@ -218,7 +261,25 @@ function write(group: THREE.Group, basename: string, format: ExportFormat): Expo
  * Every export is named after the project, then after what it is — so a
  * project called "Big Drop" writes `big-drop-plate-4pc.3mf` next to
  * `big-drop-assembly.3mf`.
+ *
+ * The three stems live here rather than at the point each file is written, so
+ * the export window can show what a file will be called before it exists
+ * without spelling the rule out a second time.
  */
+export function exportStem(
+  name: string,
+  type: ExportType,
+  target: { count?: number; piece?: Piece; index?: number },
+): string {
+  if (type === 'assembly') return `${name}-assembly`
+  if (type === 'piece') {
+    const { piece, index = 0 } = target
+    const mm = piece ? Math.round(centerlineFor(piece).length) : 0
+    return `${name}-piece${String(index + 1).padStart(2, '0')}-${mm}mm`
+  }
+  return `${name}-plate-${target.count ?? 0}pc`
+}
+
 export function exportAssembly(
   spec: TubeSpec,
   placed: PlacedPiece[],
@@ -240,7 +301,7 @@ export function exportAssembly(
   inner.applyMatrix4(Y_TO_Z)
   seatOnPlate(group)
 
-  const result = write(group, `${name}-assembly`, format)
+  const result = write(group, exportStem(name, 'assembly', {}), format)
   cache.dispose()
   return { ...result, parts: placed.length }
 }
@@ -276,7 +337,7 @@ export function exportPrintPlate(
   })
 
   seatOnPlate(group)
-  const result = write(group, `${name}-plate-${parts.length}pc`, format)
+  const result = write(group, exportStem(name, 'parts', { count: parts.length }), format)
   cache.dispose()
   return result
 }
@@ -289,7 +350,6 @@ export function exportPiece(
   format: ExportFormat,
   name: string,
 ): ExportResult {
-  const line = centerlineFor(piece)
   const own = pieceSpec(spec, piece)
   const geom = buildPartGeometry(own, piece)
   const mesh = new THREE.Mesh(geom)
@@ -299,8 +359,7 @@ export function exportPiece(
   group.add(mesh)
   seatOnPlate(group)
 
-  const basename = `${name}-piece${String(index + 1).padStart(2, '0')}-${Math.round(line.length)}mm`
-  const result = write(group, basename, format)
+  const result = write(group, exportStem(name, 'piece', { piece, index }), format)
   geom.dispose()
   return result
 }

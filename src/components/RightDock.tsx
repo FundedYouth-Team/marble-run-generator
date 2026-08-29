@@ -5,7 +5,7 @@ import { useRun, type RightPanel } from '../store'
 
 const TABS: { id: Exclude<RightPanel, null>; label: string; title: string }[] = [
   { id: 'history', label: 'History', title: 'The last changes to the run — step back or forward' },
-  { id: 'settings', label: 'Settings', title: 'Marble, screen and export settings' },
+  { id: 'settings', label: 'Settings', title: 'Marble, playback and screen settings' },
   { id: 'ai', label: 'Add-ons', title: 'Planned: build a run by describing it — not built yet' },
 ]
 

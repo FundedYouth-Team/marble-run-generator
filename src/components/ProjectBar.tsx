@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
-import { useRun, tubeSpec, exportBasename, UNTITLED_PROJECT, type LoadedProject } from '../store'
+import { useRun, UNTITLED_PROJECT, type LoadedProject } from '../store'
 import { PROJECT_EXT, readProjectFile, saveProjectFile } from '../lib/project'
-import { exportPrintPlate } from '../lib/exporters'
-import { buildAssembly } from '../lib/layout'
+import ExportDialog from './ExportDialog'
 import HoverHint from './HoverHint'
 
 /**
@@ -29,6 +28,7 @@ export default function ProjectBar() {
   const { projectName, setProjectName, newProject, loadProject } = s
   const [confirming, setConfirming] = useState(false)
   const [incoming, setIncoming] = useState<Incoming | null>(null)
+  const [exporting, setExporting] = useState(false)
   const [note, setNote] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const fileInput = useRef<HTMLInputElement>(null)
@@ -63,31 +63,6 @@ export default function ProjectBar() {
     } catch (e) {
       setNote(null)
       setError(e instanceof Error ? e.message : 'Save failed')
-    }
-  }
-
-  /**
-   * The print plate, in whatever format the Export panel is set to.
-   *
-   * The run is laid out here at click time rather than held ready: the plate is
-   * wanted a handful of times a session, and building an assembly on every
-   * keystroke in the name field to have one waiting would be work done for
-   * nothing. What it says afterwards goes in the same line Save and Open use.
-   */
-  const download = () => {
-    setError(null)
-    try {
-      const spec = tubeSpec(s.innerDiameter, s.wallThickness, s.variant, s.openSide)
-      const out = exportPrintPlate(
-        spec,
-        buildAssembly(s.pieces).placed,
-        s.exportFormat,
-        exportBasename(s),
-      )
-      setNote(`Saved ${out.filename}`)
-    } catch (e) {
-      setNote(null)
-      setError(e instanceof Error ? e.message : 'Export failed')
     }
   }
 
@@ -151,19 +126,18 @@ export default function ProjectBar() {
         >
           <button onClick={() => setConfirming(true)}>New</button>
         </HoverHint>
-        {/* The one button here that writes something to print rather than
-            something to reopen — it used to sit at the far end of the toolbar,
-            which is on the 3D stage only, so the draft had no way to it. */}
+        {/* The one button here that leads to something to print rather than
+            something to reopen. It named the format and wrote the plate on the
+            spot, which meant the format and the file name had to be set
+            somewhere else first — in a panel folded into Settings. Both now
+            live behind this button, in the window it opens. */}
         <HoverHint
-          label={`Download ${s.exportFormat.toUpperCase()}`}
-          hint={
-            s.pieces.length
-              ? `Writes the print plate as a ${s.exportFormat.toUpperCase()} file — every piece laid flat and separated, ready to slice. The format and the file name are set in the Export panel.`
-              : 'Nothing to print yet — add a part to the run first.'
-          }
+          label="Export"
+          hint="Opens the export window: pick what to write — every part laid out separately, the run as assembled, or just the part you have selected — then the format and the file name."
+          hideOnClick
         >
-          <button className="download-btn" disabled={!s.pieces.length} onClick={download}>
-            ⤓ {s.exportFormat.toUpperCase()}
+          <button className="download-btn" onClick={() => setExporting(true)}>
+            Export
           </button>
         </HoverHint>
       </div>
@@ -179,6 +153,8 @@ export default function ProjectBar() {
           e.target.value = ''
         }}
       />
+
+      {exporting && <ExportDialog onClose={() => setExporting(false)} />}
 
       {(note || error) && (
         <span className={error ? 'project-status warn' : 'project-status'}>{error ?? note}</span>

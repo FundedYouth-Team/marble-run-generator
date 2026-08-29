@@ -1860,6 +1860,22 @@ button.danger {
   border-left: 1px solid var(--line);
 }
 
+/* A segmented control whose choices carry hover hints: the slot the hint hangs
+   off stands between the control and its button, so it has to take over both
+   the button's share of the width and the divider its neighbour drew. */
+.segmented .tool-slot {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.segmented .tool-slot button {
+  width: 100%;
+}
+
+.segmented .tool-slot + .tool-slot {
+  border-left: 1px solid var(--line);
+}
+
 .segmented button.on {
   background: linear-gradient(180deg, var(--seg-on-a), var(--seg-on-b));
   color: var(--primary-ink);
@@ -2753,10 +2769,48 @@ button.danger {
 
 /* ---------------- export ---------------- */
 
-.export-btns {
+/* The export window. Narrow next to Help: it is a form of four controls, and a
+   file-name field stretched to Help's width would read as a search bar. */
+.export-sheet {
+  width: min(480px, 100%);
+}
+
+.export-body {
+  gap: 14px;
+}
+
+/* Type, File format, File name are the three questions the window asks, and the
+   window is nothing else. At the caption size a field label wears in a sidebar
+   they read as small print on the controls rather than as the headings the
+   controls hang off, so they are set bolder, larger and in full ink here. */
+.export-body .field-label {
+  margin-bottom: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+/* The aside beside File name is not part of the question, so it stays a caption. */
+.export-body .field-label em {
+  font-weight: 400;
+}
+
+/* The one button the window builds up to, so it spans the sheet rather than
+   sitting at the width of its own words. */
+.export-go {
   display: flex;
-  flex-direction: column;
-  gap: 6px;
+}
+
+.export-go button {
+  width: 100%;
+  padding: 9px 12px;
+}
+
+/* A format the chosen type rules out stays where it is, dimmed. Going missing
+   would leave the row a different shape each time the type changed, and no way
+   to hover the thing you were looking for and be told why it is not on offer. */
+.export-sheet .segmented button:disabled {
+  opacity: 0.4;
 }
 
 .export-status {
