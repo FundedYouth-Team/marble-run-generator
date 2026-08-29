@@ -4227,6 +4227,23 @@ interface RunState {
    * rolls through it.
    */
   setMarblePreset: (id: string) => void
+  /**
+   * Cuts the bore to the one the marble on the run rolls through — its diameter
+   * plus {@link MARBLE_CLEARANCE}, the same sum {@link boreForMarble} does for
+   * the ball list.
+   *
+   * `ids` names the parts to cut, which is how the picked ones are fitted
+   * without touching the rest; without it the run itself is cut and every
+   * part's own bore dropped, so the whole stage follows the ball again. Parts
+   * that are not cut from the tube at all — a plate, a post — are passed over,
+   * and so are walls, a part printed thicker being printed thicker whatever
+   * rolls through it.
+   *
+   * A named part whose fit lands on the bore the run is already cut to is put
+   * back onto the run's rather than left holding a bore of its own that says
+   * the same thing, so the run stays cut from one tube where it can.
+   */
+  fitBoreToMarble: (ids?: string[]) => void
   setTimeScale: (v: number) => void
   setFriction: (v: number) => void
   setBounce: (v: number) => void
@@ -4981,6 +4998,52 @@ export const useRun = create<RunState>((set, get) => {
           pieces: sized ? s.pieces.map(({ innerDiameter: _d, ...rest }) => rest) : s.pieces,
         }
       })
+    },
+    fitBoreToMarble: (ids) => {
+      const s0 = get()
+      // The sum the ball list does, held inside what the tube fields will take —
+      // a bore nobody could have typed is no use to the parts cut to it.
+      const bore = clamp(
+        boreForMarble(s0.marbleDiameter),
+        TUBE_LIMITS.innerDiameter.min,
+        TUBE_LIMITS.innerDiameter.max,
+      )
+      // Nothing named is the whole stage: the bore becomes the run's and every
+      // part's own is dropped, exactly as picking a ball off the list does.
+      if (!ids) {
+        commit(`Fit run to marble: Ø${len(bore)} bore`, (s) => {
+          const sized = s.pieces.some((p) => p.innerDiameter !== undefined)
+          if (s.innerDiameter === bore && !sized) return null
+          return {
+            innerDiameter: bore,
+            pieces: sized ? s.pieces.map(({ innerDiameter: _d, ...rest }) => rest) : s.pieces,
+          }
+        })
+        return
+      }
+      // What is actually left to do, counted here so the timeline entry can say
+      // it: a part already rolling this ball is not a part this fits.
+      const cut = s0.pieces.filter(
+        (p) => ids.includes(p.id) && !isStructure(p) && boreOf(p, s0.innerDiameter) !== bore,
+      )
+      if (!cut.length) return
+      const label =
+        cut.length === 1
+          ? `${nameOf(s0, cut[0].id)} fit to marble: Ø${len(bore)} bore`
+          : `Fit ${cut.length} parts to marble: Ø${len(bore)} bore`
+      const wanted = new Set(cut.map((p) => p.id))
+      commit(label, (s) => ({
+        pieces: s.pieces.map((p) => {
+          if (!wanted.has(p.id)) return p
+          // Where the run is already cut for this ball, the part goes back to
+          // following it rather than holding a bore of its own saying the same.
+          if (bore === s.innerDiameter) {
+            const { innerDiameter: _d, ...rest } = p
+            return rest
+          }
+          return { ...p, innerDiameter: bore }
+        }),
+      }))
     },
     setTimeScale: (timeScale) => set({ timeScale }),
     setFriction: (friction) => set({ friction }),

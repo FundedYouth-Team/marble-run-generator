@@ -11,6 +11,36 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **A button that cuts the tubes to whatever ball is on the run — on the parts
+  you have picked, or on the whole stage.** Picking Glass Marbles or Steel Balls
+  off the list already did the sum for everything; typing a diameter in the box
+  under it did not, and there was no way at all to open out three parts and
+  leave the rest. Both are one button now: **Fit Every Part to This Ball** under
+  the diameter box in Settings → Marble Size & Color, and a fit button in the
+  sidebar's Tube Size panel that reads **Fit This Part to Marble**, **Fit 3
+  Picked Parts to Marble** or **Fit Every Part to Marble** according to what is
+  in hand.
+- **What it cuts to is the ball plus 4mm of slack** — the same sum
+  `boreForMarble` does for the ball list, so a Steel Ball at Ø10 gets a Ø14
+  bore and rolls instead of jamming. Walls are never touched: a part printed
+  thicker is printed thicker whatever rolls through it, and plates and posts are
+  passed over, having no bore to cut.
+- **Fitting the whole stage puts every part back onto the run's bore**, the way
+  picking a ball off the list does — a run is cut for one ball, and a part left
+  on a bore of its own would neither take this one nor mate with its
+  neighbours. Fitting picked parts leaves the rest exactly as they were, except
+  that a part whose fit lands on the bore the run is already cut to is put back
+  onto the run's rather than left holding a bore of its own saying the same
+  thing.
+- **The button greys out once there is nothing left to cut**, and the note under
+  it says which parts it is about to take and what bore they are going to, so
+  the state of the stage is readable without pressing anything. The "marble will
+  not fit this bore" warning now names the bore the fit would open it to, and
+  Help has the whole of it under *I changed the ball — how do I size the tubes
+  to it?*
+
 ### Changed
 
 - **Move and Rotate are one button each again, and each takes hold of what you

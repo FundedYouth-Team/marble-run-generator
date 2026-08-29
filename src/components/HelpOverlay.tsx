@@ -415,6 +415,17 @@ const HOWTO: Partial<Record<HelpTab, HowTo[]>> = {
       note: 'The hoops sit flush with the top and the bottom of the part, so the bottom one lands on whatever the coil is standing on — and on a bar thicker than the tube’s wall it stands a whisker proud of the tube, because a hoop hung any lower would reach down into the stub’s bore.',
     },
     {
+      question: 'I changed the ball — how do I size the tubes to it?',
+      lead: 'The bore is not a free number: it is the ball plus 4mm of slack, and that is the only figure the marble rolls down instead of jamming in or rattling about. Picking a ball off the list in Settings → Marble Size & Color does that sum for the whole stage on its own; typing a diameter in the box under it changes the ball alone, and the tubes are fitted to it with a button.',
+      steps: [
+        'For the whole stage: Fit Every Part to This Ball, under the diameter box in Settings. The bore becomes the run’s, and any part holding a bore of its own is put back onto it — a run is cut for one ball, and a part left on another bore would neither take this one nor mate with its neighbours.',
+        'For some of it: pick the parts on the stage, then use the fit button in the sidebar’s Tube Size panel — Fit This Part to Marble on one, Fit 3 Picked Parts to Marble on three. Only what is picked is cut, and the rest of the run is left exactly as it was.',
+        'With nothing picked, the same sidebar button reads Fit Every Part to Marble and does what the Settings one does — the panel sets the run when there is nothing in hand.',
+        'Either way the button greys out once there is nothing left to cut, which is how you tell the stage is already rolling the ball it says it is.',
+      ],
+      note: 'Walls are never touched by any of this — a part printed thicker is printed thicker whatever rolls through it. Parts cut to different bores do not mate at the joint, so the sidebar says so in red while any two disagree.',
+    },
+    {
       question: 'Why did my marble fall out of the tube?',
       lead: 'Because the part is a Half pipe, and a half pipe is a trough rather than a tube: its walls stand straight up with nothing overhanging, so the marble sits in it rather than inside it and can leave through the open side. Only a half pipe can do this. A 3/4 tube keeps more than half its wall, which curls over the marble and holds it exactly as closed tube does — its slot is there to see through, and the marble still leaves at the ends and nowhere else.',
       steps: [

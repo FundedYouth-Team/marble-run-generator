@@ -12,6 +12,7 @@ import {
   STANDARD_MARBLE,
   MARBLE_CLEARANCE,
   MARBLE_PRESETS,
+  TUBE_LIMITS,
   boreForMarble,
   marbleFor,
   DEFAULT_MARBLE_COLOR,
@@ -76,6 +77,18 @@ export default function SettingsPanel({ open, onClose }: { open: boolean; onClos
   // Both numbers, not just the ball: a 16mm marble down a bore somebody has
   // opened out by hand is not what picking Glass Marbles gives you.
   const ball = marbleFor(s.marbleDiameter, s.innerDiameter)
+  /** The bore this ball rolls through, held inside what the tube fields will take. */
+  const marbleBore = Math.min(
+    TUBE_LIMITS.innerDiameter.max,
+    Math.max(TUBE_LIMITS.innerDiameter.min, boreForMarble(s.marbleDiameter)),
+  )
+  /**
+   * Whether the stage is already cut for this ball. A part holding a bore of its
+   * own counts against it however wide that bore is: the run is cut for one
+   * ball, and the fit is what puts every part back on it.
+   */
+  const fitted =
+    s.innerDiameter === marbleBore && !s.pieces.some((p) => p.innerDiameter !== undefined)
   const workplane = s.workplane[s.theme]
   const stock = DEFAULT_WORKPLANE[s.theme]
   const stockWorkplane = workplane.sky === stock.sky && workplane.land === stock.land
@@ -224,13 +237,27 @@ export default function SettingsPanel({ open, onClose }: { open: boolean; onClos
             max={Math.max(4, s.innerDiameter - 1)}
             step={0.5}
           />
+          {/* Typing a diameter is the one way to change the ball without the
+              bore following it, so the sum is offered here as a button rather
+              than left to be done by hand in Tube Size. Fitting some parts and
+              not others is a job for the picked selection, which lives on the
+              stage: the same button is in the sidebar's Tube Size panel, where
+              it cuts what is picked. */}
+          <button onClick={() => s.fitBoreToMarble()} disabled={fitted}>
+            {fitted
+              ? `Every part rolls Ø${lengthText(s.marbleDiameter, s.units)}`
+              : `Fit Every Part to This Ball — Ø${lengthText(marbleBore, s.units)} bore`}
+          </button>
           <InfoNote label="What does picking a ball change?">
             Both numbers a run is built around. The ball itself, and the bore every part is cut to —
             the ball plus {formatLength(MARBLE_CLEARANCE, s.units)} of slack, so it rolls instead of
             jamming. Any part you had given a bore of its own comes back onto the run's, since a run
             carries one ball and a part left on its own bore would neither take it nor mate with its
             neighbours; walls are left as they are. Type a diameter here afterwards, or a bore in
-            Tube Size, and the list reads Custom — the boxes are still the real control.
+            Tube Size, and the list reads Custom — the boxes are still the real control. Fit Every
+            Part to This Ball does that same cut for whatever ball the box is showing, which is how
+            a typed diameter reaches the tubes; to fit only some of them, pick them on the stage and
+            use the button in the sidebar's Tube Size panel.
           </InfoNote>
           <ColorField
             label="Ball color"

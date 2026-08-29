@@ -65,6 +65,8 @@ import {
   exitSlope,
   exitTurn,
   tubeSpec,
+  boreForMarble,
+  MARBLE_CLEARANCE,
   boreOf,
   wallOf,
   colorOf,
@@ -163,6 +165,39 @@ export default function Sidebar() {
     (p) => boreOf(p, s.innerDiameter) !== bore || wallOf(p, s.wallThickness) !== wall,
   )
   const spec = tubeSpec(bore, wall, style, side)
+  /**
+   * The bore the marble on the run actually rolls through — its own diameter
+   * plus the slack, which is the whole of what Fit to Marble cuts to. Held
+   * inside what the field would take, so the note never quotes a bore the
+   * button will not produce.
+   */
+  const marbleBore = Math.min(
+    TUBE_LIMITS.innerDiameter.max,
+    Math.max(TUBE_LIMITS.innerDiameter.min, boreForMarble(s.marbleDiameter)),
+  )
+  /**
+   * The parts Fit to Marble would cut, and whether it has anything left to do.
+   * Picked, it is the picked parts and nobody else; with nothing picked it is
+   * the run, which carries every part with it — so there the button is also
+   * waiting on any part that holds a bore of its own, the same as Apply to All.
+   */
+  const fitIds = s.pieces
+    .filter((p) => s.selectedIds.includes(p.id) && !isStructure(p))
+    .map((p) => p.id)
+  const fitCount = selected ? fitIds.length : s.pieces.filter((p) => !isStructure(p)).length
+  const fitNeeded = selected
+    ? s.pieces.some(
+        (p) => fitIds.includes(p.id) && boreOf(p, s.innerDiameter) !== marbleBore,
+      )
+    : s.innerDiameter !== marbleBore || s.pieces.some((p) => p.innerDiameter !== undefined)
+  /** What the fit is about to cut, named the way the button's note says it. */
+  const fitWhat = selected
+    ? fitIds.length > 1
+      ? `the ${fitIds.length} picked parts`
+      : 'this part'
+    : fitCount
+      ? `the run and all ${fitCount} parts`
+      : 'the run tube'
   // Centreline length, so a bent part counts what it actually carries — and
   // structure counts nothing, having no run down it to carry anything.
   const totalLength = s.pieces.reduce(
@@ -431,6 +466,36 @@ export default function Sidebar() {
               ? `Every part is already Ø${lengthText(bore, s.units)} bore, ${formatLength(wall, s.units)} wall.`
               : 'No parts yet — this is the tube the first one is cut from.'}
         </Note>
+        {/* The bore is not a free number so much as a reading off the ball: the
+            marble plus its slack, and no other figure rolls properly. Typing it
+            out is a sum done by hand every time the ball changes, so it is
+            offered as a button — on what is picked, or on the whole run when
+            nothing is. */}
+        <button
+          onClick={() => s.fitBoreToMarble(selected ? fitIds : undefined)}
+          disabled={!fitNeeded || (!!selected && !fitIds.length)}
+          title={`Cut the bore to Ø${lengthText(marbleBore, s.units)} — the Ø${lengthText(s.marbleDiameter, s.units)} marble plus ${formatLength(MARBLE_CLEARANCE, s.units)} of slack`}
+        >
+          {selected
+            ? fitIds.length > 1
+              ? `Fit ${fitIds.length} Picked Parts to Marble`
+              : 'Fit This Part to Marble'
+            : fitCount
+              ? 'Fit Every Part to Marble'
+              : 'Fit Run Tube to Marble'}
+        </button>
+        <Note>
+          {fitNeeded
+            ? `Cuts ${fitWhat} to Ø${lengthText(marbleBore, s.units)} bore — the Ø${lengthText(s.marbleDiameter, s.units)} marble plus ${formatLength(MARBLE_CLEARANCE, s.units)} of slack, so it rolls instead of jamming. Walls are left as they are.`
+            : selected
+              ? fitIds.length > 1
+                ? `All ${fitIds.length} picked parts already roll this marble.`
+                : 'This part already rolls this marble.'
+              : fitCount
+                ? `Every part already rolls the Ø${lengthText(s.marbleDiameter, s.units)} marble.`
+                : `No parts yet — this is the bore the first one rolls the Ø${lengthText(s.marbleDiameter, s.units)} marble in.`}{' '}
+          Change the ball itself under Marble Size &amp; Color in Settings.
+        </Note>
         {/* A part is only ever printed against the parts it mates with, so a bore
             of its own is worth saying out loud rather than leaving to be noticed
             at the joint. */}
@@ -442,7 +507,8 @@ export default function Sidebar() {
         )}
         {s.marbleDiameter >= bore && (
           <p className="warn">
-            Marble is Ø{formatLength(s.marbleDiameter, s.units)} — it will not fit this bore.
+            Marble is Ø{formatLength(s.marbleDiameter, s.units)} — it will not fit this bore. Fit to
+            Marble opens it to Ø{lengthText(marbleBore, s.units)}.
           </p>
         )}
       </CollapsiblePanel>
