@@ -13,6 +13,19 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- **The badge beside the name says which beta it is.** It read only "BETA",
+  which said the app is unfinished but not how far along it is. It now reads
+  "BETA V1" in the same pill, in the same place, at the same size.
+
+- **Each rail icon stands in a box of its own.** The five glyphs sat straight on
+  the white of the rail with a box appearing only under the pointer, which since
+  they became painted pictures made the column read as one strip of decoration
+  rather than as five things that can be pressed. Every switch now carries its
+  own rounded, ruled box at rest, and the three states differ in what fills it
+  rather than in whether it is there at all: white at rest, tinted under the
+  pointer, blue with a blue edge and the marker bar when its menu is out. The
+  boxes are set a little further apart so each reads as its own.
+
 - **Angles and Joints is drawn as the elbow itself.** It was a thin line broken
   over a dashed baseline with a swept arc and a tick for the joint — a diagram
   of an angle rather than a picture of a part, and at rail size the arc and the
@@ -20,9 +33,12 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   in flat and leaving on the climb, at the thickness the run actually has: the
   outside of the bend swept round the way a moulded elbow is, the inside meeting
   sharp, the mitre ruled across the joint on the bisector, and a highlight down
-  each leg held clear of the break. The swept arc and the degree figure are
-  gone — the bend already says there is an angle to set, and a number painted
-  into the icon would be wrong for every part but one.
+  each leg held clear of the break. The turn is dimensioned over the top of the
+  bend on a double-headed arc — the same dimension Measurement lays along its
+  length, swung round the joint instead of run beside it — struck on a radius
+  that stands it clear of both legs. No degree figure on it: the angle is the
+  thing the menu sets, and a number painted into the icon would be wrong for
+  every part but one.
 
 - **Measurement is drawn as the part being measured.** It was an outlined bar
   with a dimension floating over it, which said "a length" without saying a

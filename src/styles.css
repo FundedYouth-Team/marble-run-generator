@@ -1037,7 +1037,7 @@ body {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
   padding: 8px 0;
   background: var(--rail-bg);
   border-right: 1px solid var(--menu-line);
@@ -1047,6 +1047,12 @@ body {
   display: block;
 }
 
+/* Each switch stands in a box of its own, ruled and rounded, rather than being a
+   glyph floating on the rail: five painted pictures in a row with nothing
+   between them read as one strip of decoration, and the box is what says each
+   one is a thing that can be pressed. The box is there at rest — it is the
+   button, not a hover effect — so the three states differ in what fills it
+   rather than in whether it exists. */
 .rail-btn {
   position: relative;
   display: flex;
@@ -1055,15 +1061,14 @@ body {
   width: 44px;
   height: 44px;
   padding: 0;
-  border: 1px solid transparent;
-  border-radius: 8px;
-  background: transparent;
+  border: 1px solid var(--menu-line);
+  border-radius: 9px;
+  background: var(--menu-box);
   color: var(--menu-dim);
 }
 
 .rail-btn:hover:not(:disabled) {
   background: var(--menu-bg);
-  border-color: var(--menu-line);
   color: var(--menu-ink);
 }
 

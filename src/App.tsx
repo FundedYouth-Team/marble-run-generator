@@ -115,7 +115,7 @@ export default function App() {
               Marble Run
               {/* The app is still being built — said next to the name, where it is read first. */}
               <span className="beta" title="Under active development — press ? for what that means">
-                Beta
+                Beta v1
               </span>
             </h1>
             <p>Builder</p>

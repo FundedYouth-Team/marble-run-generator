@@ -540,10 +540,11 @@ export function MeasurementIcon({ size = 28 }: { size?: number }) {
  * Painted like the three glyphs above it, and drawn as the elbow itself rather
  * than as a diagram of one: two lengths of the same tube at their own
  * thickness, the outside of the bend swept round the way a moulded elbow is and
- * the inside meeting sharp, with the mitre ruled across the joint. No figure and
- * no swept arc — the angle is what the menu sets, so any number in the icon
- * would be wrong for every part but one, and the bend already shows there is an
- * angle to set.
+ * the inside meeting sharp, with the mitre ruled across the joint. The turn is
+ * dimensioned over the top on a double-headed arc, which is the same dimension
+ * {@link MeasurementIcon} lays over its length, swung round the joint instead of
+ * run along it. No figure on it: the angle is what the menu sets, so any number
+ * written in would be wrong for every part but one.
  */
 export function AngleJointIcon({ size = 28 }: { size?: number }) {
   const INK = '#2b4650'
@@ -578,6 +579,18 @@ export function AngleJointIcon({ size = 28 }: { size?: number }) {
         <g stroke="#cfe1e5" strokeWidth="1.1" strokeLinecap="round" opacity="0.7">
           <path d="M2.8 16.7H8.6" />
           <path d="M12.02 14.18 16.72 8.58" />
+        </g>
+        {/* The angle called out over the bend, the way the length is called out
+            over the part in {@link MeasurementIcon}: the same double-headed
+            dimension, swung round the joint it is measured about. Struck on a
+            radius of 9 off the bend, which stands it clear of both legs, and
+            stopped short of each so it reads as a dimension over the part
+            rather than as anything the part is made of. Each head sits on the
+            circle, tip and base alike, so it runs on out of the arc. */}
+        <g fill={INK}>
+          <path d="M3.912 12.178A9 9 0 0 1 10.443 9.201" fill="none" stroke={INK} strokeWidth="0.95" />
+          <path d="M12.625 9.431 10.328 10.295 10.558 8.107Z" />
+          <path d="M2.653 13.975 3.011 11.547 4.813 12.809Z" />
         </g>
       </g>
     </svg>
