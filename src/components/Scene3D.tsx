@@ -816,12 +816,36 @@ function pickedChains(asm: Assembly, ids: string[], lead: string | null) {
   return runs
 }
 
+/**
+ * Where the handles stand: the middle of the box the picked parts fill, in all
+ * three axes at once, so a part is taken hold of in its middle rather than at
+ * the end it happens to be fed from.
+ *
+ * A part's own zero is its inlet, which on a long bend or a tall coil is nowhere
+ * near the thing you are pointing at — the handle would sit off one end of it,
+ * and on a set picked across the stage it would sit on whichever part was
+ * clicked first. The middle of the box is the one point that reads as belonging
+ * to the whole of what is picked, from any side the camera is on.
+ *
+ * `fallback` is what a selection that measures to nothing falls back on, which
+ * is the old behaviour: the inlet of the part leading it.
+ */
+function pickedMiddle(
+  asm: Assembly,
+  ids: string[],
+  radiusOf: (piece: Piece) => number,
+  fallback: THREE.Vector3,
+) {
+  const box = partsBox(asm, ids, radiusOf)
+  return box ? box.getCenter(new THREE.Vector3()) : fallback.clone()
+}
+
 /** Tenths of a millimetre — finer than anything printable, and it keeps the
  *  numbers in the timeline readable. */
 const tidyMm = (v: number) => Math.round(v * 10) / 10
 
 /**
- * The three axis arrows, on the part leading the selection. Dragging one moves
+ * The three axis arrows, in the middle of what is picked. Dragging one moves
  * every run that has a part picked in it: the arrows write a fresh placement at
  * the head of each, and everything joined to them follows.
  *
@@ -829,9 +853,10 @@ const tidyMm = (v: number) => Math.round(v * 10) / 10
  * arrangement they were standing in — several runs moved together are still
  * several runs, not a run that has been rearranged.
  *
- * The handle is put on the part that was picked rather than at the head of its
- * run, so it is where the pointer already is; the fixed offset between the two
- * is what turns a drag there into a placement here.
+ * The handle is put in the middle of the picked parts rather than at the head of
+ * a run or the inlet of a part, so it is where the pointer already is; the fixed
+ * offset between there and the run's head is what turns a drag there into a
+ * placement here.
  */
 function MoveGizmo({ asm, specOf }: { asm: Assembly; specOf: (piece: Piece) => TubeSpec }) {
   const { selectedId, selectedIds, placeChains } = useRun()
@@ -851,11 +876,15 @@ function MoveGizmo({ asm, specOf }: { asm: Assembly; specOf: (piece: Piece) => T
   const at = root === undefined ? null : placementOf(asm.placed[root].piece)
 
   if (!placed || !at || !selectedId) return null
-  // Where the head of the run under the arrows stands relative to the part they
+  // The middle of everything picked — see {@link pickedMiddle}. A move carries
+  // the whole set rigidly, so this point travels with it and the arrows stay in
+  // its middle for the length of the drag.
+  const hold = pickedMiddle(asm, selectedIds, (piece) => specOf(piece).outerR, placed.start)
+  // Where the head of the run under the arrows stands relative to the point they
   // sit on. The run is rigid, so this holds for the whole drag.
-  const dx = at.x - placed.start.x
-  const dy = at.y - placed.start.y
-  const dz = at.z - placed.start.z
+  const dx = at.x - hold.x
+  const dy = at.y - hold.y
+  const dz = at.z - hold.z
 
   // The drop line hangs from the middle of the footprint of everything the
   // arrows have hold of: an edge would have to be chosen afresh every time the
@@ -874,7 +903,7 @@ function MoveGizmo({ asm, specOf }: { asm: Assembly; specOf: (piece: Piece) => T
 
   return (
     <>
-      <object3D ref={setProxy} position={[placed.start.x, placed.start.y, placed.start.z]} />
+      <object3D ref={setProxy} position={[hold.x, hold.y, hold.z]} />
       {proxy && (
         <TransformControls
           ref={setControls}
@@ -917,7 +946,7 @@ function MoveGizmo({ asm, specOf }: { asm: Assembly; specOf: (piece: Piece) => T
       <MoveProbe
         foot={foot}
         head={head}
-        anchor={placed.start}
+        anchor={hold}
         height={box.min.y}
         travel={origin && { x: at.x - origin.x, y: at.y - origin.y, z: at.z - origin.z }}
       />
@@ -953,9 +982,9 @@ function aimOf(dir: THREE.Vector3, keepYaw: number) {
 }
 
 /**
- * The three turn rings, on the part leading the selection — the world's own
- * axes, the same three the move arrows travel on, so red is X, green Y and blue
- * Z on both handles.
+ * The three turn rings, in the middle of what is picked — the world's own axes,
+ * the same three the move arrows travel on, so red is X, green Y and blue Z on
+ * both handles.
  *
  * What a drag does depends on whether the part is bonded onto anything, because
  * those are two different questions with the same gesture behind them.
@@ -969,11 +998,12 @@ function aimOf(dir: THREE.Vector3, keepYaw: number) {
  *
  * **A part at the head of a run** has nothing in front of it to hold, so the
  * green ring still swings whole runs: every run with a part picked in it turns
- * about this one, which stands still, so a set picked across several runs keeps
- * the arrangement it was standing in. That means writing the head of every run
- * a new place as well as a new heading. Red and blue aim that part the same way
- * they aim a bonded one — from a run's head, which comes to the same thing as
- * tipping the run.
+ * about the point the rings stand on — the middle of what is picked — so a set
+ * picked across several runs keeps the arrangement it was standing in and turns
+ * about its own middle rather than about one end of it. That means writing the
+ * head of every run a new place as well as a new heading. Red and blue aim that
+ * part the same way they aim a bonded one — from a run's head, which comes to
+ * the same thing as tipping the run.
  *
  * Whichever ring is dragged, what is written is a heading and a fall: those are
  * the two angles a part has, and the ring's turn is read back into them off the
@@ -983,9 +1013,17 @@ function aimOf(dir: THREE.Vector3, keepYaw: number) {
  * runs down has nothing to write and the part holds still. That is the one
  * place the rings do less than they look like they should.
  */
-function RotateGizmo({ asm }: { asm: Assembly }) {
+function RotateGizmo({ asm, specOf }: { asm: Assembly; specOf: (piece: Piece) => TubeSpec }) {
   const { selectedId, selectedIds, placeChains, aimPart, rotateStep } = useRun()
   const [proxy, setProxy] = useState<THREE.Object3D | null>(null)
+  /**
+   * Where the rings stood when the drag began; null between drags. A box squared
+   * to the world does not hold still under a turn — its middle wanders a little
+   * as the parts in it swing — so the point is taken once and kept, and the rings
+   * stay put for the length of the swing instead of creeping out from under the
+   * pointer. Nothing is measured off it: the swing itself is the frame's.
+   */
+  const held = useRef<THREE.Vector3 | null>(null)
   /**
    * Where the runs stood when the drag began, what they are turning about, and
    * the aim the part itself set off from. The whole drag is measured off these
@@ -1018,12 +1056,17 @@ function RotateGizmo({ asm }: { asm: Assembly }) {
   // it is the one part whose green ring still swings the run it stands in.
   const head = asm.placed[root].piece.id === lead
   const snap = (deg: number) => (rotateStep > 0 ? Math.round(deg / rotateStep) * rotateStep : deg)
+  // The middle of everything picked — see {@link pickedMiddle} — held still for
+  // the length of a swing. This is what the green ring on a run's head turns
+  // about as well, so the set turns about the point the rings are drawn on.
+  const hold =
+    held.current ?? pickedMiddle(asm, selectedIds, (piece) => specOf(piece).outerR, placed.start)
 
   return (
     <>
       <object3D
         ref={setProxy}
-        position={[placed.start.x, placed.start.y, placed.start.z]}
+        position={[hold.x, hold.y, hold.z]}
         quaternion={frameFor(placed.yaw, placed.pitch)}
       />
       {proxy && (
@@ -1039,9 +1082,10 @@ function RotateGizmo({ asm }: { asm: Assembly }) {
           // Unset — which is what nought means — leaves the swing free.
           rotationSnap={rotateStep > 0 ? THREE.MathUtils.degToRad(rotateStep) : null}
           onMouseDown={() => {
+            held.current = hold
             from.current = {
               runs: runsPicked,
-              pivot: placed.start.clone(),
+              pivot: hold.clone(),
               frame: proxy.quaternion.clone(),
               dir: directionFor(placed.yaw, placed.pitch),
               fed: placed.yaw - THREE.MathUtils.degToRad(piece.turn),
@@ -1052,6 +1096,7 @@ function RotateGizmo({ asm }: { asm: Assembly }) {
           }}
           onMouseUp={() => {
             from.current = null
+            held.current = null
           }}
           onObjectChange={() => {
             const f = from.current
@@ -2170,7 +2215,7 @@ export default function Scene3D() {
         <Joints asm={asm} specOf={specOf} />
         {/* The handles are the tools themselves, so each is only on stage with its own in hand. */}
         {tool === 'move' && <MoveGizmo asm={asm} specOf={specOf} />}
-        {tool === 'rotate' && <RotateGizmo asm={asm} />}
+        {tool === 'rotate' && <RotateGizmo asm={asm} specOf={specOf} />}
         {measureBox && <MeasureBox box={measureBox} color={palette.dim} />}
         {alignBox && <AlignDatum box={alignBox} at={alignHover} color={palette.dim} />}
         {/* The workplane answers a click too while the tool is in hand, so a rod

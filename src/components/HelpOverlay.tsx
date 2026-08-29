@@ -126,7 +126,7 @@ const HELP: Record<HelpTab, Group[]> = {
         {
           keys: [`${MOD_LABEL}-click a part`],
           action: 'Add it to the selection, or take it back out',
-          note: 'Shift does the same on the stage — in Active Parts it takes a range instead; Duplicate and Delete then take the whole set, while the settings, the arrows and the ring stay on the last part picked',
+          note: 'Shift does the same on the stage — in Active Parts it takes a range instead; Duplicate and Delete then take the whole set, while the settings stay on the last part picked and the arrows and rings stand in the middle of the whole set',
         },
         { keys: ['Left-click empty space'], action: 'Deselect' },
         {
@@ -157,12 +157,12 @@ const HELP: Record<HelpTab, Group[]> = {
         {
           keys: ['Move'],
           action: 'Drag the three axis arrows to move the selected part about the workplane',
-          note: `red is X, green Y, blue Z; anything joined to that part travels with it, and with a set picked (${MOD_LABEL}-click) every run in the set travels the same distance. The arrows reach exactly as far as the selection does — to move more, pick more`,
+          note: `red is X, green Y, blue Z; anything joined to that part travels with it, and with a set picked (${MOD_LABEL}-click) every run in the set travels the same distance. The arrows stand in the middle of what is picked — across it and up it both — so a set picked across the stage is taken hold of in its own middle. They reach exactly as far as the selection does — to move more, pick more`,
         },
         {
           keys: ['Rotate'],
           action: 'Drag any of the three rings to aim the selected part — red X, green Y, blue Z, the same axes the arrows travel on',
-          note: 'a bonded part bends the run where it stands: it swings about the joint it is plugged into, everything ahead of it holds still, and everything past it comes along holding its shape. On a run’s head, which has nothing in front of it to hold, the green ring turns the whole run instead — and carries any set picked alongside it round that same point. a strip appears under the bar while it is in hand, carrying its own two settings: Step, the notch every swing is held to, and Joint pivot, whether the break it bends at is rounded off or left a mitred corner. The rings reach exactly as far as the selection does — to turn more, pick more',
+          note: 'a bonded part bends the run where it stands: it swings about the joint it is plugged into, everything ahead of it holds still, and everything past it comes along holding its shape. On a run’s head, which has nothing in front of it to hold, the green ring turns the whole run instead — about the middle of what is picked, carrying any set picked alongside it round that same point. The rings stand on that middle too, across the picked parts and up them both. a strip appears under the bar while it is in hand, carrying its own two settings: Step, the notch every swing is held to, and Joint pivot, whether the break it bends at is rounded off or left a mitred corner. The rings reach exactly as far as the selection does — to turn more, pick more',
         },
         {
           keys: ['Measure'],
@@ -338,7 +338,7 @@ const HOWTO: Partial<Record<HelpTab, HowTo[]>> = {
       lead: 'With the Move tool. It works on runs rather than single parts: a bonded part cannot travel on its own, which is what being bonded means.',
       steps: [
         'Select the part, in the viewport or in Active Parts.',
-        'Click Move. The three axis arrows appear on it — red is X, green Y, blue Z.',
+        'Click Move. The three axis arrows appear in the middle of it — red is X, green Y, blue Z.',
         'Drag an arrow. The whole run the part belongs to travels with it, holding its shape.',
       ],
       note: 'To move one part out of a run, break the joint with the Disconnector first — it comes away standing exactly where it was.',
@@ -348,8 +348,8 @@ const HOWTO: Partial<Record<HelpTab, HowTo[]>> = {
       lead: 'With the Rotate tool, on a part in the middle of the run. It aims that one part: its inlet does not move, so everything ahead of it stands exactly where it was, and everything joined behind it swings with it and holds its shape.',
       steps: [
         'Select the part the run should bend at, in the viewport or in Active Parts.',
-        'Click Rotate. Three rings appear on it — red X, green Y, blue Z, the same axes the move arrows travel on.',
-        'Drag any of them. The part swings about the joint it is plugged into and takes the rest of the run with it.',
+        'Click Rotate. Three rings appear in the middle of it — red X, green Y, blue Z, the same axes the move arrows travel on.',
+        'Drag any of them. The part swings about the joint it is plugged into — which is at its inlet, not where the rings stand — and takes the rest of the run with it.',
       ],
       note: 'The joint itself stays dead straight — the bend is taken a lock further along, in solid tube, which is the only place a printed joint can take one. That is also its limit: turn a part further than its own tube can be cut round and the ring runs out of travel. Past that, bend the run with a Corner or a Hook, which are built to turn it.',
     },
@@ -359,9 +359,9 @@ const HOWTO: Partial<Record<HelpTab, HowTo[]>> = {
       steps: [
         'Select the head of the run, in the viewport or in Active Parts.',
         'Click Rotate. The green ring is the one that lies in the workplane.',
-        'Drag it. The whole run swings round that part, which stays exactly where it is.',
+        'Drag it. The whole run swings round the middle of what is picked — where the rings themselves stand.',
       ],
-      note: 'Pick parts in several runs and the green ring carries them all, each keeping its place in the arrangement. To turn a run about a point partway along it, break the joint there with the Disconnector first.',
+      note: 'Pick parts in several runs and the green ring carries them all round that same middle, each keeping its place in the arrangement. To turn a run about a point partway along it, break the joint there with the Disconnector first.',
     },
     {
       question: 'How do I take a part back out of a run?',

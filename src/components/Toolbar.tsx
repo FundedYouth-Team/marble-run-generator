@@ -486,7 +486,7 @@ export default function Toolbar({ spec, asm }: { spec: TubeSpec; asm: Assembly }
           title={
             !pieces.length
               ? 'Nothing to move yet — add a part first'
-              : "Move the picked part's run about the workplane on the three axis arrows — pick parts in several runs and they all travel together, by the one distance, so the model keeps its shape"
+              : "Move the picked part's run about the workplane on the three axis arrows, which stand in the middle of what is picked — pick parts in several runs and they all travel together, by the one distance, so the model keeps its shape"
           }
           onClick={() => pick('move')}
         />
@@ -498,7 +498,7 @@ export default function Toolbar({ spec, asm }: { spec: TubeSpec; asm: Assembly }
           title={
             !pieces.length
               ? 'Nothing to aim yet — add a part first'
-              : "Aim the picked part on three rings, the same axes the move arrows travel on. A bonded part bends the run where it stands: everything ahead of it holds still and everything past it swings with it. A run's head has nothing in front of it, so its green ring turns the whole run — and carries any other run picked alongside it round that same point. Its own settings appear on a strip under the bar while it is in hand"
+              : "Aim the picked part on three rings, standing in the middle of what is picked, on the same axes the move arrows travel on. A bonded part bends the run where it stands: everything ahead of it holds still and everything past it swings with it. A run's head has nothing in front of it, so its green ring turns the whole run — about that middle, carrying any other run picked alongside it round the same point. Its own settings appear on a strip under the bar while it is in hand"
           }
           onClick={() => pick('rotate')}
         />

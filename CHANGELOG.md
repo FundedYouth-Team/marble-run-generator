@@ -11,6 +11,29 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- **The Move arrows and the Rotate rings stand in the middle of what you have
+  picked, across it and up it both.** Both handles sat on the inlet of the part
+  leading the selection — a part's own zero, which on a long bend or a tall coil
+  is off one end of the thing you are pointing at, and on a set picked across
+  the stage was wherever the first part happened to be. The middle of the box
+  the picked parts fill is the one point that reads as belonging to the whole of
+  what is in hand, from whichever side the camera is on.
+- **The green ring on a run's head turns the picked set about that same middle**,
+  rather than about the inlet of the lead part. A run picked on its own now
+  swings about its own middle instead of pivoting off its top end, and a set
+  picked across several runs turns about the middle of the set — each run still
+  keeping its place in the arrangement. Everything else the rings do is
+  unchanged: a bonded part still swings about the joint it is plugged into,
+  which is fixed by the geometry rather than by where the rings are drawn.
+- **The rings hold still for the length of a swing.** A box squared to the world
+  does not stay put as the parts inside it turn, so the point is taken once when
+  the drag begins and kept — otherwise the handle would creep out from under the
+  pointer mid-turn. Nothing is measured off it; the swing is still read off the
+  frame. The travel readout under the move arrows hangs from the middle now too,
+  so the figures sit with the handle.
+
 ### Added
 
 - **A button that cuts the tubes to whatever ball is on the run — on the parts
